@@ -1,0 +1,202 @@
+/* ================================================== SETUP HARDWARE (shared)
+   The six-step wizard and the calibration dial, drawn identically in the
+   sim and in PCA Studio because both load THIS file. Moved out of Studio's
+   own stylesheet on 2026-08-12 with the wizard itself.
+
+   It uses the sim's token names. Studio aliases them in its :root, which is
+   one line there and saves a whole parallel palette here.
+
+   COLOUR PASS, v1.37.0. Mike: "the colours in this popout are really bad
+   review them to match the themes." Two faults, both from this file's
+   origins in Studio's darker palette:
+
+     · NINE HARD-CODED DARK HEXES — the selected option's background, the
+       table rules, the code block, two hover borders. They do not flip with
+       the theme, so in LIGHT mode the card was white and the thing you had
+       just selected turned near-black. A hex in a themed stylesheet is a
+       bug with a delay on it.
+     · AMBER AS THE ACCENT. The tabs, the primary button and the selected
+       card were all `--am`, which 01-tokens.css is explicit about: "amber
+       means warning, and a call-to-action that shares the warning colour
+       reads as a hazard". In light mode --am is a dark brown, which is how
+       it looked. The accent is `--cta`, the same blue as every other card
+       in the app; amber is left to the things that actually warn. */
+
+
+/* ------------------------------------------------- the wizard's own furniture
+   The markup came from Studio and wears Studio's button and input classes
+   (.prim, .mini, .stat, .sw, .tiny). The sim styles buttons as .b, so those
+   rules are restated HERE, scoped to #setupWrap, rather than either app
+   growing a class it does not otherwise use. Scoped, so nothing leaks. */
+:where(#setupWrap){font-family:var(--mono);font-size:13px;line-height:1.45;color:var(--tx)}
+:where(#setupWrap) button{font:inherit;color:var(--tx);background:var(--panel2);
+  border:1px solid var(--line);border-radius:4px;padding:3px 10px;cursor:pointer}
+:where(#setupWrap) button:hover{border-color:var(--ctaD)}
+:where(#setupWrap) button:disabled{opacity:.4;cursor:default}
+:where(#setupWrap) button.prim{background:var(--cta);border-color:var(--cta);color:var(--onCta);font-weight:600}
+:where(#setupWrap) button.mini{padding:1px 6px;font-size:11px}
+:where(#setupWrap) input[type=text],#setupWrap input[type=number]{font:inherit;color:var(--tx);
+  background:var(--bg);border:1px solid var(--line);border-radius:3px;padding:2px 5px}
+:where(#setupWrap) input[type=number]{width:62px;text-align:right}
+:where(#setupWrap) input[type=range]{accent-color:var(--cta)}
+:where(#setupWrap) input[type=checkbox]{accent-color:var(--cta)}
+:where(#setupWrap) .stat{color:var(--dim);font-size:11.5px}
+:where(#setupWrap) .tiny{font-size:11px;color:var(--dim);display:inline-flex;align-items:center;gap:4px}
+:where(#setupWrap) .sw{display:inline-flex;align-items:center;gap:6px;color:var(--dim)}
+:where(#setupWrap) table{border-collapse:collapse;width:100%}
+:where(#setupWrap) .pin{color:var(--faint)}
+:where(#setupWrap) code{background:var(--panel2);padding:0 4px;border-radius:3px}
+
+/* ========================================================== setup wizard */
+#setupWrap{position:fixed;inset:0;background:var(--scrim,rgba(10,13,15,.82));z-index:80;
+  display:flex;align-items:center;justify-content:center;padding:22px}
+#setupWrap.hide{display:none}
+.setcard{background:var(--bg);border:1px solid var(--line);border-radius:10px;
+  width:min(1180px,100%);max-height:100%;display:flex;flex-direction:column;overflow:hidden}
+.sethead{display:flex;align-items:center;gap:16px;padding:12px 16px;
+  background:var(--panel2);border-bottom:1px solid var(--line)}
+.sethead h2{margin:0;font:600 15px/1.2 var(--mono);color:var(--tx)}
+.setsteps{display:flex;gap:5px;flex-wrap:wrap}
+.setstep{background:var(--panel);border:1px solid var(--line);color:var(--dim);
+  border-radius:5px;padding:4px 9px;font:inherit;font-size:11.5px;cursor:pointer;display:flex;gap:6px;align-items:center}
+.setstep b{color:var(--faint);font-size:10px}
+.setstep.done{color:var(--gn)}.setstep.done b{color:var(--gn)}
+.setstep.on{background:var(--cta);color:var(--onCta);border-color:var(--cta)}
+.setstep.on b{color:var(--onCta);opacity:.85}
+.setx{margin-left:auto;background:none;border:0;color:var(--faint);font-size:20px;cursor:pointer;line-height:1}
+.setbody{padding:16px 18px;overflow:auto;flex:1;min-height:0}
+.setbody h3{margin:0 0 6px;font:600 14px/1.3 var(--mono);color:var(--tx)}
+.setbody h4{margin:16px 0 6px;font:600 11px/1 var(--mono);letter-spacing:.1em;
+  text-transform:uppercase;color:var(--faint)}
+.setp{margin:0 0 14px;color:var(--dim);font-size:13px;max-width:78ch;line-height:1.65}
+.setfoot{display:flex;align-items:center;gap:10px;padding:10px 16px;
+  background:var(--panel2);border-top:1px solid var(--line)}
+.setgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:10px}
+.setopt{display:block;background:var(--panel);border:1px solid var(--line);border-radius:7px;
+  padding:11px 13px;cursor:pointer}
+.setopt:hover{border-color:var(--ctaD)}
+.setopt.on{border-color:var(--cta);background:var(--surf2);box-shadow:inset 0 0 0 1px var(--ctaD)}
+.setopt input{margin-right:7px}
+.setopt b{color:var(--tx);font-size:13px}
+.setopt .sub{display:block;color:var(--faint);font:11px/1.6 var(--mono);margin:3px 0 5px}
+.setopt .why{display:block;color:var(--dim);font-size:12px;line-height:1.6}
+.setopt.sm{margin-bottom:8px}
+.setsplit{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:6px}
+.setrow{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:12px 0}
+.setrow label{display:flex;align-items:center;gap:6px;color:var(--dim);font-size:12.5px}
+.settab{border-collapse:collapse;width:100%;font-family:var(--mono);font-size:12px;margin-top:6px}
+.settab th .u{text-transform:none}   /* uppercase turns µ into Greek Mu — "MS" */
+.settab th{text-align:left;font-size:10px;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--faint);padding:5px 8px;border-bottom:1px solid var(--line)}
+.settab td{padding:4px 8px;border-bottom:1px solid var(--line2);color:var(--dim)}
+.settab tr.off td{opacity:.5}
+.settab tr.sel td{background:var(--selBg)}
+.settab input[type=text]{width:100%;min-width:90px}
+.settab input[type=number]{width:58px}
+.settab td.pw input{width:54px;text-align:right}
+
+/* the two pulse-width bands. Amber is "many servos do this, some do not";
+   red is "outside what almost anything accepts" — see PW_STD / PW_ABS. */
+input.warn,.settab td.pw input.warn{border-color:var(--am2);color:var(--am2)}
+input.bad,.settab td.pw input.bad{border-color:var(--rd);color:var(--rd)}
+.pwflag{font-size:11px;padding:1px 7px;border-radius:9px;border:1px solid}
+.pwflag.warn{color:var(--am2);border-color:var(--am2)}
+.pwflag.bad{color:var(--rd);border-color:var(--rd)}
+.applybar{border-top:1px solid var(--line);padding-top:10px;gap:8px}
+/* the inline confirm — deliberately loud, because everything behind it
+   changes several channels at once or throws a calibration away */
+.askbar{display:flex;align-items:center;gap:10px;margin:10px 0;padding:8px 12px;
+  background:var(--panel2);border:1px solid var(--am2);border-radius:6px;
+  color:var(--tx);font-size:12.5px}
+.chtab input[type=number]{width:52px}
+.setscroll{max-height:46vh;overflow:auto;border:1px solid var(--line);border-radius:6px}
+.setnote{background:var(--panel);border-left:3px solid var(--bl);border-radius:0 6px 6px 0;
+  padding:10px 14px;margin:12px 0;color:var(--dim);font-size:12.5px;line-height:1.65}
+.setnote b{color:var(--tx)}
+.setnote.warn{border-left-color:var(--am)}
+.setnote.bad{border-left-color:var(--rd)}
+.setpre{background:var(--ink);border:1px solid var(--line);border-radius:6px;padding:11px 13px;
+  font:12px/1.6 var(--mono);color:var(--dim);overflow:auto;margin:6px 0}
+/* the wiring diagram fills the step; the dial must NOT — a bare `.setbody svg`
+   rule outranks `.caldial` and stretched it to a metre wide */
+.setbody svg:not(.caldial){width:100%;height:auto;background:var(--panel);border:1px solid var(--line);border-radius:8px}
+.tiny{font-size:11px;color:var(--dim);display:inline-flex;align-items:center;gap:4px}
+
+/* ---- the calibration dial ---- */
+.calpanel{margin-top:14px;background:var(--panel);border:1px solid var(--am);border-radius:8px;overflow:hidden}
+.calhead{display:flex;align-items:center;gap:12px;padding:9px 14px;background:var(--panel2);
+  border-bottom:1px solid var(--line);font-size:13px;color:var(--tx)}
+.calbody{display:flex;gap:22px;padding:16px;align-items:flex-start}
+.caldial{width:240px;height:240px;flex:none;background:none !important;border:0 !important;
+  cursor:grab;touch-action:none}
+.caldial:active{cursor:grabbing}
+.calside{flex:1;min-width:0;display:flex;flex-direction:column;gap:12px}
+.calside input[type=range]{width:100%}
+.calbtns{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.calb{background:var(--panel2);border:1px solid var(--line);border-radius:6px;color:var(--tx);
+  padding:8px 6px;font:600 13px/1.2 var(--mono);display:flex;flex-direction:column;gap:6px;align-items:stretch}
+.calb span{font-weight:400;font-size:11px;color:var(--faint)}
+.calb:hover{border-color:var(--ctaD)}
+/* the capture button fills the cell; the typed box sits under it */
+.calb .calcap{background:none;border:0;color:var(--tx);font:600 13px/1.2 var(--mono);
+  cursor:pointer;padding:2px 0;width:100%}
+.calb .calcap:hover{color:var(--am2)}
+.calb .calnum{display:flex;align-items:center;gap:4px;justify-content:center}
+.calb .calnum input{width:66px;text-align:right;font-size:11px}
+.calb.min{border-bottom:3px solid var(--bl)}
+.calb.ctr{border-bottom:3px solid var(--gn)}
+.calb.max{border-bottom:3px solid var(--rd)}
+.calhint{color:var(--dim);font-size:12px;line-height:1.65}
+.calbar{display:flex;align-items:center;gap:8px}
+.calnudge{display:flex;align-items:center;gap:5px;flex-wrap:wrap}
+.calnudge input[type=number]{width:78px;text-align:right}
+.caldial:focus{outline:2px solid var(--am);outline-offset:3px;border-radius:50%}
+
+/* ---------------------------------------------- the dial and the diagram
+   v1.37.0. setup-hw.js draws SVG, and SVG attributes cannot read a class —
+   they take a value. So the eleven colours it used to hard-code are named
+   here instead and referenced as custom properties in the markup. Same
+   fault as the hexes above and the same fix: the drawing follows the
+   theme, or it is a dark picture on a white card. */
+:root{
+  --setFace:#151a1e;  --setFace2:#191e23; --setHub:#1f262c;
+  --setEdge:#2c353d;  --setTick:#59636c;  --setInk:#d7dde2;  --setDim:#8a949d;
+  --setNeedle:var(--am); --setGood:var(--gn); --setBad:var(--rd); --setAcc:var(--cta);
+}
+body.light{
+  --setFace:#f2f5f8;  --setFace2:#e8edf2; --setHub:#dde4ea;
+  --setEdge:#b8c2cc;  --setTick:#8e9aa6;  --setInk:#1d2731;  --setDim:#5d6a76;
+  --setNeedle:var(--am); --setGood:var(--gn); --setBad:var(--rd); --setAcc:var(--cta);
+}
+
+/* the Advanced tick, in the header beside the step chips */
+.setadv{
+  display:inline-flex;align-items:center;gap:6px;margin-left:auto;
+  font-family:var(--mono);font-size:11px;letter-spacing:.05em;text-transform:uppercase;
+  color:var(--dim);cursor:pointer;white-space:nowrap;
+}
+.setadv:hover{color:var(--txt)}
+.setadv input{accent-color:var(--cta)}
+/* .setx used margin-left:auto to push itself right; the tick does that now */
+.setx{margin-left:10px}
+
+/* an option that is not available yet, and says why (v1.38.0) */
+.setopt.locked{opacity:.55;cursor:default}
+.setopt.locked:hover{border-color:var(--line)}
+.setopt.locked b{color:var(--dim)}
+
+/* ---------------------------------------------- the hardware link, on the
+   Channels step. Three states and each one says what the dial is actually
+   moving, because "connected" and "measuring" are not the same thing and
+   the difference is an hour of work (v1.38.1). */
+.setlink{
+  display:flex;align-items:center;gap:11px;flex-wrap:wrap;
+  background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--line2);
+  border-radius:6px;padding:9px 12px;margin:0 0 13px;
+}
+.setlink.on{border-left-color:var(--gn)}
+.setlink.mon{border-left-color:var(--am)}
+.setlinkstate{font-size:12px;color:var(--dim);line-height:1.55;flex:1;min-width:240px}
+.setlinkstate b{color:var(--tx)}
+.setlink.on .setlinkstate b{color:var(--gn)}
+.setlink.mon .setlinkstate b{color:var(--am)}

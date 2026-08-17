@@ -1,0 +1,242 @@
+/* The controller strip along the bottom — pad stage, key list, sequencer. */
+/* ---------- controller strip ---------- */
+#padwrap{
+  border-top:1px solid var(--line);background:linear-gradient(180deg,var(--bg2),var(--bg));
+  display:grid;grid-template-columns:minmax(0,1fr) 210px;grid-template-rows:24px minmax(0,1fr);
+  min-height:0;position:relative;
+}
+/* The door to the sequencer (review F6, v1.15.0). Was rotated vertical text
+   in a 14px left gutter — the only rotated text in the app, nearly invisible
+   for what v1.12 made half the product. Now a slim HORIZONTAL two-way switch
+   across the top of the strip, present in BOTH modes so the way back is the
+   same control as the way in. The active side is FILLED with --cta rather
+   than wearing the #tabs underline: the tab treatment reads as "which pane
+   of the sidebar", while this switch swaps the entire strip — it needs to be
+   legible from across the room, and --cta/--onCta are the one pair with a
+   guaranteed-contrast fill in both themes (in dark it is the same cyan the
+   old .act fill used, so nothing else changes meaning). */
+#stripmode{
+  grid-column:1 / -1;grid-row:1;display:flex;align-items:stretch;
+  background:var(--surf);border-bottom:1px solid var(--line);
+}
+.smbtn{
+  flex:0 1 190px;min-width:96px;background:var(--surf);color:var(--dimmer);
+  border:none;border-right:1px solid var(--line);
+  font-family:var(--mono);font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;
+  cursor:pointer;padding:0 14px;white-space:nowrap;
+}
+.smbtn:hover{color:var(--txt)}
+.smbtn:disabled{opacity:.45;cursor:not-allowed}
+.smbtn.act{background:var(--cta,var(--cy));color:var(--onCta,var(--onAcc));font-weight:700}
+body.seqmode #padstage,body.seqmode #padside{display:none}
+body:not(.seqmode) #seqwrap{display:none}
+#seqwrap{grid-row:2;grid-column:1 / -1;display:grid;grid-template-rows:32px 60px 1fr;min-height:0;min-width:0}
+#seqtop{
+  display:flex;align-items:center;gap:5px;padding:0 8px;border-bottom:1px solid var(--line);
+  background:var(--surf);overflow-x:auto;
+}
+#seqtop .spacer{flex:1}
+.seqlbl{font-family:var(--mono);font-size:10.5px;color:var(--cy);letter-spacing:.06em;white-space:nowrap}
+#seqtl{
+  display:flex;align-items:stretch;gap:3px;padding:5px 8px;border-bottom:1px solid var(--line);
+  overflow-x:auto;background:var(--ink2);
+}
+.tlf{
+  min-width:44px;border:1px solid var(--line2);border-radius:3px;background:var(--surf2);cursor:pointer;
+  display:flex;flex-direction:column;justify-content:space-between;padding:3px 4px;flex-shrink:0;
+  font-family:var(--mono);font-size:9.5px;color:var(--dim);position:relative;overflow:hidden;
+}
+.tlf:hover{border-color:var(--cy-d)}
+.tlf.sel{border-color:var(--cy);background:var(--selBg);color:var(--txt)}
+.tlf.now{box-shadow:inset 0 -2px 0 var(--am)}
+.tlf b{color:var(--txt);font-weight:600}
+.tlf .d{color:var(--dimmer)}
+#seqbody{overflow:auto;min-height:0}
+#seqpose{display:flex;flex-wrap:wrap;gap:2px 14px;padding:7px 9px}
+.chrow{display:flex;align-items:center;gap:7px;width:286px;font-family:var(--mono);font-size:10px}
+.chrow .nm{width:104px;color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chrow input[type=range]{flex:1;accent-color:var(--cy);height:14px}
+.chrow .qv{width:56px;text-align:right;color:var(--cy);white-space:nowrap}
+.chrow.unmapped .nm{color:var(--dimmer);font-style:italic}
+#seqtable{padding:6px 9px;overflow:auto}
+table.tbl{border-collapse:collapse;font-family:var(--mono);font-size:10px}
+table.tbl th{
+  color:var(--dimmer);font-weight:400;font-size:9.5px;text-transform:uppercase;letter-spacing:.06em;
+  padding:2px 4px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap;position:sticky;top:0;background:var(--bg2);
+}
+table.tbl th.l{text-align:left}
+table.tbl td{padding:1px 3px;border-bottom:1px solid var(--row)}
+table.tbl td.l{color:var(--txt);white-space:nowrap;padding-right:8px}
+table.tbl input{
+  width:46px;font-family:var(--mono);font-size:10px;background:var(--ink);color:var(--cy);
+  border:1px solid var(--brdIn);border-radius:2px;padding:1px 3px;text-align:right;
+}
+table.tbl input:focus{outline:none;border-color:var(--cy)}
+table.tbl tr.sel td{background:var(--selBg)}
+#dropzone{
+  position:absolute;inset:0;background:rgba(8,11,16,.92);border:2px dashed var(--cy);
+  display:none;align-items:center;justify-content:center;z-index:50;
+  font-family:var(--mono);font-size:13px;color:var(--cy);letter-spacing:.08em;
+}
+#dropzone.on{display:flex}
+.maerow{display:grid;grid-template-columns:22px 1fr 96px 26px;gap:5px;align-items:center;padding:2px 0}
+.maerow .ci{font-family:var(--mono);font-size:10px;color:var(--dimmer)}
+.maerow .cn{font-family:var(--mono);font-size:10px;color:var(--txt);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.maerow select{font-family:var(--mono);font-size:10px;background:var(--ink);color:var(--cy);border:1px solid var(--line2);border-radius:3px;padding:2px;width:100%}
+.maerow input[type=checkbox]{accent-color:var(--am)}
+/* ---- the unified sequence list: library + board order + subroutine name
+   (was .seqitem — merged with the loadout summary's rows, 2026-08-14) ---- */
+.seqrow{
+  display:flex;align-items:center;gap:6px;font-family:var(--mono);font-size:10px;
+  padding:4px 6px;border:1px solid var(--line);border-radius:3px;margin-bottom:3px;cursor:pointer;color:var(--dim);
+}
+.seqrow:hover{border-color:var(--cy-d);color:var(--txt)}
+.seqrow.sel{border-color:var(--cy);background:var(--selBg);color:var(--txt)}
+.seqrow .nm{color:var(--txt);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.seqrow .sub{color:var(--dimmer);font-size:9px;font-style:italic;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.seqrow .mt{margin-left:auto;color:var(--dimmer);font-size:9.5px;flex:0 0 auto}
+.seqrow .b{padding:1px 6px;flex:0 0 auto}
+/* .ldrow marks a row that is actually on the board — .ldrow .nm is what
+   sequencer.test.js pins as the loadout summary; a row lacking it is a
+   library-only "not loaded" sequence and reads a touch dimmer */
+.seqrow:not(.ldrow){opacity:.72}
+pre.gen{
+  font-family:var(--mono);font-size:10px;line-height:1.45;background:var(--ink2);border:1px solid var(--line);
+  border-radius:3px;padding:7px;color:var(--gn);max-height:200px;overflow:auto;white-space:pre;
+}
+#padstage{grid-row:2;grid-column:1;position:relative;display:flex;align-items:center;justify-content:center;min-width:0;padding:6px}
+#padsvg{height:100%;max-height:244px;width:auto}
+#padside{grid-row:2;grid-column:2;border-left:1px solid var(--line);padding:9px 11px;overflow-y:auto;min-height:0}
+#padside h4{font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--dimmer);margin-bottom:7px}
+.kbrow{display:flex;justify-content:space-between;font-family:var(--mono);font-size:10px;padding:2.5px 0;color:var(--dim);border-bottom:1px dotted var(--track)}
+.kbrow kbd{background:var(--track);border:1px solid var(--line2);border-bottom-width:2px;border-radius:3px;padding:0 4px;color:var(--txt);font-size:10px;font-family:var(--mono)}
+
+/* music bar in the sequencer strip */
+#musbar{display:flex;gap:6px;align-items:center;padding:4px 8px 2px;flex-wrap:wrap}
+#musbar .musinfo{font-family:var(--mono);font-size:10px;color:var(--cy)}
+#musbar .mushint{font-family:var(--mono);font-size:9.5px;color:var(--dimmer)}
+#musbar .musbpm{font-family:var(--mono);font-size:10px;color:var(--dim);display:flex;gap:4px;align-items:center}
+#musbar .musbpm input{width:56px;font-family:var(--mono);font-size:10px;background:var(--ink);color:var(--am);border:1px solid var(--line2);border-radius:3px;padding:2px 4px;text-align:right}
+#muswave{display:none;width:calc(100% - 16px);height:44px;margin:2px 8px;border:1px solid var(--brdIn);border-radius:3px}
+#muspop{display:none;gap:6px;align-items:center;padding:4px 8px;flex-wrap:wrap;background:var(--surf);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+#muspop.on{display:flex}
+#muspop select{font-family:var(--mono);font-size:10px;background:var(--ink);color:var(--cy);border:1px solid var(--line2);border-radius:3px;padding:3px}
+#muspop .hint{flex-basis:100%;margin-top:2px}
+
+/* sequencer EXPANDED layout: sequence work left two-thirds, droid on the right
+   (the layout Mike asked for, in the spirit of xLights-style sequencers) */
+body.seqbig #left{grid-template-rows:minmax(0,1fr);grid-template-columns:minmax(0,1fr) 5px var(--seqW,34%)}
+body.seqbig #stage{grid-column:3;grid-row:1;border-left:1px solid var(--line)}
+body.seqbig #splitH{grid-column:2;grid-row:1;cursor:col-resize}
+body.seqbig #padwrap{grid-column:1;grid-row:1;border-top:none;grid-template-columns:minmax(0,1fr)}
+body.seqbig #padside{display:none}
+body.seqbig #seqtl{min-height:64px}
+body.seqbig #muswave{height:60px}
+/* sequence mode owns the strip: the pad SVG and its keyboard card go away,
+   so the sequencer is not squeezed into a third of it (Mike's squashed
+   layout report, 2026-07-27) */
+body.seqmode #padstage{display:none}
+body.seqmode #padwrap{grid-template-columns:minmax(0,1fr)}
+/* Daslight-style show-control layout (Mike's spec, 2026-07-29):
+     top     transport, snap mode, Advanced switch, Build your Maestro
+     centre  the timeline — ruler, waveform strip, one lane per part
+     left-bottom  the full sequence library, grouped and searchable
+     right   the inspector for whatever is selected                     */
+body.seqmode #seqwrap{
+  display:grid;min-height:0;min-width:0;
+  grid-template-columns:minmax(0,1fr) minmax(232px,286px);
+  /* v1.15.0 (review F8): the library row was minmax(132px,24%), which
+     handed it ~230px whether it had two chips or forty and left the
+     timeline squeezed above a dead band. It is content-sized now — the
+     item's own max-height (below) bounds it — and every spare pixel
+     goes to the 1fr body row, where the lane scroller flex-grows. */
+  grid-template-rows:auto auto auto auto minmax(0,1fr) auto;
+  grid-template-areas:
+    "top  top"
+    "mus  insp"
+    "pop  insp"
+    "wave insp"
+    "body insp"
+    "lib  insp";
+}
+body.seqmode #seqtop{grid-area:top;flex-wrap:wrap;row-gap:4px}
+body.seqmode #musbar{grid-area:mus}
+body.seqmode #muspop{grid-area:pop}
+body.seqmode #muswave{grid-area:wave}
+body.seqmode #seqbody{grid-area:body;min-height:0}
+body.seqmode #seqlib{
+  grid-area:lib;overflow:auto;border-top:1px solid var(--line);
+  /* its own bounded scroll: grows with its chips up to roughly what the
+     old 24% track gave it, never past it, and scrolls from there */
+  max-height:clamp(132px,24vh,260px);
+}
+body.seqmode #seqinsp{grid-area:insp;overflow:auto;border-left:1px solid var(--line);background:var(--surf);min-height:0}
+/* sequencing is a full-screen job — the sidebar has nothing to say while you
+   are doing it, so give its width to the timeline (Mike, 2026-07-27) */
+body.seqmode #main{grid-template-columns:minmax(0,1fr) 0 0}
+body.seqmode #side,body.seqmode #splitV{display:none}
+
+/* ---------- puppet mode (v1.14.0) ----------
+   A bar above the pad and a mapping table where the key list sits. The
+   padwrap grid grows a top row for the bar; the strip tab spans both rows. */
+#pupbar{
+  grid-row:2;grid-column:1 / -1;display:flex;align-items:center;gap:8px;
+  padding:5px 10px;border-bottom:1px solid var(--line);min-height:30px;flex-wrap:wrap;
+}
+#pupbar .puphint{font-family:var(--mono);font-size:10px;color:var(--dimmer)}
+#pupbar .pupsw{white-space:nowrap}
+#pupbar input[type=text]{
+  background:var(--bg);border:1px solid var(--line);color:var(--txt);border-radius:6px;
+  padding:3px 8px;font-size:11px;width:110px;
+}
+#pupbar .recing{background:#c33;color:#fff;animation:puprec 1s steps(2,start) infinite}
+@keyframes puprec{to{opacity:.55}}
+#pupcount{
+  display:none;position:absolute;inset:0;z-index:5;pointer-events:none;
+  align-items:center;justify-content:center;
+  font-family:var(--mono);font-size:110px;font-weight:700;color:var(--cy);
+  text-shadow:0 0 30px rgba(0,0,0,.5);
+}
+#pupcount.on{display:flex}
+#pupside{display:none;grid-row:3;grid-column:2;border-left:1px solid var(--line);padding:9px 11px;overflow-y:auto;min-height:0}
+#pupside h4{font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--dimmer);margin-bottom:7px}
+body.pupmode #padside{display:none}
+body.pupmode #pupside{display:block}
+.puprow{display:flex;align-items:center;gap:6px;margin-bottom:5px}
+.puprow .pupname{font-size:11px;color:var(--txt);flex:0 0 84px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.puprow select{flex:1;min-width:0;background:var(--bg);border:1px solid var(--line);color:var(--txt);border-radius:5px;font-size:10.5px;padding:2px 3px}
+.puprow .puplatch{padding:2px 6px;font-size:9.5px}
+.puprow .puplatch.act{background:var(--cy);color:var(--onAcc)}
+/* cues — the other half of the rig: a control that fires a whole action */
+.pupcues{margin-top:14px;padding-top:11px;border-top:1px solid var(--line)}
+.pupcuerow{display:flex;align-items:center;gap:6px;margin-bottom:5px}
+.pupcuerow .pupname{font-size:11px;color:var(--txt);flex:0 0 84px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pupcuerow select{flex:1;min-width:0;background:var(--bg);border:1px solid var(--line);color:var(--txt);border-radius:5px;font-size:10.5px;padding:2px 3px}
+.pupcuerow .puplatch{padding:2px 6px;font-size:9.5px}
+.pupcuerow .puplatch.act{background:var(--cy);color:var(--onAcc)}
+.pupcuerow .pupcuex{padding:2px 5px;font-size:9.5px;color:var(--dimmer)}
+.pupcueadd select{color:var(--dimmer)}
+#cueAuto{margin-top:7px;font-size:10px;padding:3px 7px}
+body.seqmode #pupbar,body.seqmode #pupside,body.seqmode #pupcount{display:none}
+
+/* ---------- puppet mode's row in the strip grid ----------
+   Re-authored 2026-08-08. The original puppet CSS was written against the
+   PRE-v1.15.0 strip — a 26px left gutter with the mode switch rotated
+   vertically inside it — because the machine it was written on had a
+   reverted 03-pad.css (HANDOVER §10, v1.20.0). The switch is a horizontal
+   bar across the top again, so the grid is:
+
+       row 1   the mode switch, full width
+       row 2   the puppet bar (auto — collapses to nothing when it is
+               display:none, i.e. whenever puppet mode is off or the
+               sequencer has the strip)
+       row 3   the pad stage and the side panel
+
+   #seqwrap takes rows 2-3: the strip switch stays visible above it, which
+   is the whole point of the horizontal door — the way back is the same
+   control as the way in. */
+#padwrap{grid-template-rows:24px auto minmax(0,1fr)}
+#padstage{grid-row:3;grid-column:1}
+#padside{grid-row:3;grid-column:2}
+#seqwrap{grid-row:2 / 4;grid-column:1 / -1}
+body.pupmode #padwrap{grid-template-columns:minmax(0,1fr) 250px}

@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MaestroPCA bench test card — 7 servos, two boards</title>
+<style>
+:root{
+  --bg:#111417;--panel:#191e23;--panel2:#1f262c;--line:#2c353d;
+  --tx:#d7dde2;--dim:#8a949d;--faint:#59636c;
+  --am:#f0a832;--gn:#57c78a;--rd:#e0483a;--bl:#5aa7e0;--pu:#b98ce0;
+  --mono:ui-monospace,'Cascadia Code',Consolas,Menlo,monospace;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);
+     font:14px/1.6 -apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
+     padding:26px 22px 60px;max-width:1120px;margin:0 auto}
+h1{font:600 20px/1.3 var(--mono);letter-spacing:.02em;margin:0 0 4px}
+h1 b{color:var(--am)}
+.sub{color:var(--dim);font-family:var(--mono);font-size:12px;margin-bottom:24px}
+h2{font:600 11px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;
+   color:var(--dim);margin:34px 0 12px;padding-bottom:7px;border-bottom:1px solid var(--line)}
+p{margin:0 0 12px}
+table{border-collapse:collapse;width:100%;font-family:var(--mono);font-size:12.5px;margin-top:4px}
+th{text-align:left;font-size:10px;letter-spacing:.08em;text-transform:uppercase;
+   color:var(--faint);font-weight:600;padding:6px 10px;border-bottom:1px solid var(--line)}
+td{padding:6px 10px;border-bottom:1px solid #20272d;vertical-align:top}
+tr:hover td{background:#1c2329}
+code,kbd{font-family:var(--mono);background:var(--panel2);border:1px solid var(--line);
+     border-radius:3px;padding:1px 5px;font-size:12px}
+kbd{color:var(--am);font-weight:600;min-width:22px;display:inline-block;text-align:center}
+.test{background:var(--panel);border:1px solid var(--line);border-radius:8px;
+      padding:0;margin-bottom:14px;overflow:hidden}
+.test > .hd{display:flex;align-items:baseline;gap:12px;padding:11px 16px;
+     background:var(--panel2);border-bottom:1px solid var(--line)}
+.test .key{font:700 15px/1 var(--mono);color:var(--am);background:#111417;
+     border:1px solid var(--line);border-radius:4px;padding:6px 9px}
+.test .nm{font:600 14px/1.3 var(--mono)}
+.test .ch{margin-left:auto;font:11px/1 var(--mono);color:var(--faint)}
+.test .bd{padding:12px 16px}
+.test dl{margin:0;display:grid;grid-template-columns:112px 1fr;gap:5px 14px;font-size:13px}
+.test dt{color:var(--faint);font:600 10px/1.7 var(--mono);letter-spacing:.08em;text-transform:uppercase}
+.test dd{margin:0;color:var(--dim)}
+.test dd b{color:var(--tx);font-weight:600}
+.test dd.bad{color:#e8a49c}
+.chip{display:inline-block;font:11px/1 var(--mono);padding:3px 7px;border-radius:3px;
+      border:1px solid var(--line);background:#111417;color:var(--dim);margin-right:5px}
+.note{background:var(--panel);border-left:3px solid var(--bl);border-radius:0 8px 8px 0;
+      padding:12px 16px;margin:14px 0;font-size:13px;color:var(--dim)}
+.note b{color:var(--tx)}
+.warn{border-left-color:var(--am)}
+.stop{border-left-color:var(--rd)}
+ul{margin:8px 0;padding-left:20px;color:var(--dim);font-size:13px}
+li{margin-bottom:6px}
+li b{color:var(--tx);font-weight:600}
+.foot{margin-top:34px;padding-top:14px;border-top:1px solid var(--line);
+      color:var(--faint);font-family:var(--mono);font-size:11px}
+@media print{
+  body{background:#fff;color:#111;max-width:none}
+  *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .test,table{break-inside:avoid}
+}
+</style>
+</head>
+<body>
+
+<h1><b>MAESTROPCA</b> BENCH TEST CARD</h1>
+<div class="sub">Ten slots, one per feature · 7 servos across two PCA9685s · flash <code>sequences.h</code> + <code>MaestroReplacement</code></div>
+
+<p>Every feature we built past the Maestro gets one slot, and each slot is
+written so the thing it proves is visible from across the bench rather than
+buried in a serial log. Open the Serial Monitor at 115200 (or PCA Studio's
+monitor panel), press the number, watch the servo.</p>
+
+<h2>The rig this header expects</h2>
+
+<table>
+<tr><th>Channel</th><th>Board</th><th>Pin</th><th>Role in the tests</th><th>Set up as</th></tr>
+<tr><td>0</td><td>0x40</td><td>0</td><td>the sweeper</td><td>speed 40, accel 10</td></tr>
+<tr><td>1</td><td>0x40</td><td>1</td><td>ease reference</td><td>speed 30, accel 6, ease <b>none</b></td></tr>
+<tr><td>2</td><td>0x40</td><td>2</td><td>ease comparison</td><td>speed 30, accel 6, ease <b>soft</b></td></tr>
+<tr><td>3</td><td>0x40</td><td>3</td><td>ease comparison</td><td>speed 30, accel 6, ease <b>overshoot</b></td></tr>
+<tr><td>15</td><td>0x40</td><td>15</td><td>wander (last pin, first board)</td><td>speed 25, accel 6</td></tr>
+<tr><td>16</td><td>0x41</td><td>0</td><td>releases when parked</td><td>releaseMs <b>1200</b></td></tr>
+<tr><td>31</td><td>0x41</td><td>15</td><td>holds forever (the A/B partner)</td><td>releaseMs <b>0</b></td></tr>
+</table>
+
+<div class="note"><b>Endpoints are deliberately narrow.</b> 5000–7000 quarter-µs
+is 1250–1750 µs, home 6000 — a ±250 µs throw. Nothing in these tests can drive
+a horn into a stop, and every servo has the same travel so differences you see
+are the <i>feature</i>, not the linkage.</div>
+
+<h2>The ten slots</h2>
+
+<div class="test">
+  <div class="hd"><span class="key">0</span><span class="nm">Park</span><span class="ch">all seven</span></div>
+  <div class="bd"><dl>
+    <dt>Do</dt><dd>Press <kbd>0</kbd> before and after every other test.</dd>
+    <dt>Watch for</dt><dd>All seven servos ease to centre together, no jerk, no buzz.</dd>
+    <dt>Proves</dt><dd>Every channel is alive and both boards are awake. This is your baseline.</dd>
+    <dt>If wrong</dt><dd class="bad">A servo that doesn't move is wiring or a dead board — press <kbd>?</kbd> and check both 0x40 and 0x41 say FOUND, then <kbd>w</kbd> to walk each channel one at a time.</dd>
+  </dl></div>
+</div>
+
+<div class="test">
+  <div class="hd"><span class="key">1</span><span class="nm">Sweep</span><span class="ch">ch0 · background oscillator</span></div>
+  <div class="bd"><dl>
+    <dt>Do</dt><dd>Press <kbd>1</kbd>. Leave it running — it never stops on its own.</dd>
+    <dt>Watch for</dt><dd>ch0 sweeping smoothly end to end on a 3 second cycle, turning around <b>without stopping dead</b> at either end.</dd>
+    <dt>Proves</dt><dd>The oscillator generator, and that a generator costs 5 words of flash instead of a frame table.</dd>
+    <dt>If wrong</dt><dd class="bad">A hard stop at the ends means the trapezoid isn't being applied. Twitching means the I2C bus is struggling — check pull-ups and the 400 kHz setting.</dd>
+  </dl></div>
+</div>
+
+<div class="test">
+  <div class="hd"><span class="key">2</span><span class="nm">Alternate</span><span class="ch">ch1 ch2 ch3 · loops</span></div>
+  <div class="bd"><dl>
+    <dt>Do</dt><dd>With <kbd>1</kbd> still sweeping, press <kbd>2</kbd>.</dd>
+    <dt>Watch for</dt><dd>ch1 and ch3 up while ch2 goes down, back and forth forever — <b>and ch0 never breaks stride</b>.</dd>
+    <dt>Proves</dt><dd>Concurrency. Two sequences on disjoint channels run at once; this is the thing the Padawan servo loops could not do.</dd>
+    <dt>If wrong</dt><dd class="bad">If pressing <kbd>2</kbd> stops the sweep, the channel masks are overlapping when they shouldn't.</dd>
+  </dl></div>
+</div>
+
+<div class="test">
+  <div class="hd"><span class="key">3</span><span class="nm">Ease compare</span><span class="ch">ch1 ch2 ch3 · loops</span></div>
+  <div class="bd"><dl>
+    <dt>Do</dt><dd>Press <kbd>0</kbd>, then <kbd>3</kbd>. Watch the three horns side by side for several cycles.</dd>
+    <dt>Watch for</dt><dd><b>ch1 (none)</b> starts immediately.
+      <b>ch2 (soft)</b> visibly hangs back for the first fraction of a second, then catches up.
+      <b>ch3 (overshoot)</b> keeps up with ch1 but goes ~25 µs past the target and settles back — a small, deliberate nod at the end of the move.</dd>
+    <dt>Proves</dt><dd>All three easing profiles, on identical hardware with identical speed and acceleration.</dd>
+    <dt>If wrong</dt><dd class="bad">Three identical moves means the ease column didn't survive generation — check the header rows say <code>MPCA_EASE_SOFT</code> and <code>MPCA_EASE_OVERSHOOT</code>.</dd>
+  </dl></div>
+</div>
+
+<div class="note warn"><b>Why this one targets 6600, not 7000.</b> Overshoot aims
+<i>past</i> the target, and the engine clamps at the calibrated maximum — so a
+move that already targets the endpoint has nowhere to overshoot into and comes
+out identical to <code>none</code>. Simulating this test is what caught that;
+the slot now moves inside the range so the character is actually visible.</div>
+
+<div class="test">
+  <div class="hd"><span class="key">4</span><span class="nm">Wander</span><span class="ch">ch15 · background</span></div>
+  <div class="bd"><dl>
+    <dt>Do</dt><dd>Press <kbd>0</kbd>, then <kbd>4</kbd>. Watch for a full minute.</dd>
+    <dt>Watch for</dt><dd>ch15 drifting to unpredictable positions at unpredictable moments — never a pattern, never the same twice, never leaving its range.</dd>
+    <dt>Proves</dt><dd>The wander generator, and that the last pin on the first board works.</dd>
+    <dt>If wrong</dt><dd class="bad">A repeating pattern means the RNG is being reseeded. Dead means pin 15 — try <kbd>w</kbd>.</dd>
+  </dl></div>
+</div>
+
+<div class="test">
+  <div class="hd"><span class="key">5</span><span class="nm">Release A/B</span><span class="ch">ch16 vs ch31 · the audible one</span></div>
+  <div class="bd"><dl>
+    <dt>Do</dt><dd>Press <kbd>5</kbd>. <b>Listen</b> rather than look. Put a finger lightly on each horn afterwards.</dd>
+    <dt>Watch for</dt><dd>Both go out, both come back. Then, about 1.2 s after ch16 stops moving, it goes <b>silent and limp</b> — you can turn it by hand. ch31 keeps its faint holding buzz and resists.</dd>
+    <dt>Proves</dt><dd><code>releaseMs</code>: a parked panel that draws no current and makes no noise. The Maestro cannot do this.</dd>
+    <dt>If wrong</dt><dd class="bad">If ch16 never goes quiet, the last frame is too short to outlast travel plus the release timer. If it goes limp <i>and drops</i>, that channel is holding against gravity and must keep releaseMs 0.</dd>
+  </dl></div>
+</div>
+
+<div class="test">
+  <div class="hd"><span class="key">6</span><span class="nm">Cross board wave</span><span class="ch">all seven, in order</span></div>
+  <div class="bd"><dl>
+    <dt>Do</dt><dd>Press <kbd>6</kbd>.</dd>
+    <dt>Watch for</dt><dd>A wave: 0, 1, 2, 3, 15, then <b>16 and 31 on the second board</b>, then everything home.</dd>
+    <dt>Proves</dt><dd>Both I2C addresses are being written, and channel→board→pin mapping is right end to end. This is the test that caught channels 16 and 31 being dead.</dd>
+    <dt>If wrong</dt><dd class="bad">A wave that stops after ch15 means board 0x41 never woke — check the A0 jumper is bridged and that <kbd>?</kbd> lists 0x41.</dd>
+  </dl></div>
+</div>
+
+<div class="test">
+  <div class="hd"><span class="key">7</span><span class="nm">Grab ch0</span><span class="ch">the important one</span></div>
+  <div class="bd"><dl>
+    <dt>Do</dt><dd>Press <kbd>1</kbd> to start the sweep. Wait until it's clearly running. <b>Then</b> press <kbd>7</kbd>.</dd>
+    <dt>Watch for</dt><dd>The sweep stops, ch0 makes one deliberate out-and-back gesture — and then <b>starts sweeping again by itself</b>, with nothing pressed.</dd>
+    <dt>Proves</dt><dd>Background layering: an idle animation is displaced by a real gesture and resumes when the gesture releases the channel. This is the behaviour that makes a droid look alive between commands.</dd>
+    <dt>If wrong</dt><dd class="bad">If the sweep doesn't come back, the background flag was lost in generation — the header line for slot 1 must read <code>MPCA_SEQ_BACKGROUND | MPCA_SEQ_OSC</code>.</dd>
+  </dl></div>
+</div>
+
+<div class="test">
+  <div class="hd"><span class="key">8</span><span class="nm">Dual sweep</span><span class="ch">ch16 + ch31 · 90° apart</span></div>
+  <div class="bd"><dl>
+    <dt>Do</dt><dd>Press <kbd>0</kbd>, then <kbd>8</kbd>.</dd>
+    <dt>Watch for</dt><dd>Both second-board servos sweeping the same 2.6 s cycle but <b>a quarter cycle out of step</b> — when one is at an end, the other is at mid-travel.</dd>
+    <dt>Proves</dt><dd>Phase offset within one generator sequence, and two boards animating simultaneously rather than in turn.</dd>
+    <dt>If wrong</dt><dd class="bad">In lockstep means the phase column was dropped; check the header's five-number generator rows.</dd>
+  </dl></div>
+</div>
+
+<div class="test">
+  <div class="hd"><span class="key">9</span><span class="nm">All home</span><span class="ch">the way out</span></div>
+  <div class="bd"><dl>
+    <dt>Do</dt><dd>Press <kbd>9</kbd> to finish, or <kbd>x</kbd> to stop everything and switch all outputs off.</dd>
+    <dt>Watch for</dt><dd>Everything back to centre, quietly.</dd>
+    <dt>Proves</dt><dd>Nothing new — it's the reset between runs.</dd>
+  </dl></div>
+</div>
+
+<h2>Console keys you'll want alongside</h2>
+
+<ul>
+  <li><kbd>?</kbd> <b>status</b> — I2C scan (both 0x40 and 0x41 must say FOUND), channel and slot counts, what the host last sent.</li>
+  <li><kbd>w</kbd> <b>walk</b> — nudges every configured channel in turn. The fastest way to find one dead servo.</li>
+  <li><kbd>t</kbd> <b>sweep ch0</b> — proves servo and power without any sequence at all.</li>
+  <li><kbd>v</kbd> <b>verbose</b> — logs every command arriving over the Maestro link. When the droid's host is wired in and nothing happens, this tells you whether the bytes ever arrived.</li>
+  <li><kbd>x</kbd> <b>off</b> — stop everything, all outputs off.</li>
+</ul>
+
+<div class="note stop"><b>Before you power up.</b> V+ on both PCA9685s from the
+5–6 V servo supply, never the Arduino's 5 V pin. Grounds common between supply,
+Arduino and both boards. Seven servos moving at once is several amps.</div>
+
+<h2>What the simulation already said</h2>
+
+<p>Every slot was run against the real engine before this card was written, so
+what you should see on the bench is what the code actually did in software:</p>
+
+<table>
+<tr><th>Slot</th><th>Measured in simulation</th></tr>
+<tr><td>1 + 2</td><td>2 sequences running at once, ch0 never interrupted</td></tr>
+<tr><td>3</td><td>overshoot peaks 6699 against a 6600 target; soft trails <code>none</code> by ~65 counts at launch; all three land exactly on 6600</td></tr>
+<tr><td>4</td><td>range 5382–6654 over 6 s, 322 direction changes</td></tr>
+<tr><td>5</td><td>ch16 released, reads 0 (no pulses); ch31 still driven</td></tr>
+<tr><td>6</td><td>I2C writes: 669 to 0x40, 205 to 0x41</td></tr>
+<tr><td>7</td><td>sweep displaced by the gesture, then resumed with nothing pressed</td></tr>
+<tr><td>8</td><td>biggest gap between ch16 and ch31: 1381 counts</td></tr>
+</table>
+
+<div class="foot">MaestroPCA bench test card · generated 10 August 2026 ·
+sequences.h from PCA Studio · pairs with WIRING.html</div>
+
+</body>
+</html>

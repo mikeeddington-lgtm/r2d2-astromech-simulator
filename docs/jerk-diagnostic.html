@@ -1,0 +1,198 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<title>Is it the clock or the board? — a bench diagnostic</title>
+<style>
+:root{--bg:#111417;--panel:#191e23;--panel2:#1f262c;--line:#2c353d;--tx:#d7dde2;
+  --dim:#8a949d;--faint:#59636c;--am:#f0a832;--gn:#57c78a;--rd:#e06056;--bl:#5aa7e0;
+  --mono:ui-monospace,'Cascadia Code',Consolas,Menlo,monospace}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font:14px/1.65 var(--mono);padding:34px}
+.wrap{max-width:900px;margin:0 auto}
+h1{font-size:21px;margin:0 0 4px}
+h2{font-size:14px;letter-spacing:.09em;text-transform:uppercase;color:var(--am);
+  margin:30px 0 10px;border-bottom:1px solid var(--line);padding-bottom:6px}
+p{color:var(--dim);margin:10px 0}
+b,strong{color:var(--tx)}
+.sub{color:var(--faint);margin-top:0}
+table{border-collapse:collapse;width:100%;margin:12px 0}
+th{text-align:left;font-size:11px;letter-spacing:.07em;text-transform:uppercase;
+  color:var(--faint);padding:6px 8px;border-bottom:1px solid var(--line)}
+td{padding:7px 8px;border-bottom:1px solid #20272d;vertical-align:top;color:var(--dim)}
+td b{color:var(--tx)}
+.warn{border-left:3px solid var(--am);background:var(--panel);padding:12px 15px;margin:16px 0}
+.bad{border-left-color:var(--rd)}
+.ok{border-left-color:var(--gn)}
+code{background:var(--panel2);padding:1px 5px;border-radius:3px;color:var(--tx)}
+ol{color:var(--dim);padding-left:22px}li{margin:7px 0}
+.verdict{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:4px 18px 14px;margin:16px 0}
+.verdict h3{font-size:13px;color:var(--bl);margin:14px 0 4px;letter-spacing:.04em}
+.box{border:1px dashed var(--line);padding:10px 14px;margin:14px 0;color:var(--faint)}
+@media print{body{background:#fff;color:#000}h2{color:#000}p,td{color:#333}
+  .warn,.verdict,.box{border-color:#999}code{background:#eee}}
+</style></head><body><div class="wrap">
+
+<h1>Is it the clock, or is it the board?</h1>
+<p class="sub">A bench diagnostic for “it felt a little jerky”. Twenty minutes, one servo minimum.</p>
+
+<p>Two different things can make a PCA9685 rig look rough, and they have different
+fixes. This tells you which one you have — <b>by comparing, not by remembering</b>,
+because motion is very hard to judge from memory.</p>
+
+<table>
+<tr><th>suspect</th><th>what it is</th><th>signature</th></tr>
+<tr><td><b>The clock</b></td>
+    <td>The browser drove a fixed-rate engine from the animation frame, delivering
+        1, 2, 2, 1, 2, 2 engine steps per frame. Fixed in <b>v1.31.1</b>.</td>
+    <td>Roughly <b>equal at every speed</b>. Present over the USB bridge, absent
+        from <code>sequences.h</code> on the co-processor.</td></tr>
+<tr><td><b>The board</b></td>
+    <td>A PCA9685 at 50 Hz resolves 20000 ÷ 4096 = <b>4.88 µs</b>. One engine step
+        at speed 10 is 2.5 µs — half a count.</td>
+    <td><b>Much worse at low speeds.</b> Identical over the bridge and on the
+        co-processor. Improves when you raise the servo frequency.</td></tr>
+</table>
+
+<h2>Before you start</h2>
+<div class="warn">
+<b>The throw is deliberately small — 1200 to 1800 µs, ±300 µs from centre.</b>
+This project knows nothing about your linkages, so check by hand that each horn
+you connect can travel that far without touching anything. If one cannot, unplug
+it and use a bare servo on the bench instead: this test is about <i>smoothness</i>,
+not about your droid.
+</div>
+<div class="box">
+<b>Save your Studio project first.</b> Loading this one replaces it —
+<code>Save project</code> in the header, then <code>Load project</code> to come back.
+</div>
+
+<h2>What is in it</h2>
+<p>Six channels, all with the same endpoints so the throws are directly comparable,
+each with a different speed. Speed is per <i>channel</i>, not per frame, so the
+ladder is <b>side by side</b> rather than one after another — you compare them in the
+same glance instead of from memory.</p>
+<table>
+<tr><th>ch</th><th>name</th><th>speed</th><th>µs per second</th><th>time for the 600 µs throw</th></tr>
+<tr><td>0</td><td><b>spd 5</b></td><td>5</td><td>125</td><td>4.8 s — the money shot</td></tr>
+<tr><td>1</td><td><b>spd 10</b></td><td>10</td><td>250</td><td>2.4 s</td></tr>
+<tr><td>2</td><td><b>spd 20</b></td><td>20</td><td>500</td><td>1.2 s</td></tr>
+<tr><td>3</td><td><b>spd 40</b></td><td>40</td><td>1000</td><td>0.6 s</td></tr>
+<tr><td>4</td><td><b>spd 80</b></td><td>80</td><td>2000</td><td>0.3 s</td></tr>
+<tr><td>5</td><td><b>spd 40 +accel</b></td><td>40, accel 10</td><td>1000</td><td>0.6 s + ramps</td></tr>
+</table>
+<p>If you only have one servo, put it on <b>channel 0</b> and use slot 1. That is the
+single most revealing run in the set.</p>
+
+<h2>Step by step</h2>
+
+<p><b>0 · Before anything is plugged in.</b> Check the PCA Studio version in the
+header reads <b>v0.12.1</b> or later — the clock fix is in 1.31.1 / 0.12.1, and
+running this on an older build tests the wrong thing. Then press
+<code>Save project</code> and keep the file: <code>Load project</code> in step 2
+replaces everything you have.</p>
+
+<p><b>1 · Wire it.</b> Servos on <b>board 0, pins 0–5</b>, in order — pin 0 is the
+slow one and does most of the work. Fewer is fine: with one servo use pin 0 and
+skip to slot 1. Give the servos their own supply with the ground commoned to the
+board; six servos moving together is real current, and a sagging rail looks
+exactly like the fault we are chasing.</p>
+
+<p><b>2 · Load it.</b> <code>Load project</code> →
+<code>pca-jerk-test.pcastudio.json</code>. You should get six channels named
+<b>spd 5</b> through <b>spd 40 +accel</b>, and four slots in the sequencer strip.</p>
+
+<p><b>3 · Connect.</b> <code>⚡ Connect hardware</code> and pick the port with the
+<b>PCA_Bridge</b> sketch on it. The chip beside the button should read
+<b>hardware</b>. If it says <b>monitor only</b>, that port is a co-processor and
+Studio is refusing to stream binary at a text console — right call, wrong port.</p>
+
+<p><b>4 · Prove it is alive.</b> Press <code>all home</code>. Everything should
+step to centre. Nothing moving? Fix that before reading anything into what
+follows. <b>Esc is stop-everything</b> and it works at any point.</p>
+
+<p><b>5 · Watch slot 1 — the crawl.</b> Select slot <b>1</b>, press
+<code>▶ play slot</code>, and watch pin 0 for the full 4.8-second travel. This is
+the single most revealing run in the set. See the coaching below before you judge it.</p>
+
+<p><b>6 · Watch slot 0 — the ladder.</b> Slot <b>0</b>, play. All six move
+together. The question is not "is it smooth" but <b>"are the slow ones worse than
+the fast ones"</b> — that comparison is the whole diagnostic, and it is why they
+run together rather than one after another.</p>
+
+<p><b>7 · Slot 3 — listen.</b> Twenty seconds parked at centre. Put your ear near
+the servos. Noise while <i>stationary</i> is neither suspect: that is supply,
+ground, or a tired servo.</p>
+
+<p><b>8 · Now the decisive half.</b> Flash
+<code>pca-jerk-test-sequences.h</code> onto the MaestroPCA co-processor,
+disconnect Studio, and run slots 1 and 0 from the board itself. Same rig, same
+numbers, nothing but the driver changed. <b>If the board is smooth where the
+bridge was rough, it was the clock.</b> If they are identical, it never was.</p>
+
+<p><b>9 · Optional, and worth it.</b> Setup wizard → step 2 → change the servo
+pulse rate to <b>200 Hz</b>, re-flash, run slot 1 again. If the crawl cleans up,
+you have just watched the PCA9685's resolution improve from 4.88 µs to 1.22 µs.
+Digital servos usually take it; analogue ones usually do not, so if anything gets
+hot, buzzes or will not hold, go back to 50.</p>
+
+<div class="warn ok">
+<b>How to actually look at it.</b> Judging smoothness by eye is harder than it
+sounds, and the trick is amplification, not concentration. Tape a drinking straw
+or a lolly stick to the horn so the tip swings 200 mm instead of 20 — the same
+stepping becomes ten times more visible. Watch the <b>tip against a fixed
+background</b>, an edge or a ruler, not the servo body. Then compare, never judge
+in isolation: run the same slot twice in a row before deciding, because the second
+viewing is always more honest than the first.
+</div>
+
+<h2>The runs</h2>
+<table>
+<tr><th>slot</th><th>what to watch</th></tr>
+<tr><td><b>0</b> Ladder</td><td>All six sweep together, twice. Watch the <b>slow</b> ones
+  against the fast ones. Are the slow channels visibly stepping while the fast ones glide?</td></tr>
+<tr><td><b>1</b> Crawl</td><td>Channel 0 alone, 4.8 s each way. This is where stepping is
+  most visible. Watch the horn tip, not the body, and watch against a fixed background.</td></tr>
+<tr><td><b>2</b> Snap</td><td>Channel 4, six fast throws. A sanity check that the rig is
+  healthy and that fast motion is clean.</td></tr>
+<tr><td><b>3</b> Hold</td><td>Everything parked at centre for 20 s. <b>Listen.</b> A servo
+  that hunts or buzzes while <i>stationary</i> is neither of the two suspects — that is
+  supply sag, a marginal ground, or a servo at the end of its life.</td></tr>
+</table>
+
+<h2>The two comparisons that actually decide it</h2>
+<ol>
+<li><b>Bridge vs co-processor.</b> Run slots 0 and 1 from PCA Studio over USB. Then
+flash <code>pca-jerk-test-sequences.h</code> onto the MaestroPCA co-processor and run the
+same two slots from the board. <b>Same rig, same numbers, different driver.</b></li>
+<li><b>50 Hz vs 200 Hz.</b> In the setup wizard, step 2, change the servo pulse rate and
+re-flash. Resolution is one period ÷ 4096, so 50 Hz = 4.88 µs, 100 Hz = 2.44 µs,
+200 Hz = 1.22 µs. Most <i>digital</i> servos take 200 Hz happily; analogue ones usually
+will not — if a servo gets hot, buzzes or refuses to hold, drop back to 50.</li>
+</ol>
+
+<div class="verdict">
+<h3>Slow channels step, fast ones are smooth — and it is the same on the co-processor</h3>
+<p>That is the <b>board</b>. Raise the servo frequency, or use higher speed values with
+acceleration to shape the move instead of a low speed to slow it. Nothing in the
+software will fix 4.88 µs.</p>
+
+<h3>All speeds equally rough over USB, clean from the co-processor</h3>
+<p>That was the <b>clock</b>, and v1.31.1 fixes it. If you are still seeing it, you are
+on an older build — check the version in the header.</p>
+
+<h3>Rough on both, at every speed, and channel 5 with acceleration is no better</h3>
+<p>Neither suspect. Look at the supply: measure the rail <i>at the servo</i> while it
+moves, not at the bench PSU. Then the ground between board and supply. Then the
+oscillator trim on the PCA9685 — the nominal 25 MHz is often out by a few percent,
+which shows up as timing that is subtly wrong everywhere at once.</p>
+
+<h3>It is quiet moving but buzzes while holding</h3>
+<p>Not the engine at all. Try <b>sleep when idle</b> on that channel — it stops
+pulsing once the servo has settled, which is silent, cool and draws nothing. Only
+for parts that rest in place on their own.</p>
+</div>
+
+<h2>Worth writing down</h2>
+<p>For each run: which channels looked rough, at what speed, and whether it changed
+between bridge and co-processor, and between 50 Hz and 200 Hz. Those four answers
+between them name the cause without any more guessing.</p>
+
+</div></body></html>

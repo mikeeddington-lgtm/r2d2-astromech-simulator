@@ -1,0 +1,236 @@
+<!--Pololu Maestro servo controller settings file, http://www.pololu.com/catalog/product/1350-->
+<UscSettings version="1">
+  <NeverSuspend>false</NeverSuspend>
+  <SerialMode>UART_FIXED_BAUD_RATE</SerialMode>
+  <FixedBaudRate>9600</FixedBaudRate>
+  <SerialTimeout>0</SerialTimeout>
+  <EnableCrc>false</EnableCrc>
+  <SerialDeviceNumber>12</SerialDeviceNumber>
+  <SerialMiniSscOffset>0</SerialMiniSscOffset>
+  <EnablePullups>false</EnablePullups>
+  <Channels MiniMaestroServoPeriod="80000" ServoMultiplier="1">
+    <!--Period = 20.00 ms-->
+    <!--Channel 0-->
+    <Channel name="FL Breadpan Door" mode="Servo" min="4000" max="8000" homemode="Goto" home="4000" speed="0" acceleration="0" neutral="6000" range="1905" />
+    <!--Channel 1-->
+    <Channel name="FR Breadpan Door" mode="Servo" min="4000" max="8000" homemode="Goto" home="4000" speed="0" acceleration="0" neutral="6000" range="1905" />
+    <!--Channel 2-->
+    <Channel name="RL Breadpan Door" mode="Servo" min="4000" max="8000" homemode="Goto" home="4000" speed="0" acceleration="0" neutral="6000" range="1905" />
+    <!--Channel 3-->
+    <Channel name="RR Breadpan Door" mode="Servo" min="4000" max="8000" homemode="Goto" home="4000" speed="0" acceleration="0" neutral="6000" range="1905" />
+    <!--Channel 4-->
+    <Channel name="Small Long Door" mode="Servo" min="4000" max="8000" homemode="Goto" home="4000" speed="0" acceleration="0" neutral="6000" range="1905" />
+    <!--Channel 5-->
+    <Channel name="Dataport Door" mode="Servo" min="4000" max="8000" homemode="Goto" home="4000" speed="0" acceleration="0" neutral="6000" range="1905" />
+    <!--Channel 6-->
+    <Channel name="Charging Bay Door" mode="Servo" min="4000" max="8000" homemode="Goto" home="4000" speed="0" acceleration="0" neutral="6000" range="1905" />
+    <!--Channel 7-->
+    <Channel name="Upper Utility Arm" mode="Servo" min="4000" max="8000" homemode="Goto" home="4000" speed="0" acceleration="0" neutral="6000" range="1905" />
+    <!--Channel 8-->
+    <Channel name="Lower Utility Arm" mode="Servo" min="4000" max="8000" homemode="Goto" home="4000" speed="0" acceleration="0" neutral="6000" range="1905" />
+    <!--Channel 9-->
+    <Channel name="Drawer" mode="Servo" min="4000" max="8000" homemode="Goto" home="4000" speed="0" acceleration="0" neutral="6000" range="1905" />
+    <!--Channel 10-->
+    <Channel name="Gripper Arm" mode="Servo" min="4000" max="8000" homemode="Goto" home="4000" speed="0" acceleration="0" neutral="6000" range="1905" />
+    <!--Channel 11-->
+    <Channel name="Gripper Claw" mode="Servo" min="4000" max="8000" homemode="Goto" home="4000" speed="0" acceleration="0" neutral="6000" range="1905" />
+    <!--Channel 12-->
+    <Channel name="Interface Arm" mode="Servo" min="4000" max="8000" homemode="Goto" home="4000" speed="0" acceleration="0" neutral="6000" range="1905" />
+    <!--Channel 13-->
+    <Channel name="Interface Tool" mode="Servo" min="4000" max="8000" homemode="Goto" home="4000" speed="0" acceleration="0" neutral="6000" range="1905" />
+    <!--Channel 14-->
+    <Channel name="Channel 14" mode="Input" min="4000" max="8000" homemode="Ignore" home="6000" speed="0" acceleration="0" neutral="6000" range="1905" />
+    <!--Channel 15-->
+    <Channel name="Channel 15" mode="Input" min="4000" max="8000" homemode="Ignore" home="6000" speed="0" acceleration="0" neutral="6000" range="1905" />
+    <!--Channel 16-->
+    <Channel name="Channel 16" mode="Input" min="4000" max="8000" homemode="Ignore" home="6000" speed="0" acceleration="0" neutral="6000" range="1905" />
+    <!--Channel 17-->
+    <Channel name="Channel 17" mode="Input" min="4000" max="8000" homemode="Ignore" home="6000" speed="0" acceleration="0" neutral="6000" range="1905" />
+    <!--Channel 18-->
+    <Channel name="Channel 18" mode="Input" min="4000" max="8000" homemode="Ignore" home="6000" speed="0" acceleration="0" neutral="6000" range="1905" />
+    <!--Channel 19-->
+    <Channel name="Channel 19" mode="Input" min="4000" max="8000" homemode="Ignore" home="6000" speed="0" acceleration="0" neutral="6000" range="1905" />
+    <!--Channel 20-->
+    <Channel name="Channel 20" mode="Input" min="4000" max="8000" homemode="Ignore" home="6000" speed="0" acceleration="0" neutral="6000" range="1905" />
+    <!--Channel 21-->
+    <Channel name="Channel 21" mode="Input" min="4000" max="8000" homemode="Ignore" home="6000" speed="0" acceleration="0" neutral="6000" range="1905" />
+    <!--Channel 22-->
+    <Channel name="Channel 22" mode="Input" min="4000" max="8000" homemode="Ignore" home="6000" speed="0" acceleration="0" neutral="6000" range="1905" />
+    <!--Channel 23-->
+    <Channel name="Channel 23" mode="Input" min="4000" max="8000" homemode="Ignore" home="6000" speed="0" acceleration="0" neutral="6000" range="1905" />
+  </Channels>
+  <Sequences>
+    <Sequence name="Body Doors Open">
+      <Frame name="Frame 0" duration="420">8000 4000 4000 4000 4000 4000 4000 4000 4000 4000 4000 4000 4000 4000 0 0 0 0 0 0 0 0 0 0</Frame>
+      <Frame name="Frame 1" duration="420">8000 8000 4000 4000 4000 4000 4000 4000 4000 4000 4000 4000 4000 4000 0 0 0 0 0 0 0 0 0 0</Frame>
+      <Frame name="Frame 2" duration="420">8000 8000 8000 4000 4000 4000 4000 4000 4000 4000 4000 4000 4000 4000 0 0 0 0 0 0 0 0 0 0</Frame>
+      <Frame name="Frame 3" duration="420">8000 8000 8000 8000 4000 4000 4000 4000 4000 4000 4000 4000 4000 4000 0 0 0 0 0 0 0 0 0 0</Frame>
+      <Frame name="Frame 4" duration="420">8000 8000 8000 8000 8000 4000 4000 4000 4000 4000 4000 4000 4000 4000 0 0 0 0 0 0 0 0 0 0</Frame>
+    </Sequence>
+    <Sequence name="Body Doors Close">
+      <Frame name="Frame 0" duration="420">8000 8000 8000 8000 8000 4000 4000 4000 4000 4000 4000 4000 4000 4000 0 0 0 0 0 0 0 0 0 0</Frame>
+      <Frame name="Frame 1" duration="420">8000 8000 8000 8000 4000 4000 4000 4000 4000 4000 4000 4000 4000 4000 0 0 0 0 0 0 0 0 0 0</Frame>
+      <Frame name="Frame 2" duration="420">8000 8000 8000 4000 4000 4000 4000 4000 4000 4000 4000 4000 4000 4000 0 0 0 0 0 0 0 0 0 0</Frame>
+      <Frame name="Frame 3" duration="420">8000 8000 4000 4000 4000 4000 4000 4000 4000 4000 4000 4000 4000 4000 0 0 0 0 0 0 0 0 0 0</Frame>
+      <Frame name="Frame 4" duration="420">8000 4000 4000 4000 4000 4000 4000 4000 4000 4000 4000 4000 4000 4000 0 0 0 0 0 0 0 0 0 0</Frame>
+      <Frame name="Frame 5" duration="420">4000 4000 4000 4000 4000 4000 4000 4000 4000 4000 4000 4000 4000 4000 0 0 0 0 0 0 0 0 0 0</Frame>
+    </Sequence>
+    <Sequence name="Front Doors Open">
+      <Frame name="Frame 0" duration="450">8000 4000 4000 4000 4000 4000 4000 4000 4000 4000 4000 4000 4000 4000 0 0 0 0 0 0 0 0 0 0</Frame>
+      <Frame name="Frame 1" duration="450">8000 8000 4000 4000 4000 4000 4000 4000 4000 4000 4000 4000 4000 4000 0 0 0 0 0 0 0 0 0 0</Frame>
+    </Sequence>
+    <Sequence name="Front Doors Close">
+      <Frame name="Frame 0" duration="450">8000 8000 4000 4000 4000 4000 4000 4000 4000 4000 4000 4000 4000 4000 0 0 0 0 0 0 0 0 0 0</Frame>
+      <Frame name="Frame 1" duration="450">8000 4000 4000 4000 4000 4000 4000 4000 4000 4000 4000 4000 4000 4000 0 0 0 0 0 0 0 0 0 0</Frame>
+      <Frame name="Frame 2" duration="450">4000 4000 4000 4000 4000 4000 4000 4000 4000 4000 4000 4000 4000 4000 0 0 0 0 0 0 0 0 0 0</Frame>
+    </Sequence>
+    <Sequence name="Utility Arms Out">
+      <Frame name="Frame 0" duration="380">4000 4000 4000 4000 4000 4000 4000 8000 4000 4000 4000 4000 4000 4000 0 0 0 0 0 0 0 0 0 0</Frame>
+      <Frame name="Frame 1" duration="380">4000 4000 4000 4000 4000 4000 4000 8000 8000 4000 4000 4000 4000 4000 0 0 0 0 0 0 0 0 0 0</Frame>
+    </Sequence>
+    <Sequence name="Utility Arms In">
+      <Frame name="Frame 0" duration="380">4000 4000 4000 4000 4000 4000 4000 8000 8000 4000 4000 4000 4000 4000 0 0 0 0 0 0 0 0 0 0</Frame>
+      <Frame name="Frame 1" duration="380">4000 4000 4000 4000 4000 4000 4000 8000 4000 4000 4000 4000 4000 4000 0 0 0 0 0 0 0 0 0 0</Frame>
+      <Frame name="Frame 2" duration="380">4000 4000 4000 4000 4000 4000 4000 4000 4000 4000 4000 4000 4000 4000 0 0 0 0 0 0 0 0 0 0</Frame>
+    </Sequence>
+    <Sequence name="Ports Open">
+      <Frame name="Frame 0" duration="400">4000 4000 4000 4000 4000 8000 4000 4000 4000 4000 4000 4000 4000 4000 0 0 0 0 0 0 0 0 0 0</Frame>
+      <Frame name="Frame 1" duration="400">4000 4000 4000 4000 4000 8000 8000 4000 4000 4000 4000 4000 4000 4000 0 0 0 0 0 0 0 0 0 0</Frame>
+    </Sequence>
+    <Sequence name="Ports Close">
+      <Frame name="Frame 0" duration="400">4000 4000 4000 4000 4000 8000 8000 4000 4000 4000 4000 4000 4000 4000 0 0 0 0 0 0 0 0 0 0</Frame>
+      <Frame name="Frame 1" duration="400">4000 4000 4000 4000 4000 8000 4000 4000 4000 4000 4000 4000 4000 4000 0 0 0 0 0 0 0 0 0 0</Frame>
+      <Frame name="Frame 2" duration="400">4000 4000 4000 4000 4000 4000 4000 4000 4000 4000 4000 4000 4000 4000 0 0 0 0 0 0 0 0 0 0</Frame>
+    </Sequence>
+  </Sequences>
+  <Script ScriptDone="true"># Body Doors Open
+sub Body_Doors_Open
+  420 8000 4000 4000 4000 4000 4000 
+  4000 4000 4000 4000 4000 4000 
+  4000 4000 frame_0..13 # Frame 0
+  420 8000 frame_1 # Frame 1
+  420 8000 frame_2 # Frame 2
+  420 8000 frame_3 # Frame 3
+  420 8000 frame_4 # Frame 4
+  return
+# Body Doors Close
+sub Body_Doors_Close
+  420 8000 8000 8000 8000 8000 4000 
+  4000 4000 4000 4000 4000 4000 
+  4000 4000 frame_0..13 # Frame 0
+  420 4000 frame_4 # Frame 1
+  420 4000 frame_3 # Frame 2
+  420 4000 frame_2 # Frame 3
+  420 4000 frame_1 # Frame 4
+  420 4000 frame_0 # Frame 5
+  return
+# Front Doors Open
+sub Front_Doors_Open
+  450 8000 4000 4000 4000 4000 4000 
+  4000 4000 4000 4000 4000 4000 
+  4000 4000 frame_0..13 # Frame 0
+  450 8000 frame_1 # Frame 1
+  return
+# Front Doors Close
+sub Front_Doors_Close
+  450 8000 8000 4000 4000 4000 4000 
+  4000 4000 4000 4000 4000 4000 
+  4000 4000 frame_0..13 # Frame 0
+  450 4000 frame_1 # Frame 1
+  450 4000 frame_0 # Frame 2
+  return
+# Utility Arms Out
+sub Utility_Arms_Out
+  380 4000 4000 4000 4000 4000 4000 
+  4000 8000 4000 4000 4000 4000 
+  4000 4000 frame_0..13 # Frame 0
+  380 8000 frame_8 # Frame 1
+  return
+# Utility Arms In
+sub Utility_Arms_In
+  380 4000 4000 4000 4000 4000 4000 
+  4000 8000 8000 4000 4000 4000 
+  4000 4000 frame_0..13 # Frame 0
+  380 4000 frame_8 # Frame 1
+  380 4000 frame_7 # Frame 2
+  return
+# Ports Open
+sub Ports_Open
+  400 4000 4000 4000 4000 4000 8000 
+  4000 4000 4000 4000 4000 4000 
+  4000 4000 frame_0..13 # Frame 0
+  400 8000 frame_6 # Frame 1
+  return
+# Ports Close
+sub Ports_Close
+  400 4000 4000 4000 4000 4000 8000 
+  8000 4000 4000 4000 4000 4000 
+  4000 4000 frame_0..13 # Frame 0
+  400 4000 frame_6 # Frame 1
+  400 4000 frame_5 # Frame 2
+  return
+
+sub frame_0..13
+  13 servo
+  12 servo
+  11 servo
+  10 servo
+  9 servo
+  8 servo
+  7 servo
+  6 servo
+  5 servo
+  4 servo
+  3 servo
+  2 servo
+  1 servo
+  0 servo
+  delay
+  return
+
+sub frame_1
+  1 servo
+  delay
+  return
+
+sub frame_2
+  2 servo
+  delay
+  return
+
+sub frame_3
+  3 servo
+  delay
+  return
+
+sub frame_4
+  4 servo
+  delay
+  return
+
+sub frame_0
+  0 servo
+  delay
+  return
+
+sub frame_8
+  8 servo
+  delay
+  return
+
+sub frame_7
+  7 servo
+  delay
+  return
+
+sub frame_6
+  6 servo
+  delay
+  return
+
+sub frame_5
+  5 servo
+  delay
+  return
+</Script>
+</UscSettings>

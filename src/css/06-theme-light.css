@@ -1,0 +1,54 @@
+/* Light theme. Only re-points the tokens from 01 plus a few one-offs. */
+/* ================= light theme ================= */
+body.light{
+  --bg:#e7ebf0; --bg2:#f4f6f9; --panel:#ffffff; --panel2:#edf0f5;
+  --line:#d6dbe2; --line2:#c0c8d2;
+  /* --dim doubles as the prose colour (M1) — it must keep body text ≥7:1
+     on every light panel it sits on; #414d5b holds 8.0:1 on --bg2 */
+  --txt:#161e28; --dim:#414d5b; --dimmer:#65707c;
+  --cy:#0c7d8b; --cy-d:#8fd2db; --am:#a86500; --rd:#b8362c; --gn:#1c7a4c; --vi:#6f45a8;
+  --surf:#eef1f5; --surf2:#e3e8ee; --ink:#ffffff; --ink2:#fbfcfd;
+  --row:#e7ebf0; --track:#dae0e7; --onAcc:#ffffff; --brdIn:#c7cfd8;
+  --selBg:#dfe8f5; --hoverBg:#e4e9ef; --barTrack:#dce2e9; --amDark:#e0b477;
+  --cyHi:#075a64; --amHi:#7a4a00;
+  --pbFill:#d4dbe3; --pbStroke:#abb6c299; --stickTop:#c3cdd9; --stickStroke:#95a3b2;
+  --shellFill:#e7ecf2; --shellStroke:#bac4cf; --padLab:#5f6b77; --padTxt:#3c4854;
+  --dpadC:#c9d2dc; --stickPin:#9ba8b6;
+  --chipOn:#8fd0ad; --chipWarn:#e0bc84; --chipBad:#e0a49e;
+  --conSyr:#2f5fa8; --conPwmf:#1c7a4c; --conMae:#7b3fa8;
+  --stageA:#ffffff; --stageB:#cbd4dd;
+  --shadow:rgba(255,255,255,.72);
+  --sbtnBg:rgba(255,255,255,.90); --sbtnTxt:#242f3a;
+  /* button plate + the accent — see 01-tokens.css. The light accent is the
+     deeper R2 panel blue: white text holds 6.7:1 on the fill and --ctaHi
+     holds 7.8:1 as accent text on the white panels. */
+  --btnBg:#d9e0e9; --btnBg2:#f4f7fb;
+  --cta:#2b5aa7; --onCta:#ffffff;
+  --ctaHi:#24509a; --ctaD:#9db8dd;
+  /* keyboard focus ring — the light theme's teal (see 01-tokens.css) */
+  --focus:#0c7d8b;
+  --scrim:rgba(28,38,50,.42);
+  /* THE ALIASES HAVE TO BE RESTATED HERE. A custom property is resolved
+     where it is declared: `--tx:var(--txt)` in :root computes against
+     :root's --txt, which is the DARK one, and overriding --txt on this
+     selector does not go back and recompute it. Without these four lines
+     every surface styled with --tx / --faint — the whole bench popout —
+     keeps dark-theme text on a light card. (v1.37.0) */
+  --tx:var(--txt); --faint:var(--dimmer); --bl:var(--cy); --am2:var(--amDark);
+}
+body.light button.b.act,body.light .sbtn.act,
+body.light .smbtn.act,body.light #tabs button.act{font-weight:700}
+/* the stage floats over a pale 3D view — give its buttons a real edge */
+body.light .sbtn{box-shadow:0 1px 3px rgba(20,31,42,.18)}
+body.light .note{background:rgba(168,101,0,.09)}
+body.light .note.cy{background:rgba(12,125,139,.09)}
+body.light #console{box-shadow:inset 0 0 0 1px var(--line)}
+/* --shadow is a pale wash in this theme, so the two floating plates that
+   depend on a DROP shadow for depth get a real one (Stage-5 sweep) */
+body.light #stagePick{box-shadow:0 10px 30px rgba(22,30,40,.25)}
+/* the header bezel is recessed by an inset shadow that is tuned for the
+   dark theme in 02-layout.css — re-cut it for the light metals */
+body.light #hdrBezel{
+  background:linear-gradient(180deg,var(--surf2),var(--ink2));
+  box-shadow:inset 0 1px 3px rgba(22,30,40,.14);
+}

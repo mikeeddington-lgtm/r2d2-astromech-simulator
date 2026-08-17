@@ -1,0 +1,169 @@
+/* ================================================================
+   SEQUENCER v2 — the Daslight-style show-control layout.
+   The timeline is ONE scroller: a sticky lane column on the left, the
+   ruler and beat strip sticky on top, every track sharing the same
+   horizontal position, and a playhead that runs the full height.
+   ================================================================ */
+
+/* --- transport bits in the top bar --- */
+.sqtime{
+  font-family:var(--mono);font-size:11px;color:var(--am);min-width:58px;text-align:right;
+  padding:2px 6px;background:var(--ink);border:1px solid var(--line2);border-radius:3px;
+}
+#sqSnapWrap{display:flex;align-items:center;gap:4px;font-family:var(--mono);font-size:10px;color:var(--dim)}
+#sqSnapWrap select{
+  font-family:var(--mono);font-size:10px;background:var(--ink);color:var(--cy);
+  border:1px solid var(--line2);border-radius:3px;padding:2px 4px;
+}
+#sqSnapWrap .snapchip{color:var(--am)}
+#sqAdvWrap{font-family:var(--mono);font-size:10px}
+#sqAdvWrap input{accent-color:var(--am)}
+/* undo / redo (M6) — .b buttons, but the glyphs need a little more type
+   size than the 10px label scale, and an empty stack reads as disabled */
+#sqUndo,#sqRedo{font-size:13px;line-height:1;padding:3px 8px;min-width:30px}
+#sqUndo:disabled,#sqRedo:disabled{opacity:.35;cursor:default}
+
+/* --- the one-scroller timeline --- */
+.tlouter{overflow:auto;min-height:0;max-height:100%;position:relative;background:var(--bg2)}
+/* v1.15.0 (review F8): the timeline takes the spare height. #seqblocks
+   fills #seqbody as a flex column, and the lane scroller grows into
+   whatever the toolbar, the parts + ready-made rows and the library
+   leave over — at 1600×1000 that used to be a ~250px dead band. Once a
+   routine outgrows the space, .tlouter scrolls internally (min-height
+   is the floor); only if the COMPACT rows alone outgrow the strip does
+   #seqbody itself scroll. The pose and frame views keep the plain
+   scrolling #seqbody they always had. */
+body.seqmode.seqv-blocks #seqblocks{display:flex;flex-direction:column;height:100%}
+body.seqmode #seqblocks .blktools{flex:0 0 auto}
+body.seqmode #seqblocks .tlouter{flex:1 1 auto;min-height:140px;max-height:none}
+body.seqmode #seqblocks .blklib{flex:0 0 auto;max-height:200px;overflow:auto}
+/* min-height:100%: with the scroller grown (F8) the grid can be shorter
+   than its viewport — stretching it keeps the playhead and the snap line
+   running the full height instead of stopping at the last lane.
+   align-content:start, or the spare height is dealt out between the lane
+   rows instead of sitting after them (grid stretches implicit rows). */
+.tlinner{
+  position:relative;display:grid;grid-template-columns:118px minmax(0,1fr);
+  min-height:100%;align-content:start;
+}
+.tlrow{display:contents}
+.tlrow .blklane{
+  position:sticky;left:0;z-index:5;background:var(--bg2);
+}
+.tlrow.hdr .blklane, .tlrow.hdr .blkruler{
+  position:sticky;top:0;z-index:6;background:var(--surf);
+}
+.tlrow.hdr .blklane{left:0;z-index:7}
+.blkruler{cursor:ew-resize}
+.blktick.beat{border-left:1px dotted var(--am);opacity:.45;top:9px}
+.blktick.beat.strong{border-left:1px solid var(--am);opacity:.9;top:4px}
+
+/* the playhead: a line down the whole timeline plus a grab flag on the ruler */
+.tlplay{
+  position:absolute;top:0;bottom:0;width:0;z-index:8;pointer-events:none;
+  border-left:2px solid var(--am);
+}
+.tlplay i{
+  position:absolute;top:0;left:-6px;width:10px;height:12px;pointer-events:auto;cursor:ew-resize;
+  background:var(--am);clip-path:polygon(0 0,100% 0,100% 55%,50% 100%,0 55%);
+}
+/* the snap indicator while a brick is being dragged */
+.tlsnap{
+  position:absolute;top:0;bottom:0;width:0;z-index:7;pointer-events:none;
+  border-left:1px dashed var(--cta);
+}
+.tlsnap span{
+  position:absolute;top:20px;left:3px;white-space:nowrap;
+  font-family:var(--mono);font-size:9px;color:var(--onCta);background:var(--cta);
+  border-radius:2px;padding:1px 4px;
+}
+
+/* --- the sequence library (lower-left) --- */
+#seqlib{background:var(--surf)}
+.libtop{display:flex;align-items:center;gap:8px;padding:5px 8px 3px;position:sticky;top:0;background:var(--surf);z-index:2}
+.libtop b{font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
+.libsearch{
+  font-family:var(--mono);font-size:10.5px;background:var(--ink);color:var(--txt);
+  border:1px solid var(--line2);border-radius:3px;padding:3px 7px;width:150px;
+}
+.libsearch:focus{outline:none;border-color:var(--cta)}
+.libgrp{padding:0 8px 4px}
+.libgrph{
+  font-family:var(--mono);font-size:9px;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--dimmer);padding:4px 0 3px;
+}
+.libempty{font-family:var(--mono);font-size:10px;color:var(--dimmer);padding:8px}
+
+/* the click preview card — click DESCRIBES, drag INSERTS */
+.libprev{
+  position:fixed;z-index:210;width:250px;background:var(--surf2);border:1px solid var(--ctaD);
+  border-radius:5px;box-shadow:0 10px 30px var(--shadow);padding:8px 10px;
+}
+.libprev h5{font-size:12px;color:var(--txt);margin:0 0 2px}
+.libprev .meta{font-family:var(--mono);font-size:9.5px;color:var(--dimmer);margin-bottom:5px}
+.libprev .parts{display:flex;flex-wrap:wrap;gap:3px;margin-bottom:6px}
+.libprev .parts i{
+  font-style:normal;font-family:var(--mono);font-size:9px;color:var(--txt);
+  border-left:3px solid var(--pc);background:var(--ink);border-radius:2px;padding:1px 5px;
+}
+.libprev .conbar{margin:2px 0 4px}
+.libprev .catrow{display:flex;align-items:center;gap:5px;font-family:var(--mono);font-size:9.5px;color:var(--dim)}
+.libprev .catrow input{
+  flex:1;font-family:var(--mono);font-size:10px;background:var(--ink);color:var(--cy);
+  border:1px solid var(--line2);border-radius:3px;padding:2px 5px;min-width:0;
+}
+.libprev .hint{margin-top:4px}
+
+/* --- the inspector (right column) --- */
+#seqinsp .blkinsp{border-top:none;padding:9px 11px;background:transparent}
+.blkovr{
+  font-family:var(--mono);font-size:8.5px;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--onAcc);background:var(--am);border-radius:2px;padding:1px 4px;margin-left:5px;
+}
+.blkimp{font-family:var(--mono);font-size:9px;color:var(--dimmer)}
+.blkrestore{margin-left:4px}
+#seqinsp .blkfield{grid-template-columns:74px 1fr 52px}
+
+/* --- Build your Maestro (full-screen overlay) --- */
+.bldgrid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,1.1fr);gap:12px;min-height:0}
+.bldcol h4{
+  font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--dim);padding-bottom:5px;
+}
+.bldcol{min-height:0;overflow:auto}
+.bldrow{
+  display:flex;align-items:center;gap:6px;font-family:var(--mono);font-size:10.5px;color:var(--txt);
+  border:1px solid var(--line);border-radius:3px;padding:4px 6px;margin-bottom:3px;background:var(--surf2);
+}
+.bldrow .ix{color:var(--am);min-width:20px}
+.bldrow .ix.far{color:var(--dimmer)}
+.bldrow .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bldrow .mt{color:var(--dimmer);font-size:9.5px}
+.bldrow button.b{padding:1px 6px}
+.bldrow.spare{border-style:dashed;color:var(--dim)}
+.bldslot{
+  font-family:var(--mono);font-size:8.5px;color:var(--onAcc);background:var(--gn);
+  border-radius:2px;padding:1px 4px;
+}
+.bldslot.far{background:var(--dimmer)}
+.bldstats{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-bottom:8px}
+.bldscript{
+  font-family:var(--mono);font-size:9.5px;line-height:1.45;background:var(--ink2);
+  border:1px solid var(--line);border-radius:3px;padding:7px;color:var(--gn);
+  max-height:230px;overflow:auto;white-space:pre;
+}
+
+/* ---------------------------------------------------- live drive (v1.39.0)
+   The sequencer's ⚡ button, armed. AMBER, not the blue --cta: the project
+   rule is "--am warnings", and something moving in the room because of a
+   click on this screen is precisely a warning state, not a call to action.
+   Outline rather than fill, because --am is a dark brown in the light theme
+   and white-on-it would need a token that does not exist. */
+button.b.act.warn{
+  background:transparent;color:var(--am);border-color:var(--am);font-weight:700;
+  animation:sqlive 1.9s ease-in-out infinite;
+}
+button.b.act.warn:hover{background:var(--am);color:var(--onAcc)}
+@keyframes sqlive{0%,100%{opacity:1}50%{opacity:.62}}
+/* a blinking control is a distraction to anyone who did not ask for motion */
+@media (prefers-reduced-motion:reduce){ button.b.act.warn{animation:none} }

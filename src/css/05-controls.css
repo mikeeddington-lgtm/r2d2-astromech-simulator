@@ -1,0 +1,144 @@
+/* Buttons, inputs, hints and notes — the generic widgets, plus the sound box. */
+/* generic controls */
+button.b{
+  font-family:var(--mono);font-size:var(--fs-label);letter-spacing:.08em;text-transform:uppercase;
+  background:var(--panel2);color:var(--dim);border:1px solid var(--line2);
+  padding:5px 9px;border-radius:3px;cursor:pointer;
+}
+button.b:hover{color:var(--txt);border-color:var(--ctaD)}
+button.b.act{color:var(--onCta);background:var(--cta);border-color:var(--cta)}
+/* the primary action is the R2-blue --cta, not amber — amber means warning,
+   and a call-to-action that shares the warning colour reads as a hazard */
+button.b.prim{color:var(--onCta);background:var(--cta);border-color:var(--cta);font-weight:600}
+
+/* Interactive reads as pressable: header/wizard action buttons wear a subtle
+   raised plate. (body … outranks the base .hbtn rule in 07-startup.css,
+   which is concatenated later but carries lower specificity.) Status chips
+   deliberately do NOT get this — see .chip in 02-layout.css. */
+body .hbtn{
+  background:linear-gradient(180deg,var(--btnBg2),var(--btnBg));
+  border:1px solid var(--line2);
+}
+body .hbtn:hover{color:var(--txt);border-color:var(--ctaD)}
+body .hbtn.act{background:var(--cta);color:var(--onCta);border-color:var(--cta);font-weight:700}
+button.b.danger{color:var(--rd, #e05555);border-color:var(--rd, #e05555)}
+button.b.danger:hover{color:#fff;background:var(--rd, #e05555)}
+label.sw{display:flex;align-items:center;gap:7px;font-family:var(--mono);font-size:10.5px;color:var(--dim);cursor:pointer;padding:3px 0}
+label.sw input{accent-color:var(--cta);width:13px;height:13px;cursor:pointer}
+
+.cfgrow{display:grid;grid-template-columns:1fr 66px;gap:6px;align-items:center;padding:2.5px 0}
+.cfgrow label{font-family:var(--mono);font-size:10.5px;color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cfgrow input[type=number]{
+  font-family:var(--mono);font-size:var(--fs-data);background:var(--ink);color:var(--cy);
+  border:1px solid var(--line2);border-radius:3px;padding:3px 5px;width:100%;text-align:right;
+}
+.cfgrow input[type=number]:focus{outline:none;border-color:var(--cta);color:var(--txt)}
+.cfggrid2{display:grid;grid-template-columns:1fr 1fr;gap:0 12px}
+/* .hint is the SMALL voice — one-line captions and status readouts (bldMsg,
+   expMsg, cadMsg, axisHint…). Real paragraphs carry .prose on top (below). */
+.hint{font-family:var(--mono);font-size:10px;color:var(--dimmer);line-height:1.55;margin-top:6px}
+.note{
+  font-family:var(--mono);font-size:10px;line-height:1.6;color:var(--am);
+  background:rgba(242,166,60,.07);border-left:2px solid var(--am);padding:7px 9px;border-radius:0 3px 3px 0;margin-bottom:10px;
+}
+.note b{color:var(--amHi)}
+.note.cy{color:var(--cy);background:rgba(67,217,232,.06);border-left-color:var(--cy)}
+.note.cy b{color:var(--cyHi)}
+
+/* ---- v1.15.0 M1 · prose -------------------------------------------------
+   Real paragraphs read in the sans at body size. .prose rides ALONGSIDE the
+   old classes ("hint prose", "note cy prose"), so .hint and .note keep
+   styling the one-line captions and status lines they also serve elsewhere.
+   Scoped under .pane on purpose:
+     · the setup wizard keeps its own type until Stage 5 (07-startup.css
+       overrides would half-apply otherwise), and
+     · the extra specificity outranks the per-pane mono rules that live in
+       07-startup.css (.tuhow/.tuwhy — the Learn tab) without touching that
+       file, which another agent owns this stage. */
+.pane .prose{
+  font-family:var(--sans);font-size:var(--fs-body);line-height:1.55;max-width:70ch;
+  color:var(--dim);letter-spacing:0;text-transform:none;margin-top:8px;
+}
+/* emphasis is WEIGHT, not colour — cyan/amber inline bolds fighting each
+   other was review finding F2. Colour only where it encodes meaning: a
+   warning stays amber via an inline style or the .note border. */
+.pane .prose b{color:var(--txt);font-weight:600}
+/* code and identifiers keep the mono, on a quiet chip */
+.pane .prose code{
+  font-family:var(--mono);font-size:.85em;color:var(--txt);
+  background:var(--track);border-radius:3px;padding:.5px 4px;white-space:nowrap;
+}
+/* a prose callout keeps its meaning in the BORDER and the wash — amber =
+   warning, cyan = info — while the text itself reads like text */
+.pane .note.prose{color:var(--dim)}
+.pane .note.prose b{color:var(--txt)}
+/* the title size, where a card has one (Learn lesson titles carry .ttl) */
+.pane .ttl{font-family:var(--sans);font-size:var(--fs-title);font-weight:600}
+/* sound */
+#sndBox{display:flex;align-items:center;gap:11px;background:var(--panel);border:1px solid var(--line);border-radius:3px;padding:10px}
+#sbankRow{display:flex;align-items:center;gap:8px;margin-top:6px}
+#sbankStat{flex:1;font-family:var(--mono);font-size:10px;color:var(--dim)}
+#sbankStat.ok{color:var(--gn, #50dc8c)}
+#sndNum{font-family:var(--mono);font-size:28px;line-height:1;color:var(--dimmer);min-width:52px;text-align:center}
+#sndNum.on{color:var(--am);text-shadow:0 0 16px rgba(242,166,60,.5)}
+#sndMeta{flex:1;font-family:var(--mono);font-size:10px;color:var(--dim);line-height:1.6}
+#sndMeta .lbl{color:var(--txt)}
+.eq{display:flex;gap:2px;align-items:flex-end;height:22px}
+.eq i{width:3px;background:var(--am);height:3px;border-radius:1px;opacity:.25}
+#sndBox.on .eq i{opacity:1;animation:eqa .6s ease-in-out infinite alternate}
+.eq i:nth-child(2){animation-delay:.12s!important}
+.eq i:nth-child(3){animation-delay:.24s!important}
+.eq i:nth-child(4){animation-delay:.36s!important}
+.eq i:nth-child(5){animation-delay:.48s!important}
+@keyframes eqa{from{height:3px}to{height:20px}}
+
+/* pad svg states */
+.pb{fill:var(--pbFill);stroke:var(--pbStroke);stroke-width:1;transition:fill .04s}
+.pb.on{fill:var(--cy)}
+.pbtxt{font-family:var(--mono);font-size:9.5px;fill:var(--padTxt);pointer-events:none;text-anchor:middle;dominant-baseline:central}
+.pb.on + .pbtxt,.pbtxt.on{fill:var(--onAcc);font-weight:700}
+#padsvg text.lab{font-family:var(--mono);font-size:8px;fill:var(--padLab);text-anchor:middle;letter-spacing:.08em}
+#padsvg .hit{cursor:pointer}
+.stickbase{fill:var(--row);stroke:var(--line2);stroke-width:1.5}
+.sticktop{fill:var(--stickTop);stroke:var(--stickStroke);stroke-width:1.5;cursor:grab}
+.sticktop.on{fill:var(--cy);stroke:var(--cyHi)}
+.sticktop.drag{cursor:grabbing}
+.trigfill{fill:var(--am)}
+#padsvg .shell{fill:var(--shellFill);stroke:var(--shellStroke);stroke-width:1.5}
+.ledq{fill:var(--track);stroke:var(--line2);stroke-width:1}
+.ledq.on{fill:var(--gn)}
+
+/* ================================================================
+   v1.16.0 M7a — visible keyboard focus
+   One ring for every interactive family: a 2px --focus outline, offset
+   so it sits outside the control's own border. :focus-visible ONLY —
+   a mouse press never matches it, so the existing click-blur behaviour
+   (main.js) and the stick-driving keys are untouched, and a
+   programmatic .click() paints nothing.
+   The text/number inputs that set outline:none on bare :focus
+   (.cfgrow, table.tbl, select.msel, .selrow, .asname, .blkname…) keep
+   their border-colour focus treatment — those rules are more specific
+   on purpose; this ring covers everything that had NOTHING.
+   ================================================================ */
+.hbtn:focus-visible, button.b:focus-visible, .smbtn:focus-visible,
+.sbtn:focus-visible, #tabs button:focus-visible,
+.raildot:focus-visible, .finbtn:focus-visible,
+#stagePick .sprow:focus-visible, .pinbtn:focus-visible, .iwx:focus-visible,
+.blkchip:focus-visible, .seqrow:focus-visible,
+input:focus-visible, select:focus-visible, textarea:focus-visible{
+  outline:2px solid var(--focus); outline-offset:2px;
+}
+
+/* An <a> that has to look like a button — the servo bench section links
+   straight out to Pololu's software, and a raw link beside a real button
+   reads as an afterthought (v1.35.0). Same rules, anchor selector. */
+a.b{
+  display:inline-block;text-decoration:none;
+  font-family:var(--mono);font-size:var(--fs-label);letter-spacing:.08em;text-transform:uppercase;
+  background:var(--panel2);color:var(--dim);border:1px solid var(--line2);
+  padding:5px 9px;border-radius:3px;cursor:pointer;
+}
+a.b:hover{color:var(--txt);border-color:var(--ctaD)}
+a.b.prim{color:var(--onCta);background:var(--cta);border-color:var(--cta);font-weight:600}
+a.b.prim:hover{color:var(--onCta);filter:brightness(1.08)}
+a.b:focus-visible{outline:2px solid var(--focus);outline-offset:2px}

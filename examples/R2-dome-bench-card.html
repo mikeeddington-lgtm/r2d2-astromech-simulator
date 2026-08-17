@@ -1,0 +1,56 @@
+<!doctype html><html lang=en><head><meta charset=utf-8>
+<meta name=viewport content="width=device-width,initial-scale=1">
+<title>R2 dome Maestro — bench card</title><style>
+:root{--bg:#12141a;--pa:#1a1d26;--ln:#2b303d;--tx:#e6e9f0;--dm:#8e97ab;--ac:#5ec8f2;--wn:#f2b45e;--er:#f2685e;--ok:#6ee7a8}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.55 ui-sans-serif,-apple-system,"Segoe UI",system-ui,sans-serif;padding:28px}
+.wrap{max-width:1020px;margin:0 auto}
+h1{font-size:24px;margin:0 0 2px;letter-spacing:-.02em}
+.sub{color:var(--dm);font-size:13px;margin-bottom:24px}
+h2{font-size:12px;text-transform:uppercase;letter-spacing:.1em;color:var(--dm);margin:26px 0 10px;font-weight:600}
+table{width:100%;border-collapse:collapse;background:var(--pa);border:1px solid var(--ln);border-radius:8px;overflow:hidden}
+td,th{padding:7px 12px;border-bottom:1px solid var(--ln);text-align:left;font-size:14px}
+tr:last-child td{border-bottom:none}
+th{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--dm);font-weight:600;background:#161923}
+.combo{font-weight:700;color:var(--ac);white-space:nowrap;font-size:15px}
+.n{font-variant-numeric:tabular-nums;color:var(--dm);width:44px}
+.nm{font-weight:600}
+.g{color:var(--dm);font-size:13px}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:24px;align-items:start}
+.note{background:var(--pa);border:1px solid var(--ln);border-left:3px solid var(--wn);border-radius:6px;padding:11px 14px;margin:8px 0;font-size:14px}
+.note.bad{border-left-color:var(--er)}
+.note.ok{border-left-color:var(--ok)}
+.note b{color:var(--tx)}
+code{background:#0d0f14;padding:1px 5px;border-radius:3px;font:13px ui-monospace,Menlo,Consolas,monospace;color:var(--ac)}
+ol{margin:8px 0 0;padding-left:20px} ol li{margin:5px 0;font-size:14px}
+@media(max-width:760px){.cols{grid-template-columns:1fr}}
+</style></head><body><div class=wrap>
+<h1>R2 dome — Mini Maestro 18</h1>
+<div class=sub>Padawan360 · Maestro/DY-SV5W · Serial3 @ 9600 · device 12 · CRC off · <code>R2-dome-padawan.mstr</code></div>
+<h2>Controller map</h2>
+<table><tr><th>Combo</th><th>Script</th><th>Sequence</th><th></th></tr><tr><td class=combo>RT + ▲</td><td class=n>0</td><td class=nm>Dome Pies Open</td><td class=g>PP1 → PP2 → PP5 → PP6, staggered</td></tr><tr><td class=combo>RT + ▶</td><td class=n>1</td><td class=nm>Dome Pies Close</td><td class=g>reverse order</td></tr><tr><td class=combo>RT + ▼</td><td class=n>2</td><td class=nm>Dome Panels Open</td><td class=g>P1 → P2 → P3 → P4 → P7 → P11 → P13</td></tr><tr><td class=combo>RT + ◀</td><td class=n>3</td><td class=nm>Dome Panels Close</td><td class=g>reverse order</td></tr><tr><td class=combo>LT + ▲</td><td class=n>4</td><td class=nm>Whole Dome Open</td><td class=g>pies together, then panels together</td></tr><tr><td class=combo>LT + ▶</td><td class=n>5</td><td class=nm>Whole Dome Close</td><td class=g>+ fires sound track 3</td></tr><tr><td class=combo>LT + ▼</td><td class=n>6</td><td class=nm>Dome Wave</td><td class=g>travelling ripple, all 11, out and back</td></tr><tr><td class=combo>LT + ◀</td><td class=n>7</td><td class=nm>Dome Home</td><td class=g>everything shut, holos centred — the panic button</td></tr></table>
+<div class=note><b>Tap the d-pad, don't hold it.</b> The sketch uses <code>getButtonPress</code>, so a held direction restarts the script on every pass through the loop.</div>
+<div class=cols><div>
+<h2>Channels — do not change</h2>
+<table><tr><th>#</th><th>Name</th><th>Min</th><th>Max</th><th></th></tr><tr><td class=n>0</td><td class=nm>PP5</td><td>4544</td><td>7296</td><td class=g>pie</td></tr><tr><td class=n>1</td><td class=nm>PP6</td><td>4544</td><td>7296</td><td class=g>pie</td></tr><tr><td class=n>2</td><td class=nm>PP1</td><td>5056</td><td>7744</td><td class=g>pie</td></tr><tr><td class=n>3</td><td class=nm>PP2</td><td>4544</td><td>7296</td><td class=g>pie</td></tr><tr><td class=n>4</td><td class=nm>HP3-1</td><td>3968</td><td>8000</td><td class=g>holo</td></tr><tr><td class=n>5</td><td class=nm>HP3-2</td><td>3968</td><td>8000</td><td class=g>holo</td></tr><tr><td class=n>6</td><td class=nm>P13</td><td>4032</td><td>7616</td><td class=g>panel</td></tr><tr><td class=n>7</td><td class=nm>HP1-1</td><td>3968</td><td>8000</td><td class=g>holo</td></tr><tr><td class=n>8</td><td class=nm>HP1-2</td><td>3968</td><td>8000</td><td class=g>holo</td></tr><tr><td class=n>9</td><td class=nm>P1-Fix</td><td>3968</td><td>8000</td><td class=g>panel</td></tr><tr><td class=n>10</td><td class=nm>P2</td><td>4032</td><td>7616</td><td class=g>panel</td></tr><tr><td class=n>11</td><td class=nm>P3</td><td>4032</td><td>7360</td><td class=g>panel</td></tr><tr><td class=n>12</td><td class=nm>P4</td><td>3968</td><td>7616</td><td class=g>panel</td></tr><tr><td class=n>13</td><td class=nm>P7</td><td>4416</td><td>8000</td><td class=g>panel</td></tr><tr><td class=n>14</td><td class=nm>HP2-1</td><td>3776</td><td>8000</td><td class=g>holo</td></tr><tr><td class=n>15</td><td class=nm>HP2-2</td><td>3968</td><td>8000</td><td class=g>holo</td></tr><tr><td class=n>16</td><td class=nm>P11</td><td>4416</td><td>7744</td><td class=g>panel</td></tr><tr><td class=n>17</td><td class=nm>—</td><td>3968</td><td>8000</td><td class=g>spare</td></tr></table>
+<div class=note><b>ch17 is unnamed and never commanded.</b> One spare channel free.</div>
+</div><div>
+<h2>Loading it</h2>
+<ol>
+<li>File ▸ Open settings file → <code>R2-dome-padawan.mstr</code></li>
+<li><b>Apply Settings</b></li>
+<li>Do <i>not</i> press "Copy all Sequences to Script" — the script is already generated, and that would rebuild it from all twelve sequences and renumber your slots</li>
+<li>Tap <b>LT + ◀</b> to home the dome, then work up</li>
+</ol>
+<div class="note ok"><b>Slots are pinned.</b> The eight are first in <code>&lt;Sequences&gt;</code>; your four originals sit after them, so even an accidental Copy-all keeps 0–7 correct.</div>
+<div class="note bad"><b>The old script could never have worked.</b> It was a <code>begin/repeat</code> loop with no sequence subroutines, so <code>restartScript(0)</code> landed on <code>frame_0..17</code> and underflowed the stack.</div>
+<div class=note><b>homemode is Off everywhere.</b> Servos are limp at power-up. Every sequence writes all 17 channels in its first frame, so any script leaves the dome in a known pose.</div>
+<h2>Numbers</h2>
+<table>
+<tr><td class=nm>Script size</td><td class=g>~1.1 KB of 8 KB</td></tr>
+<tr><td class=nm>Subroutines</td><td class=g>8 sequences + 24 frame helpers</td></tr>
+<tr><td class=nm>Holo park</td><td class=g>5984 — HP2-1 at 5888</td></tr>
+<tr><td class=nm>Targets</td><td class=g>quarter-µs · 6000 = 1500 µs</td></tr>
+<tr><td class=nm>Full throw</td><td class=g>~344 ms at speed 80 — frames are 350–600</td></tr>
+</table>
+</div></div></div></body></html>

@@ -1,0 +1,374 @@
+{
+ "ver": 1,
+ "osc": 25000000,
+ "channels": [
+  {
+   "name": "spd 5",
+   "mode": "Servo",
+   "min": 4800,
+   "max": 7200,
+   "home": 6000,
+   "homemode": "Goto",
+   "speed": 5,
+   "acceleration": 0,
+   "releaseMs": 0,
+   "ease": "none"
+  },
+  {
+   "name": "spd 10",
+   "mode": "Servo",
+   "min": 4800,
+   "max": 7200,
+   "home": 6000,
+   "homemode": "Goto",
+   "speed": 10,
+   "acceleration": 0,
+   "releaseMs": 0,
+   "ease": "none"
+  },
+  {
+   "name": "spd 20",
+   "mode": "Servo",
+   "min": 4800,
+   "max": 7200,
+   "home": 6000,
+   "homemode": "Goto",
+   "speed": 20,
+   "acceleration": 0,
+   "releaseMs": 0,
+   "ease": "none"
+  },
+  {
+   "name": "spd 40",
+   "mode": "Servo",
+   "min": 4800,
+   "max": 7200,
+   "home": 6000,
+   "homemode": "Goto",
+   "speed": 40,
+   "acceleration": 0,
+   "releaseMs": 0,
+   "ease": "none"
+  },
+  {
+   "name": "spd 80",
+   "mode": "Servo",
+   "min": 4800,
+   "max": 7200,
+   "home": 6000,
+   "homemode": "Goto",
+   "speed": 80,
+   "acceleration": 0,
+   "releaseMs": 0,
+   "ease": "none"
+  },
+  {
+   "name": "spd 40 +accel",
+   "mode": "Servo",
+   "min": 4800,
+   "max": 7200,
+   "home": 6000,
+   "homemode": "Goto",
+   "speed": 40,
+   "acceleration": 10,
+   "releaseMs": 0,
+   "ease": "none"
+  }
+ ],
+ "sequences": [
+  {
+   "name": "0 Ladder — every speed at once",
+   "frames": [
+    {
+     "name": "to min",
+     "duration": 6000,
+     "targets": [
+      4800,
+      4800,
+      4800,
+      4800,
+      4800,
+      4800
+     ]
+    },
+    {
+     "name": "to max",
+     "duration": 6000,
+     "targets": [
+      7200,
+      7200,
+      7200,
+      7200,
+      7200,
+      7200
+     ]
+    },
+    {
+     "name": "to min",
+     "duration": 6000,
+     "targets": [
+      4800,
+      4800,
+      4800,
+      4800,
+      4800,
+      4800
+     ]
+    },
+    {
+     "name": "centre",
+     "duration": 2500,
+     "targets": [
+      6000,
+      6000,
+      6000,
+      6000,
+      6000,
+      6000
+     ]
+    }
+   ]
+  },
+  {
+   "name": "1 Crawl — slowest channel only",
+   "frames": [
+    {
+     "name": "to min",
+     "duration": 6000,
+     "targets": [
+      4800,
+      0,
+      0,
+      0,
+      0,
+      0
+     ]
+    },
+    {
+     "name": "to max",
+     "duration": 6000,
+     "targets": [
+      7200,
+      0,
+      0,
+      0,
+      0,
+      0
+     ]
+    },
+    {
+     "name": "to min",
+     "duration": 6000,
+     "targets": [
+      4800,
+      0,
+      0,
+      0,
+      0,
+      0
+     ]
+    },
+    {
+     "name": "centre",
+     "duration": 2500,
+     "targets": [
+      6000,
+      0,
+      0,
+      0,
+      0,
+      0
+     ]
+    }
+   ]
+  },
+  {
+   "name": "2 Snap — fastest channel, six times",
+   "frames": [
+    {
+     "name": "min",
+     "duration": 900,
+     "targets": [
+      0,
+      0,
+      0,
+      0,
+      4800,
+      0
+     ]
+    },
+    {
+     "name": "max",
+     "duration": 900,
+     "targets": [
+      0,
+      0,
+      0,
+      0,
+      7200,
+      0
+     ]
+    },
+    {
+     "name": "min",
+     "duration": 900,
+     "targets": [
+      0,
+      0,
+      0,
+      0,
+      4800,
+      0
+     ]
+    },
+    {
+     "name": "max",
+     "duration": 900,
+     "targets": [
+      0,
+      0,
+      0,
+      0,
+      7200,
+      0
+     ]
+    },
+    {
+     "name": "min",
+     "duration": 900,
+     "targets": [
+      0,
+      0,
+      0,
+      0,
+      4800,
+      0
+     ]
+    },
+    {
+     "name": "max",
+     "duration": 900,
+     "targets": [
+      0,
+      0,
+      0,
+      0,
+      7200,
+      0
+     ]
+    },
+    {
+     "name": "min",
+     "duration": 900,
+     "targets": [
+      0,
+      0,
+      0,
+      0,
+      4800,
+      0
+     ]
+    },
+    {
+     "name": "max",
+     "duration": 900,
+     "targets": [
+      0,
+      0,
+      0,
+      0,
+      7200,
+      0
+     ]
+    },
+    {
+     "name": "min",
+     "duration": 900,
+     "targets": [
+      0,
+      0,
+      0,
+      0,
+      4800,
+      0
+     ]
+    },
+    {
+     "name": "max",
+     "duration": 900,
+     "targets": [
+      0,
+      0,
+      0,
+      0,
+      7200,
+      0
+     ]
+    },
+    {
+     "name": "min",
+     "duration": 900,
+     "targets": [
+      0,
+      0,
+      0,
+      0,
+      4800,
+      0
+     ]
+    },
+    {
+     "name": "max",
+     "duration": 900,
+     "targets": [
+      0,
+      0,
+      0,
+      0,
+      7200,
+      0
+     ]
+    },
+    {
+     "name": "centre",
+     "duration": 1200,
+     "targets": [
+      0,
+      0,
+      0,
+      0,
+      6000,
+      0
+     ]
+    }
+   ]
+  },
+  {
+   "name": "3 Hold centre — is it quiet when still?",
+   "frames": [
+    {
+     "name": "centre",
+     "duration": 20000,
+     "targets": [
+      6000,
+      6000,
+      6000,
+      6000,
+      6000,
+      6000
+     ]
+    }
+   ]
+  }
+ ],
+ "setup": {
+  "mcu": "nano",
+  "boards": 1,
+  "chain": "star",
+  "power": "shared",
+  "supplyA": 5,
+  "freq": 50,
+  "osc": 25000000,
+  "sketch": "bridge"
+ }
+}

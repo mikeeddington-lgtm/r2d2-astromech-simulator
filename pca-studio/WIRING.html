@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PCA9685 wiring — bench rig &amp; droid</title>
+<style>
+:root{
+  --bg:#111417;--panel:#191e23;--panel2:#1f262c;--line:#2c353d;
+  --tx:#d7dde2;--dim:#8a949d;--faint:#59636c;
+  --am:#f0a832;--gn:#57c78a;--rd:#e0483a;--bl:#5aa7e0;--pu:#b98ce0;
+  --mono:ui-monospace,'Cascadia Code',Consolas,Menlo,monospace;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);
+     font:14px/1.6 -apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
+     padding:26px 22px 60px;max-width:1120px;margin:0 auto}
+h1{font:600 20px/1.3 var(--mono);letter-spacing:.02em;margin:0 0 4px}
+h1 b{color:var(--am)}
+.sub{color:var(--dim);font-family:var(--mono);font-size:12px;margin-bottom:24px}
+h2{font:600 11px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;
+   color:var(--dim);margin:34px 0 12px;padding-bottom:7px;border-bottom:1px solid var(--line)}
+svg{width:100%;height:auto;display:block;background:var(--panel);
+    border:1px solid var(--line);border-radius:8px}
+table{border-collapse:collapse;width:100%;font-family:var(--mono);font-size:12.5px;margin-top:4px}
+th{text-align:left;font-size:10px;letter-spacing:.08em;text-transform:uppercase;
+   color:var(--faint);font-weight:600;padding:6px 10px;border-bottom:1px solid var(--line)}
+td{padding:6px 10px;border-bottom:1px solid #20272d}
+tr:hover td{background:#1c2329}
+code{font-family:var(--mono);background:var(--panel2);border:1px solid var(--line);
+     border-radius:3px;padding:1px 5px;font-size:12px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px 16px}
+.card h3{margin:0 0 8px;font:600 13px/1.4 var(--mono);color:var(--tx)}
+.card p{margin:0 0 8px;font-size:13px;color:var(--dim)}
+.card p:last-child{margin-bottom:0}
+.stop{border-left:3px solid var(--rd)}
+.stop h3{color:var(--rd)}
+.warnbox{border-left:3px solid var(--am)}
+.warnbox h3{color:var(--am)}
+ul{margin:8px 0;padding-left:20px;color:var(--dim);font-size:13px}
+li{margin-bottom:6px}
+li b{color:var(--tx);font-weight:600}
+.foot{margin-top:34px;padding-top:14px;border-top:1px solid var(--line);
+      color:var(--faint);font-family:var(--mono);font-size:11px}
+@media print{
+  body{background:#fff;color:#111;max-width:none}
+  *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .card,svg,table{break-inside:avoid}
+}
+</style>
+</head>
+<body>
+
+<h1><b>PCA9685</b> WIRING</h1>
+<div class="sub">Bench rig for PCA Studio live mode · and what changes for the standalone droid</div>
+
+<svg viewBox="0 0 1000 700" role="img" aria-label="Wiring diagram: PC to Arduino over USB, Arduino to PCA9685 over I2C, separate servo supply, common ground">
+  <defs>
+    <pattern id="grid" width="25" height="25" patternUnits="userSpaceOnUse">
+      <path d="M25 0H0V25" fill="none" stroke="#1d242a" stroke-width="1"/>
+    </pattern>
+    <marker id="dot" markerWidth="6" markerHeight="6" refX="3" refY="3">
+      <circle cx="3" cy="3" r="2.6" fill="currentColor"/>
+    </marker>
+  </defs>
+  <rect width="1000" height="700" fill="url(#grid)"/>
+
+  <!-- ============ wires drawn first, under the boxes ============ -->
+  <!-- USB -->
+  <path d="M120 285 H180" stroke="#7b8895" stroke-width="5" fill="none"/>
+  <text x="150" y="277" fill="#8a949d" font-family="ui-monospace,monospace" font-size="9.5" text-anchor="middle">USB</text>
+
+  <!-- I2C + logic power : Arduino -> PCA #1  (no crossings by design) -->
+  <path d="M360 225 H390 V175 H470" stroke="#f0a832" stroke-width="2.2" fill="none"/>
+  <path d="M360 250 H402 V200 H470" stroke="#cfd6dc" stroke-width="2.2" fill="none"/>
+  <path d="M360 275 H414 V225 H470" stroke="#5aa7e0" stroke-width="2.2" fill="none"/>
+  <path d="M360 300 H426 V250 H470" stroke="#57c78a" stroke-width="2.2" fill="none"/>
+
+  <!-- daisy chain PCA1 -> PCA2 -->
+  <path d="M490 300 V350" stroke="#f0a832" stroke-width="2" fill="none" opacity=".75"/>
+  <path d="M505 300 V350" stroke="#cfd6dc" stroke-width="2" fill="none" opacity=".75"/>
+  <path d="M520 300 V350" stroke="#5aa7e0" stroke-width="2" fill="none" opacity=".75"/>
+  <path d="M535 300 V350" stroke="#57c78a" stroke-width="2" fill="none" opacity=".75"/>
+  <text x="482" y="322" fill="#59636c" font-family="ui-monospace,monospace" font-size="9" text-anchor="end">chain</text>
+  <text x="482" y="334" fill="#59636c" font-family="ui-monospace,monospace" font-size="9" text-anchor="end">all 4 lines</text>
+
+  <!-- servo signal wires -->
+  <path d="M650 175 H760" stroke="#b98ce0" stroke-width="2.2" fill="none"/>
+  <path d="M650 205 H760" stroke="#b98ce0" stroke-width="2.2" fill="none"/>
+  <path d="M650 235 H760" stroke="#b98ce0" stroke-width="2.2" fill="none"/>
+
+  <!-- servo POWER from the separate supply -->
+  <path d="M760 555 H710 V320 H600 V300" stroke="#e0483a" stroke-width="3.4" fill="none"/>
+  <path d="M710 510 H600 V490" stroke="#e0483a" stroke-width="3.4" fill="none"/>
+  <circle cx="710" cy="510" r="3.6" fill="#e0483a"/>
+  <path d="M760 585 H730 V330 H630 V300" stroke="#cfd6dc" stroke-width="3.4" fill="none"/>
+  <path d="M730 525 H630 V490" stroke="#cfd6dc" stroke-width="3.4" fill="none"/>
+  <circle cx="730" cy="525" r="3.6" fill="#cfd6dc"/>
+
+  <!-- COMMON GROUND back to the Arduino -->
+  <path d="M730 585 V650 H320 V420" stroke="#cfd6dc" stroke-width="3.4" fill="none"/>
+  <circle cx="730" cy="585" r="3.6" fill="#cfd6dc"/>
+  <rect x="392" y="639" width="196" height="21" rx="4" fill="#191e23" stroke="#cfd6dc" stroke-width="1"/>
+  <text x="490" y="654" fill="#cfd6dc" font-family="ui-monospace,monospace" font-size="10.5" text-anchor="middle">COMMON GROUND — mandatory</text>
+
+  <!-- ============ boxes ============ -->
+  <!-- PC -->
+  <rect x="20" y="250" width="100" height="70" rx="6" fill="#1b2229" stroke="#2c353d"/>
+  <text x="70" y="280" fill="#d7dde2" font-family="ui-monospace,monospace" font-size="12" text-anchor="middle">PC</text>
+  <text x="70" y="296" fill="#8a949d" font-family="ui-monospace,monospace" font-size="9" text-anchor="middle">Chrome</text>
+  <text x="70" y="308" fill="#f0a832" font-family="ui-monospace,monospace" font-size="9" text-anchor="middle">PCA Studio</text>
+
+  <!-- Arduino -->
+  <rect x="180" y="170" width="180" height="250" rx="6" fill="#1b2229" stroke="#2c353d"/>
+  <rect x="180" y="170" width="180" height="26" rx="6" fill="#232c34"/>
+  <text x="270" y="188" fill="#d7dde2" font-family="ui-monospace,monospace" font-size="12" text-anchor="middle">ARDUINO MEGA</text>
+  <text x="270" y="215" fill="#8a949d" font-family="ui-monospace,monospace" font-size="9.5" text-anchor="middle">PCA_Bridge.ino</text>
+  <text x="270" y="230" fill="#59636c" font-family="ui-monospace,monospace" font-size="9" text-anchor="middle">(bench / live mode)</text>
+  <text x="270" y="256" fill="#59636c" font-family="ui-monospace,monospace" font-size="9" text-anchor="middle">— or —</text>
+  <text x="270" y="274" fill="#8a949d" font-family="ui-monospace,monospace" font-size="9.5" text-anchor="middle">MaestroPCA +</text>
+  <text x="270" y="288" fill="#8a949d" font-family="ui-monospace,monospace" font-size="9.5" text-anchor="middle">sequences.h</text>
+  <text x="270" y="303" fill="#59636c" font-family="ui-monospace,monospace" font-size="9" text-anchor="middle">(standalone droid)</text>
+  <!-- pin stubs -->
+  <g font-family="ui-monospace,monospace" font-size="9.5" text-anchor="end">
+    <text x="356" y="222" fill="#f0a832">5V</text>
+    <text x="356" y="247" fill="#cfd6dc">GND</text>
+    <text x="356" y="272" fill="#5aa7e0">20 SDA</text>
+    <text x="356" y="297" fill="#57c78a">21 SCL</text>
+  </g>
+  <text x="326" y="412" fill="#cfd6dc" font-family="ui-monospace,monospace" font-size="9.5" text-anchor="end">GND</text>
+
+  <!-- PCA #1 -->
+  <rect x="470" y="140" width="180" height="160" rx="6" fill="#1b2229" stroke="#2c353d"/>
+  <rect x="470" y="140" width="180" height="24" rx="6" fill="#232c34"/>
+  <text x="560" y="157" fill="#d7dde2" font-family="ui-monospace,monospace" font-size="11.5" text-anchor="middle">PCA9685  0x40</text>
+  <g font-family="ui-monospace,monospace" font-size="9.5">
+    <text x="476" y="178" fill="#f0a832">VCC</text>
+    <text x="476" y="203" fill="#cfd6dc">GND</text>
+    <text x="476" y="228" fill="#5aa7e0">SDA</text>
+    <text x="476" y="253" fill="#57c78a">SCL</text>
+  </g>
+  <g font-family="ui-monospace,monospace" font-size="9.5" text-anchor="end">
+    <text x="645" y="178" fill="#b98ce0">ch 0</text>
+    <text x="645" y="208" fill="#b98ce0">ch 1</text>
+    <text x="645" y="238" fill="#b98ce0">ch 2</text>
+    <text x="645" y="268" fill="#59636c">ch 3–15</text>
+  </g>
+  <text x="600" y="292" fill="#e0483a" font-family="ui-monospace,monospace" font-size="9" text-anchor="middle">V+</text>
+  <text x="631" y="292" fill="#cfd6dc" font-family="ui-monospace,monospace" font-size="9" text-anchor="middle">−</text>
+
+  <!-- PCA #2 -->
+  <rect x="470" y="350" width="180" height="140" rx="6" fill="#1b2229" stroke="#2c353d" stroke-dasharray="5 4"/>
+  <rect x="470" y="350" width="180" height="24" rx="6" fill="#232c34"/>
+  <text x="560" y="367" fill="#d7dde2" font-family="ui-monospace,monospace" font-size="11.5" text-anchor="middle">PCA9685  0x41</text>
+  <text x="560" y="392" fill="#8a949d" font-family="ui-monospace,monospace" font-size="9.5" text-anchor="middle">optional — solder A0</text>
+  <text x="560" y="408" fill="#59636c" font-family="ui-monospace,monospace" font-size="9" text-anchor="middle">channels 16–31</text>
+  <text x="560" y="432" fill="#59636c" font-family="ui-monospace,monospace" font-size="9" text-anchor="middle">your dome needs this:</text>
+  <text x="560" y="446" fill="#f0a832" font-family="ui-monospace,monospace" font-size="9" text-anchor="middle">18 ch = 16 + 2</text>
+  <text x="600" y="482" fill="#e0483a" font-family="ui-monospace,monospace" font-size="9" text-anchor="middle">V+</text>
+  <text x="631" y="482" fill="#cfd6dc" font-family="ui-monospace,monospace" font-size="9" text-anchor="middle">−</text>
+
+  <!-- Servos -->
+  <g>
+    <rect x="760" y="163" width="185" height="24" rx="4" fill="#1b2229" stroke="#2c353d"/>
+    <text x="852" y="179" fill="#d7dde2" font-family="ui-monospace,monospace" font-size="10" text-anchor="middle">SERVO — sig · V+ · GND</text>
+    <rect x="760" y="193" width="185" height="24" rx="4" fill="#1b2229" stroke="#2c353d"/>
+    <text x="852" y="209" fill="#d7dde2" font-family="ui-monospace,monospace" font-size="10" text-anchor="middle">SERVO</text>
+    <rect x="760" y="223" width="185" height="24" rx="4" fill="#1b2229" stroke="#2c353d"/>
+    <text x="852" y="239" fill="#d7dde2" font-family="ui-monospace,monospace" font-size="10" text-anchor="middle">SERVO</text>
+    <text x="852" y="264" fill="#59636c" font-family="ui-monospace,monospace" font-size="9" text-anchor="middle">V+ and GND come from the</text>
+    <text x="852" y="276" fill="#59636c" font-family="ui-monospace,monospace" font-size="9" text-anchor="middle">board's own header, not the Arduino</text>
+  </g>
+
+  <!-- PSU -->
+  <rect x="760" y="520" width="200" height="95" rx="6" fill="#1b2229" stroke="#e0483a" stroke-width="1.4"/>
+  <text x="860" y="546" fill="#e0483a" font-family="ui-monospace,monospace" font-size="12" text-anchor="middle">SERVO SUPPLY</text>
+  <text x="860" y="566" fill="#d7dde2" font-family="ui-monospace,monospace" font-size="11" text-anchor="middle">5 – 6 V DC</text>
+  <text x="860" y="584" fill="#8a949d" font-family="ui-monospace,monospace" font-size="9.5" text-anchor="middle">size for stall, not idle</text>
+  <text x="860" y="600" fill="#59636c" font-family="ui-monospace,monospace" font-size="9" text-anchor="middle">≈ 1 A per servo</text>
+  <text x="754" y="558" fill="#e0483a" font-family="ui-monospace,monospace" font-size="10" text-anchor="end">+</text>
+  <text x="754" y="589" fill="#cfd6dc" font-family="ui-monospace,monospace" font-size="10" text-anchor="end">−</text>
+
+  <!-- cap callout -->
+  <path d="M676 320 L700 300" stroke="#59636c" stroke-width="1" fill="none" stroke-dasharray="3 3"/>
+  <text x="704" y="297" fill="#8a949d" font-family="ui-monospace,monospace" font-size="9">1000 µF across V+ / −</text>
+
+  <!-- legend -->
+  <rect x="20" y="470" width="176" height="150" rx="6" fill="#191e23" stroke="#2c353d"/>
+  <text x="34" y="490" fill="#59636c" font-family="ui-monospace,monospace" font-size="9" letter-spacing="1">LEGEND</text>
+  <g font-family="ui-monospace,monospace" font-size="10" fill="#8a949d">
+    <path d="M34 505 H58" stroke="#f0a832" stroke-width="2.2"/><text x="66" y="509">5 V logic</text>
+    <path d="M34 525 H58" stroke="#5aa7e0" stroke-width="2.2"/><text x="66" y="529">SDA</text>
+    <path d="M34 545 H58" stroke="#57c78a" stroke-width="2.2"/><text x="66" y="549">SCL</text>
+    <path d="M34 565 H58" stroke="#b98ce0" stroke-width="2.2"/><text x="66" y="569">servo signal</text>
+    <path d="M34 585 H58" stroke="#e0483a" stroke-width="3.4"/><text x="66" y="589">V+ servo power</text>
+    <path d="M34 605 H58" stroke="#cfd6dc" stroke-width="3.4"/><text x="66" y="609">ground</text>
+  </g>
+</svg>
+
+<h2>Pins — by board</h2>
+<table>
+  <tr><th>PCA9685</th><th>Mega / Mega ADK</th><th>Uno / Nano</th><th>ESP32</th><th>note</th></tr>
+  <tr><td>VCC</td><td>5V</td><td>5V</td><td>3V3</td><td>logic only — a few mA</td></tr>
+  <tr><td>GND</td><td>GND</td><td>GND</td><td>GND</td><td>and to the PSU −</td></tr>
+  <tr><td>SDA</td><td>20</td><td>A4</td><td>21</td><td>10 k pull-ups already on the breakout</td></tr>
+  <tr><td>SCL</td><td>21</td><td>A5</td><td>22</td><td></td></tr>
+  <tr><td>V+</td><td colspan="3">separate 5–6 V supply, screw terminal</td><td>never the Arduino</td></tr>
+  <tr><td>OE</td><td colspan="3">leave unconnected</td><td>pulled low = outputs enabled</td></tr>
+</table>
+
+<h2>The four things that bite</h2>
+<div class="grid">
+  <div class="card stop">
+    <h3>Never power servos from the Arduino</h3>
+    <p>A servo's stall current is amps. Taking V+ from the Arduino's 5 V pin browns out the regulator, the MCU resets mid-move, and the droid twitches or runs away. V+ gets its own supply, always — this is the single most common way a first PCA9685 build fails.</p>
+  </div>
+  <div class="card stop">
+    <h3>Common ground is not optional</h3>
+    <p>The servo supply's negative must tie to the Arduino's GND. Without it the PWM signal has no shared reference: servos jitter, buzz, or ignore you entirely — and it looks exactly like a broken sketch.</p>
+  </div>
+  <div class="card warnbox">
+    <h3>Calibrate the oscillator</h3>
+    <p>The PCA9685's internal RC clock is only <em>nominally</em> 25 MHz and drifts a few percent board to board. Until you set the measured value — the osc box in PCA Studio, or <code>maestro.begin(26400000UL)</code> — your quarter-µs endpoints are approximate on the wire, and your hard-won Maestro calibration lands slightly off.</p>
+  </div>
+  <div class="card warnbox">
+    <h3>Fit the bulk capacitor</h3>
+    <p>The Adafruit breakout has a footprint for it. ~1000 µF across V+ and GND absorbs the inrush when several servos start together; without it the rail sags and the whole bus glitches.</p>
+  </div>
+</div>
+
+<h2>Addressing — and your existing I2C bus</h2>
+<ul>
+  <li><b>0x40</b> is the default with no jumpers bridged. <b>Bridge A0</b> for 0x41, A1 for 0x42, and so on — six address bits, up to 62 boards on one bus.</li>
+  <li><b>Your 18-channel dome needs two boards</b> — 16 + 2. The generated <code>sequences.h</code> already assumes this: channel <em>i</em> → board <em>i</em>/16, pin <em>i</em>%16, so ch0–15 are 0x40 and ch16–17 are 0x41.</li>
+  <li><b>No clash with your Padawan bus.</b> Your <code>triggerI2C()</code> devices are decimal 10, 25, 26 and 27 — that's 0x0A, 0x19, 0x1A, 0x1B. Nowhere near 0x40.</li>
+  <li><b>One to watch:</b> the PCA9685 also answers the "All Call" address <b>0x70</b> out of the box. If you ever add a device at 0x70, disable All Call first.</li>
+  <li><b>Chaining:</b> on the real breakout you go right-hand header of board 1 → left-hand header of board 2, carrying all four lines. The diagram stacks them for clarity.</li>
+</ul>
+
+<h2>Option B — the co-processor (true Maestro replacement)</h2>
+<p style="color:var(--dim);margin:0 0 14px">Everything above stays exactly as drawn; the PCA9685 just answers to a
+dedicated Nano instead of the droid's main board. The host sends two bytes and forgets — a
+<em>different CPU</em> runs the choreography, so panels stay smooth even when the main sketch is busy.
+Your Padawan sketch needs no changes: same <code>PololuMaestro</code> library, same
+<code>restartScript(n)</code>, same single wire.</p>
+
+<svg viewBox="0 0 1000 250" role="img" aria-label="Host board sends Maestro serial to a Nano co-processor, which drives the PCA9685 over I2C">
+  <rect width="1000" height="250" fill="url(#grid)"/>
+  <path d="M280 100 H360" stroke="#5aa7e0" stroke-width="2.6" fill="none"/>
+  <path d="M280 130 H360" stroke="#cfd6dc" stroke-width="2.6" fill="none"/>
+  <path d="M580 100 H660" stroke="#5aa7e0" stroke-width="2.6" fill="none"/>
+  <path d="M580 130 H660" stroke="#57c78a" stroke-width="2.6" fill="none"/>
+  <path d="M880 115 H940" stroke="#b98ce0" stroke-width="2.6" fill="none"/>
+
+  <rect x="60" y="60" width="220" height="110" rx="6" fill="#1b2229" stroke="#2c353d"/>
+  <text x="170" y="88" fill="#d7dde2" font-family="ui-monospace,monospace" font-size="12" text-anchor="middle">HOST — Mega ADK</text>
+  <text x="170" y="108" fill="#8a949d" font-family="ui-monospace,monospace" font-size="9.5" text-anchor="middle">your Padawan sketch,</text>
+  <text x="170" y="122" fill="#8a949d" font-family="ui-monospace,monospace" font-size="9.5" text-anchor="middle">UNCHANGED</text>
+  <text x="170" y="142" fill="#f0a832" font-family="ui-monospace,monospace" font-size="9.5" text-anchor="middle">restartScript(2)</text>
+  <text x="170" y="157" fill="#59636c" font-family="ui-monospace,monospace" font-size="9" text-anchor="middle">= 2 bytes, then forgets</text>
+  <text x="320" y="94" fill="#5aa7e0" font-family="ui-monospace,monospace" font-size="9" text-anchor="middle">TX 14 → 8</text>
+  <text x="320" y="124" fill="#cfd6dc" font-family="ui-monospace,monospace" font-size="9" text-anchor="middle">GND</text>
+
+  <rect x="360" y="60" width="220" height="110" rx="6" fill="#1b2229" stroke="#f0a832"/>
+  <text x="470" y="88" fill="#f0a832" font-family="ui-monospace,monospace" font-size="12" text-anchor="middle">NANO — £4</text>
+  <text x="470" y="108" fill="#8a949d" font-family="ui-monospace,monospace" font-size="9.5" text-anchor="middle">MaestroReplacement.ino</text>
+  <text x="470" y="124" fill="#8a949d" font-family="ui-monospace,monospace" font-size="9.5" text-anchor="middle">MaestroLink + MaestroPCA</text>
+  <text x="470" y="144" fill="#59636c" font-family="ui-monospace,monospace" font-size="9" text-anchor="middle">runs the whole animation</text>
+  <text x="470" y="157" fill="#59636c" font-family="ui-monospace,monospace" font-size="9" text-anchor="middle">on its own CPU</text>
+  <text x="620" y="94" fill="#5aa7e0" font-family="ui-monospace,monospace" font-size="9" text-anchor="middle">A4 SDA</text>
+  <text x="620" y="124" fill="#57c78a" font-family="ui-monospace,monospace" font-size="9" text-anchor="middle">A5 SCL</text>
+
+  <rect x="660" y="60" width="220" height="110" rx="6" fill="#1b2229" stroke="#2c353d"/>
+  <text x="770" y="88" fill="#d7dde2" font-family="ui-monospace,monospace" font-size="12" text-anchor="middle">PCA9685 — £5</text>
+  <text x="770" y="112" fill="#8a949d" font-family="ui-monospace,monospace" font-size="9.5" text-anchor="middle">0x40 (+0x41)</text>
+  <text x="770" y="132" fill="#e0483a" font-family="ui-monospace,monospace" font-size="9.5" text-anchor="middle">V+ from the servo supply</text>
+  <text x="770" y="152" fill="#59636c" font-family="ui-monospace,monospace" font-size="9" text-anchor="middle">wired as in the diagram above</text>
+  <text x="940" y="112" fill="#b98ce0" font-family="ui-monospace,monospace" font-size="9.5" text-anchor="end">servos</text>
+
+  <text x="500" y="205" fill="#59636c" font-family="ui-monospace,monospace" font-size="9.5" text-anchor="middle">the host can stall on Usb.Task() or a delay() and the panels keep easing — that is the whole point</text>
+  <text x="500" y="222" fill="#8a949d" font-family="ui-monospace,monospace" font-size="9.5" text-anchor="middle">the Nano's own USB stays free: Serial Monitor at 115200, press ? for status or v to watch commands arrive</text>
+</svg>
+
+<h2>Bench rig vs standalone droid</h2>
+<div class="grid">
+  <div class="card">
+    <h3>Bench — PCA Studio live mode</h3>
+    <p>Flash <code>PCA_Bridge.ino</code>. The wiring above is complete as drawn. The browser runs the sequencer and streams changed channel positions over USB at 115200; the Arduino is a dumb pipe to <code>setPWM</code>. Move a slider, a servo moves.</p>
+    <p>Nothing else needs to be connected — no receiver, no motor controllers, no audio.</p>
+  </div>
+  <div class="card">
+    <h3>Droid — standalone</h3>
+    <p>Flash your Padawan sketch with <code>MaestroPCA</code> + the exported <code>sequences.h</code>. The PC and its USB link go away; everything else on this diagram stays identical.</p>
+    <p>Added back on the droid: USB Host Shield for the Xbox receiver, Sabertooth on Serial1, Syren on Serial2, DY-SV5W audio. <b>Serial3 is now free</b> — the Maestro's UART is what you're replacing.</p>
+  </div>
+</div>
+
+<h2>First light — the order that finds faults fastest</h2>
+<ul>
+  <li><b>Supply alone first.</b> PSU on, meter across V+ and −, confirm 5–6 V before a servo is anywhere near it.</li>
+  <li><b>One servo, channel 0.</b> Not eighteen. A single servo on a known channel turns "nothing works" into one testable claim.</li>
+  <li><b>Bridge sketch, no app.</b> Open the serial monitor at 115200 — it prints <code>PCA-BRIDGE 1</code> on boot. If that line is missing, the problem is the Arduino, not the wiring or the app.</li>
+  <li><b>Then PCA Studio.</b> Connect hardware, drag channel 0's slider. If the bar moves in the browser but the servo doesn't, it's the I2C side or servo power — the app and the engine are already proven.</li>
+  <li><b>Endpoints last.</b> Only once it moves at all: set min/max at low speed, watching for the linkage binding before you trust the numbers.</li>
+</ul>
+
+<div class="foot">
+  PCA Studio · R2-D2 Simulator project · generated 2026-08-09 · engine and pinout match
+  <code>arduino/MaestroPCA</code> and <code>pca-studio/PCA_Bridge</code>
+</div>
+
+</body>
+</html>

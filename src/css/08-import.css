@@ -1,0 +1,296 @@
+/* Import-your-config wizard. A full-window overlay rather than a sidebar
+   section, because step 3 is a table of every channel on the board and it
+   needs the width. Every colour comes from 01-tokens.css so the light theme
+   follows for free. */
+.iwrap{
+  position:fixed; inset:0; z-index:60;
+  background:color-mix(in srgb, var(--ink2) 82%, transparent);
+  backdrop-filter:blur(3px);
+  display:flex; align-items:center; justify-content:center; padding:26px;
+}
+.iwrap[hidden]{display:none}
+.iwcard{
+  width:min(920px,100%); max-height:100%;
+  display:flex; flex-direction:column;
+  background:var(--panel); border:1px solid var(--line2); border-radius:10px;
+  box-shadow:0 18px 60px var(--shadow); overflow:hidden;
+}
+.iwhead{position:relative; padding:16px 20px 12px; border-bottom:1px solid var(--line)}
+.iwhead h2{font-size:17px; font-weight:650; letter-spacing:-.01em}
+.iwsub{color:var(--dim); font-size:var(--fs-data); margin-top:2px; font-family:var(--mono)}
+.iwx{
+  position:absolute; top:12px; right:14px;
+  background:none; border:none; color:var(--dimmer);
+  font-size:22px; line-height:1; cursor:pointer; padding:2px 6px; border-radius:5px;
+}
+.iwx:hover{color:var(--txt); background:var(--hoverBg)}
+
+.iwsteps{display:flex; gap:2px; padding:10px 20px; border-bottom:1px solid var(--line); background:var(--surf)}
+.iwstep{
+  display:flex; align-items:center; gap:6px; padding:5px 11px 5px 6px;
+  border-radius:20px; font-size:12px; color:var(--dimmer); cursor:default; white-space:nowrap;
+}
+.iwstep .iwn{
+  display:grid; place-items:center; width:18px; height:18px; border-radius:50%;
+  background:var(--track); color:var(--dimmer); font-size:10px; font-variant-numeric:tabular-nums;
+}
+.iwstep.done{color:var(--dim); cursor:pointer}
+.iwstep.done .iwn{background:var(--selBg); color:var(--ctaHi)}
+.iwstep.on{color:var(--txt); background:var(--selBg)}
+.iwstep.on .iwn{background:var(--cta); color:var(--onCta)}
+
+.iwbody{padding:16px 20px; overflow:auto; flex:1; min-height:0}
+.iwp{color:var(--dim); font-size:var(--fs-body); line-height:1.55; margin-bottom:12px; max-width:70ch}
+.iwp b, .iwalt b{color:var(--txt)}
+.iwh{
+  font-size:var(--fs-label); font-family:var(--mono); text-transform:uppercase; letter-spacing:.09em; color:var(--dimmer);
+  margin:16px 0 7px; font-weight:600;
+}
+.iwdim{color:var(--dim); font-weight:400}
+.iwgap{flex:1}
+
+.iwfoot{display:flex; gap:8px; align-items:center; padding:12px 20px; border-top:1px solid var(--line); background:var(--surf)}
+
+/* step 1 — the drop target */
+.iwdrop{
+  border:1.5px dashed var(--line2); border-radius:9px; padding:34px 20px; text-align:center;
+  cursor:pointer; transition:border-color .12s, background .12s; background:var(--surf2);
+}
+.iwdrop:hover, .iwdrop.on{border-color:var(--cta); background:var(--selBg)}
+.iwdrop b{display:block; font-size:14px; margin-bottom:4px}
+.iwdrop span{color:var(--dimmer); font-size:12px}
+.iwalt{margin-top:14px; color:var(--dim); font-size:var(--fs-body); line-height:1.55; max-width:70ch}
+
+/* step 2/4 — the fact grid */
+.iwgrid{display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:8px; margin-bottom:14px}
+.iwfact{background:var(--surf2); border:1px solid var(--line); border-radius:7px; padding:8px 11px}
+.iwfact .k{font-size:9.5px; text-transform:uppercase; letter-spacing:.08em; color:var(--dimmer); margin-bottom:3px}
+.iwfact .v{font-size:14px; font-weight:600; font-variant-numeric:tabular-nums}
+
+.iwslots{display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:4px}
+.iwslot{display:flex; gap:9px; align-items:baseline; background:var(--row); border-radius:5px; padding:5px 9px; font-size:12.5px}
+.iwslot .ix{font-family:var(--mono); font-size:10.5px; color:var(--cy); white-space:nowrap}
+.iwslot.over{opacity:.55}
+.iwslot.over .ix{color:var(--am)}
+
+/* step 3 — the channel map */
+.iwtally{margin:10px 0 8px; color:var(--dim); font-size:12.5px}
+.iwmap{display:flex; flex-direction:column; gap:2px}
+.iwmaprow{
+  display:grid; grid-template-columns:30px minmax(90px,1.1fr) minmax(140px,1.4fr) 1fr 16px;
+  gap:8px; align-items:center; background:var(--row); border-radius:5px; padding:4px 8px;
+}
+.iwmaprow.un{background:transparent; border:1px dashed var(--brdIn)}
+.iwmaprow .ix{font-family:var(--mono); font-size:10.5px; color:var(--dimmer); text-align:right}
+.iwmaprow .nm{font-size:12.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.iwmaprow.un .nm{color:var(--dim)}
+.iwmaprow select{width:100%; min-width:0}
+.iwmaprow input[type=range]{width:100%}
+.iwmaprow .fl{color:var(--am); font-size:12px; text-align:center; cursor:help}
+
+@media (max-width:720px){
+  .iwrap{padding:0}
+  .iwcard{border-radius:0; height:100%}
+  .iwsteps{overflow-x:auto}
+  .iwmaprow{grid-template-columns:26px 1fr 1fr; row-gap:4px}
+  .iwmaprow input[type=range], .iwmaprow .fl{grid-column:1/-1}
+}
+
+/* ---- the top-down dome map (step 3) ----
+   Two columns: the diagram on the left as the primary picker, the channel
+   list on the right. A channel name is an abstraction; a panel position is
+   not, so the diagram leads and the dropdown stays for body and head parts
+   a dome drawing cannot show. */
+.iwsplit{display:grid; grid-template-columns:minmax(280px,340px) 1fr; gap:16px; align-items:start}
+.iwdome{position:sticky; top:0}
+.iwcue{
+  font-size:12.5px; color:var(--dim); background:var(--surf2);
+  border:1px solid var(--line); border-radius:6px; padding:6px 10px; margin-bottom:8px;
+}
+.iwcue b{color:var(--cy)}
+.domemap{width:100%; height:auto; display:block; user-select:none}
+.dmring{fill:var(--surf2); stroke:var(--line2); stroke-width:1.5}
+.dmring2{fill:none; stroke:var(--line); stroke-width:1}
+.dmhub{fill:var(--track); stroke:var(--line2); stroke-width:1}
+.dmfront{fill:var(--dimmer); font-size:8px; letter-spacing:.16em; font-family:var(--sans)}
+.dmlab{fill:var(--dim); font-size:9.5px; font-weight:600; font-family:var(--sans); pointer-events:none}
+.dmsub{fill:var(--dimmer); font-size:7px; font-family:var(--mono); pointer-events:none}
+
+.dm{cursor:pointer}
+.dm path, .dm circle{fill:var(--track); stroke:var(--line2); stroke-width:1; transition:fill .1s, stroke .1s}
+.dm:hover path, .dm:hover circle{fill:var(--hoverBg); stroke:var(--cta)}
+.dm.has path, .dm.has circle{fill:var(--ctaD); stroke:var(--cta)}
+.dm.has .dmlab{fill:var(--txt)}
+.dm.full circle{fill:var(--cta); stroke:var(--ctaHi)}
+.dm.full .dmlab{fill:var(--onCta)}
+.dm.dup path, .dm.dup circle{fill:var(--amDark); stroke:var(--am)}
+.dm.dup .dmlab{fill:var(--amHi)}
+.dm.lit path{stroke-dasharray:2.5 2}
+.dm.hov path, .dm.hov circle{stroke:var(--am); stroke-width:2}
+.dm.sel path, .dm.sel circle{stroke:var(--ctaHi); stroke-width:2}
+.dmmark circle{fill:none; stroke:var(--line2); stroke-width:1; stroke-dasharray:2 2}
+.dmmark .dmlab{fill:var(--dimmer); font-size:7.5px}
+
+.iwkey{display:flex; flex-wrap:wrap; gap:9px; margin-top:8px; font-size:10.5px; color:var(--dimmer); align-items:center}
+.iwkey .k{width:11px; height:11px; border-radius:3px; display:inline-block; margin-right:3px;
+          background:var(--track); border:1px solid var(--line2); vertical-align:-2px}
+.iwkey .k.has{background:var(--ctaD); border-color:var(--cta)}
+.iwkey .k.dup{background:var(--amDark); border-color:var(--am)}
+.iwkey .k.lit{border-style:dashed}
+.iwchans{min-width:0}
+
+/* the dome map's link row and its per-channel ▶ (v1.43.0) — the map can
+   drive the real board now, so it needs somewhere to say whether there is
+   one. The button is the same .mini the bench uses, pinned to the end of
+   the row so the column of them reads as one control rather than three
+   different widths. */
+.dmaplink{margin:0 0 10px; flex-wrap:wrap; gap:8px}
+.dmaplink .chip{font-size:11px}
+.dmaplink .iwdim{font-size:11.5px}
+.iwmaprow .iwplay{
+  justify-self:end; min-width:26px; padding:1px 6px; font-size:11px; line-height:1.5;
+  font-family:var(--mono);
+}
+.iwmaprow .iwplay:hover{color:var(--cy); border-color:var(--cy)}
+.iwmaprow.sel{outline:1px solid var(--cta); background:var(--selBg)}
+.iwmaprow .nm{cursor:pointer}
+.iwmaprow .nm:hover{color:var(--ctaHi)}
+
+@media (max-width:860px){ .iwsplit{grid-template-columns:1fr} .iwdome{position:static} }
+.dmlead{stroke:var(--line2); stroke-width:.8}
+.dm.has .dmlead{stroke:var(--cta)}
+
+/* ---- the Panels step's own door onto the dome map (config/wizard.js) ----
+   Same .iwrap/.iwcard/.iwsplit language as the import wizard's Map step —
+   it is the SAME diagram, bound to the live channel table instead of an
+   import's temporary one. It has to sit ABOVE #startup (z-index 120,
+   07-startup.css) rather than through it — the wizard IS the startup
+   overlay here, not a place you leave to reach this. */
+.dmoverlay{z-index:130}
+
+/* ---- the app confirm dialog (core/dialog.js) ----
+   Same overlay language as the wizard above — dimmed blurred backdrop,
+   one small card — sized for a question rather than a workspace. Sits
+   over EVERYTHING (the wizard is 120, popovers 140, the library preview
+   210) because the question may be asked from inside any of them.
+   Tokens only, so body.light follows for free. */
+.dlgwrap{
+  position:fixed; inset:0; z-index:300;
+  background:color-mix(in srgb, var(--ink2) 62%, transparent);
+  backdrop-filter:blur(2px);
+  display:flex; align-items:center; justify-content:center; padding:26px;
+}
+.dlgcard{
+  width:min(400px,100%);
+  background:var(--panel); border:1px solid var(--line2); border-radius:9px;
+  box-shadow:0 18px 60px var(--shadow);
+  padding:13px 16px 12px;
+}
+.dlgcard h4{
+  font-family:var(--mono); font-size:var(--fs-label); font-weight:600;
+  letter-spacing:.14em; text-transform:uppercase;
+  color:var(--dim); margin-bottom:8px;
+}
+.dlgcard.danger h4{color:var(--rd)}
+.dlgmsg{
+  font-family:var(--sans); font-size:var(--fs-body); line-height:1.55;
+  color:var(--txt); white-space:pre-line;
+}
+/* appPrompt()'s text field — mono like every other value the app takes */
+.dlginp{
+  display:block; width:100%; margin-top:10px;
+  font-family:var(--mono); font-size:var(--fs-data);
+  background:var(--ink); color:var(--txt);
+  border:1px solid var(--line2); border-radius:4px; padding:7px 9px;
+}
+.dlginp:focus{outline:none; border-color:var(--cta)}
+.dlgbar{display:flex; gap:8px; justify-content:flex-end; margin-top:14px}
+.dlgbar .dlgyes{
+  color:var(--onCta);
+  background:var(--cta); border-color:var(--cta);
+  font-weight:600;
+}
+.dlgbar .dlgyes:hover{color:var(--onCta); filter:brightness(1.1)}
+.dlgcard.danger .dlgyes, .dlgcard.danger .dlgyes:hover{color:#fff; background:var(--rd); border-color:var(--rd)}
+
+/* ---- the About box (v1.44.0) ----
+   The credits live inside the app because the app travels as one file and
+   most of the people who run it will never see the repository. It is the
+   longest thing appConfirm is ever asked to show, so it gets a wider card
+   and its own scroll rather than a taller dialog than the window. */
+.dlgcard.about{max-width:640px}
+.dlgcard.about .dlgmsg{max-height:min(62vh,520px); overflow:auto}
+.abtblurb{color:var(--txt); margin-bottom:10px}
+.abtver{font-family:var(--mono); font-size:11.5px; color:var(--dim); margin-bottom:14px}
+.abtver b{color:var(--cy)}
+.abth{
+  font-family:var(--mono); font-size:10px; letter-spacing:.09em; text-transform:uppercase;
+  color:var(--dimmer); border-bottom:1px solid var(--line2); padding-bottom:4px; margin-bottom:9px;
+}
+.abtrow{margin-bottom:11px; font-size:13px}
+.abtrow b{color:var(--txt)}
+.abtnote{color:var(--dim); font-size:12px; margin-top:2px}
+.abturl{font-family:var(--mono); font-size:11px; color:var(--cy); word-break:break-all}
+.abtfoot{
+  margin-top:14px; padding-top:10px; border-top:1px solid var(--line2);
+  color:var(--dim); font-size:12px;
+}
+.dlgbar .dlgyes:focus-visible{outline:2px solid var(--focus); outline-offset:2px}
+
+/* ---- toasts (core/toast.js, Stage 3 M5a) ----
+   Bottom-left over the stage, above the orbit hint — the .hudrow plate
+   language: mono, translucent plate, backdrop blur, tokens only so
+   body.light follows (--sbtnBg flips in 06-theme-light.css). The HOST
+   never takes the pointer; each plate does (click = dismiss), so the
+   stage's orbit and click-to-select handling underneath is untouched
+   everywhere a plate is not. */
+#toasts{
+  position:absolute; left:12px; bottom:34px; z-index:7;
+  display:flex; flex-direction:column; gap:6px; align-items:flex-start;
+  max-width:min(440px,72%);
+  pointer-events:none;
+}
+.toastp{
+  pointer-events:auto; cursor:pointer;
+  font-family:var(--mono); font-size:10.5px; letter-spacing:.05em; line-height:1.45;
+  color:var(--txt);
+  background:var(--sbtnBg); border:1px solid var(--line); border-left:3px solid var(--gn);
+  border-radius:4px; padding:6px 10px; backdrop-filter:blur(4px);
+  box-shadow:0 6px 18px var(--shadow);
+  animation:toastin .16s ease-out;
+}
+.toastp.warn{border-left-color:var(--am)}
+.toastp.err{border-left-color:var(--rd)}
+.toastp.out{opacity:0; transform:translateY(4px); transition:opacity .16s, transform .16s}
+@keyframes toastin{from{opacity:0; transform:translateY(6px)} to{opacity:1; transform:none}}
+
+/* ---- the fault chip's "why?" popover (app/hud.js, Stage 3 M5b) ----
+   #chFault is display:none until a fault lights it, so cursor:pointer
+   here reads as "clickable only when lit". The popover hangs under the
+   chip: the recent warn/sys log lines, mono and SIM-timestamped, plus a
+   door to the Serial tab where the current view offers that pane. */
+#chFault{cursor:pointer}
+#chFault:hover .dot{box-shadow:0 0 10px var(--rd), 0 0 0 2px var(--rd)}
+#chFault:hover span+span{text-decoration:underline dotted}
+#faultPop{
+  position:fixed; z-index:150; width:min(460px, 72vw);
+  background:var(--panel); border:1px solid var(--line2); border-radius:6px;
+  box-shadow:0 12px 40px var(--shadow); padding:6px;
+  font-family:var(--mono);
+}
+#faultPop .fph{
+  font-size:9.5px; text-transform:uppercase; letter-spacing:.12em; color:var(--rd);
+  padding:3px 6px 6px; border-bottom:1px solid var(--line); margin-bottom:4px;
+}
+#faultPop .fprow{display:flex; gap:8px; padding:2.5px 6px; font-size:10.5px; align-items:baseline}
+#faultPop .fprow .t{color:var(--dimmer); font-size:9.5px; white-space:nowrap; font-variant-numeric:tabular-nums}
+#faultPop .fprow .s{color:var(--dim); overflow-wrap:anywhere}
+#faultPop .fprow.warn .s{color:var(--am)}
+#faultPop .fpempty{padding:6px; font-size:10.5px; color:var(--dimmer)}
+#faultPop .fpser{
+  display:block; width:100%; text-align:left; margin-top:5px; padding:6px;
+  font-family:var(--mono); font-size:10px; letter-spacing:.08em; text-transform:uppercase;
+  color:var(--ctaHi); background:none; border:none; border-top:1px solid var(--line);
+  border-radius:0 0 4px 4px; cursor:pointer;
+}
+#faultPop .fpser:hover{color:var(--txt); background:var(--hoverBg)}

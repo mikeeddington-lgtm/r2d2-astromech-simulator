@@ -1,0 +1,53 @@
+/* Model Builder (v1.41.0)
+   =====================================================================
+   The parts-bin pane and the selected-part properties card that
+   cad/ui.js's buildBuilderPane()/mbPropsCard() draw into #cadHost when
+   PREFS.model==='builder'. Tokens only — every colour is a var(--…) from
+   01-tokens.css, so both themes (06-theme-light.css flips the same
+   variables) come for free without a rule in here naming either one.
+   ===================================================================== */
+
+.mbpane{display:flex;flex-direction:column}
+
+/* ---- the bin: one button per primitive ---- */
+.mbbin{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
+.mbbtn{
+  font-family:var(--sans);font-size:11px;font-weight:600;
+  padding:7px 11px;border-radius:5px;
+  background:var(--btnBg);color:var(--txt);border:1px solid var(--line2);
+  cursor:pointer;transition:background .12s,border-color .12s;
+}
+.mbbtn:hover:not(:disabled){background:var(--btnBg2);border-color:var(--ctaD)}
+.mbbtn:disabled{opacity:.4;cursor:not-allowed}
+.mbbtn:focus-visible{outline:2px solid var(--focus);outline-offset:1px}
+
+/* ---- soft/hard cap notices ---- */
+.mbwarn{
+  font-family:var(--mono);font-size:10px;line-height:1.5;
+  color:var(--am);background:var(--chipWarn);border:1px solid var(--amDark);
+  border-radius:4px;padding:5px 8px;margin:4px 0 8px;
+}
+.mbwarn.hard{color:var(--rd);background:var(--chipBad);border-color:var(--rd)}
+
+/* ---- position / rotation steppers ---- */
+.mbaxes{display:flex;gap:8px;flex-wrap:wrap}
+.mbaxis{display:flex;align-items:center;gap:3px;background:var(--surf);border:1px solid var(--line2);border-radius:4px;padding:2px 4px}
+.mbaxlab{font-family:var(--mono);font-size:9px;color:var(--dimmer);width:11px;text-align:center}
+.mbstep{
+  font-family:var(--mono);font-size:11px;line-height:1;width:18px;height:18px;
+  border-radius:3px;border:1px solid var(--line2);background:var(--btnBg);color:var(--txt);
+  cursor:pointer;padding:0;
+}
+.mbstep:hover{background:var(--btnBg2);border-color:var(--ctaD)}
+.mbval{font-family:var(--mono);font-size:10.5px;color:var(--cy);min-width:44px;text-align:center}
+
+/* ---- channel / attach-to selects and the name field, inside .selrow ---- */
+.mbpane select,.mbpane input[type=text]{
+  font-family:var(--mono);font-size:10.5px;background:var(--ink);color:var(--cy);
+  border:1px solid var(--line2);border-radius:3px;padding:3px 4px;max-width:100%;
+}
+.mbpane select:focus,.mbpane input[type=text]:focus{outline:2px solid var(--focus);outline-offset:0}
+
+/* the "getting big" / "no Maestro settings" strings share .hint already
+   defined in 05-controls.css — .dim just quiets the second of those a touch */
+.mbpane .hint.dim{opacity:.75}

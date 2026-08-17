@@ -1,0 +1,45 @@
+# Build both targets and run every suite, on every push and pull request.
+#
+# The suites drive a headless Chromium through Playwright and take a few
+# minutes; they are the only thing standing between a change and a droid
+# moving the wrong way, so they run on everything.
+name: tests
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  suites:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install Playwright and its browser
+        run: |
+          npm ci || npm install
+          npx playwright install --with-deps chromium
+
+      - name: Build both targets and PCA Studio
+        run: ./build.sh
+
+      - name: Run every suite against both builds
+        # swiftshader: the runner has no GPU, and three.js falls back to a
+        # software rasteriser. The suites already load with ?norender for
+        # exactly this reason.
+        run: ./test.sh
+
+      - name: Keep the built file for inspection
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: R2D2-Simulator
+          path: R2D2-Simulator.html
+          retention-days: 14

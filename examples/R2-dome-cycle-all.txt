@@ -1,0 +1,326 @@
+# ==========================================================================
+#  R2 DOME - demo cycle
+#  Runs every dome sequence back-to-back, forever.
+#
+#  This top block IS the main program. It must sit ABOVE the sub
+#  definitions and it must never fall through, otherwise execution runs
+#  into the first sub body and hits a "return" with an empty call stack
+#  -> error 0x0080 (Script Call Stack Error).
+#  begin/repeat never exits, so the subs below are only ever reached by
+#  a real call. Tick "Run script on startup" to have it self-start.
+# ==========================================================================
+
+begin
+
+  Dome_Pies_Open
+  1500 delay
+
+  Dome_Pies_Close
+  1500 delay
+
+  Dome_Panels_Open
+  1500 delay
+
+  Dome_Panels_Close
+  1500 delay
+
+  Dome_Pie_Wave
+  1500 delay
+
+  Whole_Dome_Open
+  1500 delay
+
+  Whole_Dome_Close
+  1500 delay
+
+  Dome_Flutter
+  3000 delay
+
+repeat
+
+
+### Sequence subroutines: ###
+
+# Dome Pies Open
+sub Dome_Pies_Open
+  90 8000 4000 4000 4000 4000 4000 
+  4000 4000 4000 4000 4000 4000 
+  4000 4000 4000 4000 4000 4000 
+  4000 4000 frame_0..19 # Frame 0
+  90 8000 frame_1 # Frame 1
+  90 8000 frame_2 # Frame 2
+  90 8000 frame_3 # Frame 3
+  90 8000 frame_4 # Frame 4
+  90 8000 frame_5 # Frame 5
+  return
+# Dome Pies Close
+sub Dome_Pies_Close
+  90 8000 8000 8000 8000 8000 8000 
+  4000 4000 4000 4000 4000 4000 
+  4000 4000 4000 4000 4000 4000 
+  4000 4000 frame_0..19 # Frame 0
+  90 4000 frame_5 # Frame 1
+  90 4000 frame_4 # Frame 2
+  90 4000 frame_3 # Frame 3
+  90 4000 frame_2 # Frame 4
+  90 4000 frame_1 # Frame 5
+  90 4000 frame_0 # Frame 6
+  return
+# Dome Panels Open
+sub Dome_Panels_Open
+  90 4000 4000 4000 4000 4000 4000 
+  8000 4000 4000 4000 4000 4000 
+  4000 4000 4000 4000 4000 4000 
+  4000 4000 frame_0..19 # Frame 0
+  90 8000 frame_7 # Frame 1
+  90 8000 frame_8 # Frame 2
+  90 8000 frame_9 # Frame 3
+  90 8000 frame_10 # Frame 4
+  90 8000 frame_11 # Frame 5
+  90 8000 frame_12 # Frame 6
+  90 8000 frame_13 # Frame 7
+  90 8000 frame_14 # Frame 8
+  90 8000 frame_15 # Frame 9
+  90 8000 frame_16 # Frame 10
+  90 8000 frame_17 # Frame 11
+  90 8000 frame_18 # Frame 12
+  90 8000 frame_19 # Frame 13
+  return
+# Dome Panels Close
+sub Dome_Panels_Close
+  90 4000 4000 4000 4000 4000 4000 
+  8000 8000 8000 8000 8000 8000 
+  8000 8000 8000 8000 8000 8000 
+  8000 8000 frame_0..19 # Frame 0
+  90 4000 frame_19 # Frame 1
+  90 4000 frame_18 # Frame 2
+  90 4000 frame_17 # Frame 3
+  90 4000 frame_16 # Frame 4
+  90 4000 frame_15 # Frame 5
+  90 4000 frame_14 # Frame 6
+  90 4000 frame_13 # Frame 7
+  90 4000 frame_12 # Frame 8
+  90 4000 frame_11 # Frame 9
+  90 4000 frame_10 # Frame 10
+  90 4000 frame_9 # Frame 11
+  90 4000 frame_8 # Frame 12
+  90 4000 frame_7 # Frame 13
+  90 4000 frame_6 # Frame 14
+  return
+# Dome Pie Wave
+sub Dome_Pie_Wave
+  110 8000 4000 4000 4000 4000 4000 
+  4000 4000 4000 4000 4000 4000 
+  4000 4000 4000 4000 4000 4000 
+  4000 4000 frame_0..19 # Frame 0
+  110 8000 frame_1 # Frame 1
+  110 8000 frame_2 # Frame 2
+  110 8000 frame_3 # Frame 3
+  110 8000 frame_4 # Frame 4
+  110 8000 frame_5 # Frame 5
+  110 4000 frame_0 # Frame 6
+  110 4000 frame_1 # Frame 7
+  110 4000 frame_2 # Frame 8
+  110 4000 frame_3 # Frame 9
+  110 4000 frame_4 # Frame 10
+  110 4000 frame_5 # Frame 11
+  return
+# Whole Dome Open
+sub Whole_Dome_Open
+  80 8000 4000 4000 4000 4000 4000 
+  4000 4000 4000 4000 4000 4000 
+  4000 4000 4000 4000 4000 4000 
+  4000 4000 frame_0..19 # Frame 0
+  80 8000 frame_1 # Frame 1
+  80 8000 frame_2 # Frame 2
+  80 8000 frame_3 # Frame 3
+  80 8000 frame_4 # Frame 4
+  80 8000 frame_5 # Frame 5
+  80 8000 frame_6 # Frame 6
+  80 8000 frame_7 # Frame 7
+  80 8000 frame_8 # Frame 8
+  80 8000 frame_9 # Frame 9
+  80 8000 frame_10 # Frame 10
+  80 8000 frame_11 # Frame 11
+  80 8000 frame_12 # Frame 12
+  80 8000 frame_13 # Frame 13
+  80 8000 frame_14 # Frame 14
+  80 8000 frame_15 # Frame 15
+  80 8000 frame_16 # Frame 16
+  80 8000 frame_17 # Frame 17
+  80 8000 frame_18 # Frame 18
+  80 8000 frame_19 # Frame 19
+  return
+# Whole Dome Close
+sub Whole_Dome_Close
+  80 8000 8000 8000 8000 8000 8000 
+  8000 8000 8000 8000 8000 8000 
+  8000 8000 8000 8000 8000 8000 
+  8000 8000 frame_0..19 # Frame 0
+  80 4000 frame_19 # Frame 1
+  80 4000 frame_18 # Frame 2
+  80 4000 frame_17 # Frame 3
+  80 4000 frame_16 # Frame 4
+  80 4000 frame_15 # Frame 5
+  80 4000 frame_14 # Frame 6
+  80 4000 frame_13 # Frame 7
+  80 4000 frame_12 # Frame 8
+  80 4000 frame_11 # Frame 9
+  80 4000 frame_10 # Frame 10
+  80 4000 frame_9 # Frame 11
+  80 4000 frame_8 # Frame 12
+  80 4000 frame_7 # Frame 13
+  80 4000 frame_6 # Frame 14
+  80 4000 frame_5 # Frame 15
+  80 4000 frame_4 # Frame 16
+  80 4000 frame_3 # Frame 17
+  80 4000 frame_2 # Frame 18
+  80 4000 frame_1 # Frame 19
+  80 4000 frame_0 # Frame 20
+  return
+# Dome Flutter
+sub Dome_Flutter
+  200 8000 4000 4000 4000 4000 4000 
+  4000 4000 4000 4000 4000 4000 
+  4000 4000 4000 4000 4000 4000 
+  4000 4000 frame_0..19 # Frame 0
+  35 8000 frame_1 # Frame 1
+  35 8000 frame_2 # Frame 2
+  35 8000 frame_3 # Frame 3
+  35 8000 frame_4 # Frame 4
+  35 8000 frame_5 # Frame 5
+  220 delay # Frame 6
+  35 4000 frame_0 # Frame 7
+  35 4000 frame_1 # Frame 8
+  35 4000 frame_2 # Frame 9
+  35 4000 frame_3 # Frame 10
+  35 4000 frame_4 # Frame 11
+  35 4000 frame_5 # Frame 12
+  220 delay # Frame 13
+  35 8000 frame_0 # Frame 14
+  35 8000 frame_1 # Frame 15
+  35 8000 frame_2 # Frame 16
+  35 8000 frame_3 # Frame 17
+  35 8000 frame_4 # Frame 18
+  35 8000 frame_5 # Frame 19
+  220 delay # Frame 20
+  35 4000 frame_0 # Frame 21
+  35 4000 frame_1 # Frame 22
+  35 4000 frame_2 # Frame 23
+  35 4000 frame_3 # Frame 24
+  35 4000 frame_4 # Frame 25
+  35 4000 frame_5 # Frame 26
+  220 delay # Frame 27
+  35 delay # Frame 28
+  35 delay # Frame 29
+  35 delay # Frame 30
+  35 delay # Frame 31
+  35 delay # Frame 32
+  35 delay # Frame 33
+  return
+
+### Frame helper subroutines: ###
+
+sub frame_0..19
+  19 servo
+  18 servo
+  17 servo
+  16 servo
+  15 servo
+  14 servo
+  13 servo
+  12 servo
+  11 servo
+  10 servo
+  9 servo
+  8 servo
+  7 servo
+  6 servo
+  5 servo
+  4 servo
+  3 servo
+  2 servo
+  1 servo
+  0 servo
+  delay
+  return
+sub frame_1
+  1 servo
+  delay
+  return
+sub frame_2
+  2 servo
+  delay
+  return
+sub frame_3
+  3 servo
+  delay
+  return
+sub frame_4
+  4 servo
+  delay
+  return
+sub frame_5
+  5 servo
+  delay
+  return
+sub frame_0
+  0 servo
+  delay
+  return
+sub frame_7
+  7 servo
+  delay
+  return
+sub frame_8
+  8 servo
+  delay
+  return
+sub frame_9
+  9 servo
+  delay
+  return
+sub frame_10
+  10 servo
+  delay
+  return
+sub frame_11
+  11 servo
+  delay
+  return
+sub frame_12
+  12 servo
+  delay
+  return
+sub frame_13
+  13 servo
+  delay
+  return
+sub frame_14
+  14 servo
+  delay
+  return
+sub frame_15
+  15 servo
+  delay
+  return
+sub frame_16
+  16 servo
+  delay
+  return
+sub frame_17
+  17 servo
+  delay
+  return
+sub frame_18
+  18 servo
+  delay
+  return
+sub frame_19
+  19 servo
+  delay
+  return
+sub frame_6
+  6 servo
+  delay
+  return

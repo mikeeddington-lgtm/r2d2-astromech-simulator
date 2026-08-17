@@ -1,0 +1,414 @@
+'use strict';
+/* ================================================================ PCA SEQ
+   The JS twin of arduino/MaestroPCA — a servo sequencer for the PCA9685
+   that speaks Maestro. The kinematics here is duplicated
+   INTEGER-FOR-INTEGER from MaestroPCA.cpp: change one, change both, or
+   the sim stops being evidence about the real droid. PCA Studio no longer
+   carries a third copy — it is BUILT from this file (see
+   pca-studio/manifest.json), which is what killed that whole class of
+   drift. `E.onWrite(ch, qus)` is the hook Studio hangs live hardware off;
+   null in the sim, where `E.writes` alone is what the tests count. Its
+   opposite number in the C++ is `MpcaOutput` — same seam, same reason, and
+   the C++ one also carries `code()` because a PCA9685 quantises and this
+   twin does not have a bus to spare.
+
+   Maestro units throughout:
+     targets       quarter-µs (6000 = 1500 µs); 0 = channel off / limp
+     speed         0.25 µs per 10 ms tick; 0 = unlimited
+     acceleration  0.25 µs per 10 ms per 80 ms; 0 = unlimited
+
+   It keeps the Maestro's INTERFACE but deliberately goes past its
+   BEHAVIOUR where a droid benefits: several sequences at once, looping
+   and background sequences, oscillator/wander generators, release when
+   settled, and per-channel easing. See the library README.
+   ===================================================================== */
+
+const PCA_MAX_TRACKS = 4;
+
+/* per-channel easing. Channel rows carry it as a NAME ('soft',
+   'overshoot') because that is what the UI and the .json project store;
+   the engine works in the same numbers the C++ uses. */
+const PCA_EASE_NONE = 0, PCA_EASE_SOFT = 1, PCA_EASE_OVERSHOOT = 2;
+function pcaEaseNum(v){
+  if(typeof v === 'number') return v|0;
+  return v === 'soft' ? PCA_EASE_SOFT : v === 'overshoot' ? PCA_EASE_OVERSHOOT : PCA_EASE_NONE;
+}
+
+/* sequence flags — mirror MPCA_SEQ_* */
+const PCA_SEQ_LOOP = 1, PCA_SEQ_BACKGROUND = 2, PCA_SEQ_OSC = 4, PCA_SEQ_WANDER = 8;
+const PCA_SEQ_GENERATOR = PCA_SEQ_OSC | PCA_SEQ_WANDER;
+
+function pcaIsqrt32(v){
+  v = v >>> 0;
+  let r = 0, bit = 1 << 30;
+  while(bit > v) bit >>>= 2;
+  while(bit){
+    if(v >= r + bit){ v -= r + bit; r = (r >>> 1) + bit; }
+    else r >>>= 1;
+    bit >>>= 2;
+  }
+  return r;
+}
+
+/* 0..255 tracing lo → hi → lo across one period, easing to a stop at each
+   end (smoothstep over a triangle) so the turn never jerks */
+function pcaPingPong(t, period, phaseDeg){
+  if(!period) return 0;
+  const off = Math.floor((phaseDeg % 360) * period / 360);
+  const p   = Math.floor(((t + off) % period) * 65536 / period);
+  const u   = p < 32768 ? p * 2 : (65535 - p) * 2;
+  let   un  = u >> 8;
+  if(un > 255) un = 255;
+  return Math.floor((un * un * (765 - 2 * un)) / 65025);
+}
+
+/* a sequence is either {name, loop, background, frames:[{duration,targets[]}]}
+   or a generator {name, gen:'osc'|'wander', entries:[{ch,lo,hi,period,phase}]} */
+function pcaSeqFlags(seq){
+  return (seq.loop ? PCA_SEQ_LOOP : 0)
+       | (seq.background ? PCA_SEQ_BACKGROUND : 0)
+       | (seq.gen === 'osc' ? PCA_SEQ_OSC : 0)
+       | (seq.gen === 'wander' ? PCA_SEQ_WANDER : 0);
+}
+function pcaIsGen(seq){ return seq && (seq.gen === 'osc' || seq.gen === 'wander'); }
+
+function pcaFire(E, ch, qus){ E.writes++; if(E.onWrite) E.onWrite(ch, qus); }
+
+function pcaCreate(channels, sequences){
+  const E = {
+    channels, sequences,
+    st: channels.map(c=>({
+      pos256:0, vel256:0, target:0, aim:0,
+      speed: c.speed|0, accel: c.acceleration|0,
+      ease: pcaEaseNum(c.ease), releaseMs: c.releaseMs|0,
+      settled:0, launch:0,
+      active:false, known:false, servo:/^servo/i.test(c.mode||'Servo')
+    })),
+    tracks: Array.from({length:PCA_MAX_TRACKS},()=>({seq:-1, frame:-1, frameT:0, mask:0, started:0})),
+    bgWait: new Array(PCA_MAX_TRACKS).fill(-1),
+    startCount:0, tickAcc:0, ms:0, rng:0x2545F491,
+    writes:0, ticks:0, frameLog:[], onWrite:null
+  };
+  /* `E.seq` stayed meaningful when one-script-at-a-time became several:
+     it reads as the most recently started sequence, or -1 for idle. */
+  Object.defineProperty(E, 'seq', { get(){ return pcaCurrent(E); }, enumerable:false });
+  pcaGoHome(E);
+  return E;
+}
+
+/* which channels does sequence n ever drive? */
+function pcaSeqMask(E, n){
+  const seq = E.sequences[n];
+  let mask = 0;
+  if(!seq) return 0;
+  if(pcaIsGen(seq)){
+    (seq.entries||[]).forEach(g=>{ if(g.ch < E.channels.length) mask |= 1 << (g.ch < 31 ? g.ch : 31); });
+    return mask;
+  }
+  for(const fr of seq.frames)
+    for(let c=0;c<E.channels.length;c++)
+      if(fr.targets[c]) mask |= 1 << (c < 31 ? c : 31);
+  return mask;
+}
+function pcaRunning(E){ return E.tracks.some(t=>t.seq>=0); }
+function pcaSeqRunning(E, n){ return E.tracks.some(t=>t.seq===n); }
+function pcaRunningCount(E){ return E.tracks.filter(t=>t.seq>=0).length; }
+function pcaCurrent(E){
+  let best=-1, newest=0;
+  E.tracks.forEach(t=>{ if(t.seq>=0 && t.started>=newest){ newest=t.started; best=t.seq; } });
+  return best;
+}
+function pcaReleased(E, ch){ const s=E.st[ch]; return !!s && !s.active && s.known; }
+
+function pcaHomeQus(c){
+  /* homemode Off (and Ignore) = no pulses at power-up; encoded as home 0,
+     unambiguous because 0 already means "off" everywhere */
+  return (/off|ignore/i.test(c.homemode||'') ? 0 : (c.home|0));
+}
+
+function pcaGoHome(E){
+  E.channels.forEach((c,i)=>{
+    const s = E.st[i];
+    if(!s.servo) return;
+    const h = pcaHomeQus(c);
+    if(h){
+      s.target=h; s.aim=h; s.pos256=h<<8; s.vel256=0;
+      s.active=true; s.known=true; s.settled=0; s.launch=0;
+      pcaFire(E,i,h);
+    }else{
+      s.target=0; s.aim=0; s.active=false; s.known=false;
+      pcaFire(E,i,null);
+    }
+  });
+}
+
+function pcaSetTarget(E, ch, qus){
+  const c = E.channels[ch], s = E.st[ch];
+  if(!c || !s || !s.servo) return;
+  if(!qus){
+    /* asked for deliberately, so we no longer claim to know where it is */
+    s.target=0; s.aim=0; s.active=false; s.known=false; s.vel256=0;
+    pcaFire(E,ch,null);
+    return;
+  }
+  const lo=Math.min(c.min,c.max), hi=Math.max(c.min,c.max);
+  if(qus < lo) qus = lo;
+  if(qus > hi) qus = hi;
+
+  if(!s.active && !s.known){
+    /* nothing has ever driven this channel: snap, like a real Maestro */
+    s.pos256 = qus<<8; s.vel256 = 0;
+    s.active = true; s.known = true;
+    s.target = qus; s.aim = qus; s.settled = 0; s.launch = 0;
+    pcaFire(E,ch,qus);
+    return;
+  }
+  if(!s.active && s.known) s.active = true;   /* released, resume from here */
+
+  if(s.target !== qus){ s.settled = 0; s.launch = 0; }
+  s.target = qus;
+
+  if(s.ease === PCA_EASE_OVERSHOOT){
+    const d = qus - ((s.pos256 + 128) >> 8);
+    const dist = Math.abs(d);
+    if(dist > (hi - lo) / 8){
+      const over = Math.floor(dist / 12);
+      s.aim = Math.max(lo, Math.min(hi, qus + (d > 0 ? over : -over)));
+      return;
+    }
+  }
+  s.aim = qus;
+}
+
+/* generators own the position outright — the waveform IS the motion */
+function pcaDrive(E, ch, qus){
+  const c = E.channels[ch], s = E.st[ch];
+  if(!c || !s || !s.servo) return;
+  const lo=Math.min(c.min,c.max), hi=Math.max(c.min,c.max);
+  qus = Math.max(lo, Math.min(hi, qus));
+  if(!s.active){ s.active = true; s.known = true; }
+  s.pos256 = qus<<8; s.vel256 = 0;
+  s.target = qus; s.aim = qus; s.settled = 0;
+  pcaFire(E,ch,qus);
+}
+
+function pcaSetSpeed(E, ch, v){ if(E.st[ch]) E.st[ch].speed = v|0; }
+function pcaSetAccel(E, ch, v){ if(E.st[ch]) E.st[ch].accel = v|0; }
+function pcaSetRelease(E, ch, ms){ if(E.st[ch]) E.st[ch].releaseMs = ms|0; }
+function pcaSetEase(E, ch, e){ if(E.st[ch]) E.st[ch].ease = e|0; }
+function pcaPos(E, ch){ const s=E.st[ch]; return (s && s.active) ? (s.pos256+128)>>8 : 0; }
+function pcaMoving(E){ return E.st.some(s=>s.active && s.pos256 !== (s.aim<<8)) ? 1 : 0; }
+
+function pcaRestart(E, n){
+  if(n<0 || n>=E.sequences.length) return;
+  const mask = pcaSeqMask(E, n);
+  let slot = -1;
+  E.tracks.forEach((t,i)=>{
+    if(t.seq<0){ if(slot<0) slot=i; return; }
+    if(t.seq===n || (t.mask & mask)){
+      const old = E.sequences[t.seq];
+      if(old && old.background && t.seq !== n) pcaBgRemember(E, t.seq);
+      t.seq=-1;
+      if(slot<0) slot=i;
+    }
+  });
+  if(slot<0){
+    slot = 0;
+    for(let i=1;i<E.tracks.length;i++) if(E.tracks[i].started < E.tracks[slot].started) slot=i;
+  }
+  /* asking for it again cancels any pending resume of the same thing */
+  for(let i=0;i<E.bgWait.length;i++) if(E.bgWait[i]===n) E.bgWait[i]=-1;
+  E.tracks[slot] = {seq:n, frame:-1, frameT:0, mask, started:++E.startCount};
+}
+function pcaBgRemember(E, n){
+  if(E.bgWait.indexOf(n) >= 0) return;
+  const i = E.bgWait.indexOf(-1);
+  if(i >= 0) E.bgWait[i] = n;
+}
+function pcaBgResume(E){
+  for(let i=0;i<E.bgWait.length;i++){
+    const n = E.bgWait[i];
+    if(n < 0) continue;
+    const mask = pcaSeqMask(E, n);
+    let busy = 0;
+    E.tracks.forEach(t=>{ if(t.seq>=0) busy |= t.mask; });
+    if(mask & busy) continue;             /* still borrowed — wait */
+    E.bgWait[i] = -1;
+    pcaRestart(E, n);
+  }
+}
+function pcaStop(E){
+  E.tracks.forEach(t=>{ t.seq=-1; t.frame=-1; t.frameT=0; });
+  E.bgWait.fill(-1);                      /* an explicit stop means stop */
+}
+function pcaStopSeq(E, n){
+  E.tracks.forEach(t=>{ if(t.seq===n){ t.seq=-1; t.frame=-1; t.frameT=0; } });
+  for(let i=0;i<E.bgWait.length;i++) if(E.bgWait[i]===n) E.bgWait[i]=-1;
+}
+
+function pcaApplyFrame(E, ti, f){
+  const t = E.tracks[ti];
+  if(t.seq<0) return;
+  const fr = E.sequences[t.seq].frames[f];
+  if(!fr) return;
+  E.frameLog.push({t:E.ms, seq:t.seq, frame:f});
+  for(let c=0;c<E.channels.length;c++){
+    const v = fr.targets[c];
+    if(v && E.st[c]) pcaSetTarget(E, c, v);   /* 0 = frame leaves channel alone */
+  }
+}
+
+function pcaNextRandom(E, lo, hi){
+  let x = E.rng;
+  x ^= x << 13; x >>>= 0;
+  x ^= x >>> 17;
+  x ^= x << 5;  x >>>= 0;
+  E.rng = x;
+  if(hi <= lo) return lo;
+  return lo + ((x >>> 8) % (hi - lo + 1));
+}
+
+/* one engine step of `dtms` milliseconds — mirrors MaestroPCA::update() */
+function pcaTick(E, dtms){
+  let elapsed = dtms|0;
+  if(elapsed <= 0) return;
+  if(elapsed > 250) elapsed = 250;
+  E.ms += elapsed;
+
+  for(let i=0;i<E.tracks.length;i++){
+    const t = E.tracks[i];
+    if(t.seq < 0) continue;
+    const seq = E.sequences[t.seq];
+
+    if(pcaIsGen(seq)){
+      const before = t.frameT;
+      t.frameT += elapsed;
+      (seq.entries||[]).forEach(g=>{
+        if(g.ch >= E.channels.length || !g.period) return;
+        if(seq.gen === 'osc'){
+          const s = pcaPingPong(t.frameT, g.period, g.phase|0);
+          pcaDrive(E, g.ch, g.lo + Math.floor((g.hi - g.lo) * s / 255));
+        }else{
+          const off = Math.floor(((g.phase|0) % 360) * g.period / 360);
+          if(before === 0 || Math.floor((before+off)/g.period) !== Math.floor((t.frameT+off)/g.period))
+            pcaSetTarget(E, g.ch, pcaNextRandom(E, g.lo, g.hi));
+        }
+      });
+      continue;                            /* generators never end alone */
+    }
+
+    const frames = seq.frames;
+    if(!frames.length){ t.seq = -1; continue; }
+    if(t.frame < 0){ t.frame=0; t.frameT=0; pcaApplyFrame(E,i,0); }
+    else t.frameT += elapsed;
+
+    while(t.frame < frames.length){
+      const dur = frames[t.frame].duration|0;
+      if(t.frameT < dur) break;
+      t.frameT -= dur;
+      t.frame++;
+      if(t.frame < frames.length) pcaApplyFrame(E, i, t.frame);
+    }
+
+    if(t.frame >= frames.length){
+      if(seq.loop){
+        /* keep the leftover milliseconds, so a looping idle does not
+           drift a few ms slower on every pass round */
+        t.frame = 0;
+        pcaApplyFrame(E, i, 0);
+      }else{
+        t.seq = -1;
+      }
+    }
+  }
+
+  pcaBgResume(E);                          /* an idle picks up once it can */
+
+  E.tickAcc += (elapsed > 200) ? 200 : elapsed;
+  while(E.tickAcc >= 10){
+    E.tickAcc -= 10; E.ticks++;
+    /* `E.st[c] &&` is a guard, not kinematics — it has no counterpart in the
+       C++, where the table is fixed at compile time and cannot grow. Here
+       E.channels is a LIVE reference to the host's channel array, and PCA
+       Studio's setup screen adds channels to it. Without this, one tick
+       after a channel is added throws inside requestAnimationFrame, which
+       kills the loop and freezes the whole app — a missing state should
+       cost that channel, not the application. */
+    for(let c=0;c<E.channels.length;c++)
+      if(E.st[c] && E.st[c].active) pcaStepChannel(E, c);
+  }
+}
+
+function pcaStepChannel(E, ch){
+  const s = E.st[ch];
+  const T = s.aim<<8;
+  const d = T - s.pos256;
+
+  if(d===0 && s.vel256===0){
+    /* arrived. If we overshot deliberately, come back to the real target;
+       otherwise start counting toward release. */
+    if(s.aim !== s.target){ s.aim = s.target; s.launch = 0; return; }
+    if(s.releaseMs){
+      if(s.settled < 0xFFFF) s.settled++;
+      if(s.settled * 10 >= s.releaseMs){
+        /* stop pulsing: silent, cool, no current — but remember where it
+           is, so the next command eases from here instead of snapping */
+        s.active = false;
+        pcaFire(E,ch,null);
+      }
+    }
+    return;
+  }
+  s.settled = 0;
+  if(s.launch < 0xFFFF) s.launch++;
+
+  const speed = s.speed, accel = s.accel;
+  if(speed===0 && accel===0){
+    s.pos256 = T; s.vel256 = 0; pcaFire(E,ch,(s.pos256+128)>>8);
+    return;
+  }
+  const dir = d>=0 ? 1 : -1;
+  const dist = d>=0 ? d : -d;
+  const vmax = speed ? (speed<<8) : 0x20000000;
+
+  if(accel===0){
+    const step = dist < vmax ? dist : vmax;
+    s.pos256 += dir*step;
+    s.vel256 = 0;
+  }else{
+    let a = accel<<5;                       /* accel × 256 / 8 ticks-per-80ms */
+    /* PCA_EASE_SOFT: let the acceleration itself come in over the first
+       8 ticks, so the move breathes into motion rather than stepping */
+    if(s.ease === PCA_EASE_SOFT && s.launch < 8){
+      a = Math.floor(a * (s.launch + 1) / 8);
+      if(a < 1) a = 1;
+    }
+    let v = dir*s.vel256;
+    v += a;
+    if(v > vmax) v = vmax;
+    /* overshoot guard at quarter-µs granularity: v ≤ 128·√(accel·distq)+256
+       — identical to the AVR build, which must stay inside 32 bits */
+    const dq = dist>>8;
+    const vstop = 128*pcaIsqrt32(accel*dq) + 256;
+    if(v > vstop) v = vstop;
+    if(v > dist) v = dist;
+    s.pos256 += dir*v;
+    s.vel256 = dir*v;
+  }
+  /* Clamp the POSITION, not just the target — reversing with residual
+     velocity can otherwise carry a channel past its calibrated endpoint,
+     and endpoints are what stop a panel binding against the shell. */
+  const c2 = E.channels[ch];
+  const clo = Math.min(c2.min,c2.max)<<8, chi = Math.max(c2.min,c2.max)<<8;
+  if(s.pos256 < clo){ s.pos256 = clo; s.vel256 = 0; }
+  if(s.pos256 > chi){ s.pos256 = chi; s.vel256 = 0; }
+  if(s.pos256===T) s.vel256 = 0;
+  pcaFire(E,ch,(s.pos256+128)>>8);
+}
+
+/* quarter-µs → 12-bit PCA9685 ticks at 50 Hz — matches
+   MaestroPCA::qusToTicks with usPerPeriod 20000 */
+function pcaQusToTicks(qus, usPerPeriod){
+  const denom = (usPerPeriod||20000)*4;
+  return Math.floor((qus*4096 + denom/2)/denom);
+}

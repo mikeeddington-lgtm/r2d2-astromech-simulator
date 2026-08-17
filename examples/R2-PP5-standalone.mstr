@@ -1,0 +1,66 @@
+<!--Pololu Maestro servo controller settings file, http://www.pololu.com/catalog/product/1350-->
+<UscSettings version="1">
+  <NeverSuspend>false</NeverSuspend>
+  <SerialMode>UART_FIXED_BAUD_RATE</SerialMode>
+  <FixedBaudRate>9600</FixedBaudRate>
+  <SerialTimeout>0</SerialTimeout>
+  <EnableCrc>false</EnableCrc>
+  <SerialDeviceNumber>12</SerialDeviceNumber>
+  <SerialMiniSscOffset>0</SerialMiniSscOffset>
+  <Channels MiniMaestroServoPeriod="80000" ServoMultiplier="1">
+    <!--Period = 20 ms-->
+    <!--Channel 0-->
+    <Channel name="PP5" mode="Servo" min="4544" max="7296" homemode="Off" home="4544" speed="80" acceleration="10" neutral="6000" range="1905" />
+    <!--Channel 1-->
+    <Channel name="PP6" mode="Servo" min="4544" max="7296" homemode="Off" home="4544" speed="80" acceleration="10" neutral="6000" range="1905" />
+    <!--Channel 2-->
+    <Channel name="PP1" mode="Servo" min="5056" max="7744" homemode="Off" home="5056" speed="80" acceleration="10" neutral="6000" range="1905" />
+    <!--Channel 3-->
+    <Channel name="PP2" mode="Servo" min="4544" max="7296" homemode="Off" home="4544" speed="80" acceleration="10" neutral="6000" range="1905" />
+    <!--Channel 4-->
+    <Channel name="HP3-1" mode="Servo" min="3968" max="8000" homemode="Off" home="3968" speed="80" acceleration="10" neutral="6000" range="1905" />
+    <!--Channel 5-->
+    <Channel name="HP3-2" mode="Servo" min="3968" max="8000" homemode="Off" home="3968" speed="80" acceleration="10" neutral="6000" range="1905" />
+    <!--Channel 6-->
+    <Channel name="P13" mode="Servo" min="4032" max="7616" homemode="Off" home="4032" speed="80" acceleration="10" neutral="6015" range="1905" />
+    <!--Channel 7-->
+    <Channel name="HP1-1" mode="Servo" min="3968" max="8000" homemode="Off" home="3968" speed="80" acceleration="10" neutral="6000" range="1905" />
+    <!--Channel 8-->
+    <Channel name="HP1-2" mode="Servo" min="3968" max="8000" homemode="Off" home="3968" speed="80" acceleration="10" neutral="6000" range="1905" />
+    <!--Channel 9-->
+    <Channel name="P1-Fix" mode="Servo" min="3968" max="8000" homemode="Off" home="3968" speed="80" acceleration="10" neutral="6000" range="1905" />
+    <!--Channel 10-->
+    <Channel name="P2" mode="Servo" min="4032" max="7616" homemode="Off" home="4032" speed="80" acceleration="10" neutral="6000" range="1905" />
+    <!--Channel 11-->
+    <Channel name="P3" mode="Servo" min="4032" max="7360" homemode="Off" home="4032" speed="80" acceleration="10" neutral="6069" range="1905" />
+    <!--Channel 12-->
+    <Channel name="P4" mode="Servo" min="3968" max="7616" homemode="Off" home="3968" speed="80" acceleration="10" neutral="6000" range="1905" />
+    <!--Channel 13-->
+    <Channel name="P7" mode="Servo" min="4416" max="8000" homemode="Off" home="4416" speed="80" acceleration="10" neutral="6000" range="1905" />
+    <!--Channel 14-->
+    <Channel name="HP2-1" mode="Servo" min="3776" max="8000" homemode="Off" home="3776" speed="80" acceleration="10" neutral="6000" range="1905" />
+    <!--Channel 15-->
+    <Channel name="HP2-2" mode="Servo" min="3968" max="8000" homemode="Off" home="3968" speed="80" acceleration="10" neutral="6000" range="1905" />
+    <!--Channel 16-->
+    <Channel name="P11" mode="Servo" min="4416" max="7744" homemode="Off" home="4416" speed="80" acceleration="10" neutral="6000" range="1905" />
+    <!--Channel 17-->
+    <Channel name="" mode="Servo" min="3968" max="8000" homemode="Off" home="3968" speed="80" acceleration="10" neutral="6000" range="1905" />
+  </Channels>
+  <Sequences>
+    <Sequence name="PP5 flap" useSpeedAndAcceleration="false">
+      <Frame name="step 0" duration="1500">7296 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 s 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 a 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0</Frame>
+      <Frame name="step 1" duration="1500">4544 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 s 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 a 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0</Frame>
+    </Sequence>
+  </Sequences>
+  <Script ScriptDone="false"># STANDALONE. No Arduino, no serial, no restartScript.
+# Tick "Run script on startup" on the Script tab, press Apply
+# Settings, then power-cycle the Maestro. PP5 flaps forever.
+# If it does not, the fault is the board, the servo, the power
+# or the channel — nothing to do with Padawan.
+begin
+  7296 0 servo   1500 delay
+  4544 0 servo   1500 delay
+repeat
+
+</Script>
+</UscSettings>

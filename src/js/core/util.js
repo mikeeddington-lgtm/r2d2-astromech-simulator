@@ -1,0 +1,85 @@
+'use strict';
+/* =====================================================================
+   R2-D2 SIMULATOR — shared core
+   Peripherals, the XBOXRECV stub and the actuator layer are shared;
+   each firmware profile plugs its own setup()/loop() in on top.
+   ===================================================================== */
+
+/* Shown top-left in the header so a stale copy is obvious at a glance.
+   BUMP THIS on every delivery (HANDOVER §change log gets the same number). */
+const APP_VERSION = '1.44.0';
+/* The licence the app's own About box states — one string, one place.
+   Scoped on purpose: MIT covers THIS project's code and artwork, and the
+   About box has to say so rather than implying it covers the geometry, the
+   BSD-3-Clause firmware lineage or the manufacturers' photographs, none of
+   which are ours to license (v1.44.0; see LICENSE and CREDITS.md). */
+const APP_LICENCE = 'MIT';
+
+/* -------------------------------------------------------- arduino helpers */
+const map_ = (x,a,b,c,d)=>Math.trunc((x-a)*(d-c)/(b-a)+c);   // integer, unconstrained — same as Arduino
+const rnd  = (a,b)=>Math.floor(Math.random()*(b-a))+a;        // random(min,max), max exclusive
+const clamp=(v,a,b)=>v<a?a:v>b?b:v;
+
+const SIM = { millis:0, ticks:0, hz:0, fixDomeBug:false, blockUntil:-1, blockedMs:0, profile:'mod2026' };
+
+/* ------------------------------------------------------------ ?norender
+   Skip the GPU draw, keep everything else. `SIM.draw = false` stops the one
+   thing a headless test never looks at — the picture — while the firmware,
+   the actuators, the model transforms and every assertion carry on exactly
+   as before.
+
+   Why it exists: on a machine with no GPU, three.js falls back to a SOFTWARE
+   rasteriser and one frame of the droid scene costs the better part of a
+   second. Every page.evaluate() in the test harness queues behind a frame,
+   so each assertion was paying ~800 ms for a rendering nothing read, and the
+   suite took the best part of an hour. Measured, 2026-08-12: 20 trivial
+   evaluates against a rendering page, 23.9 s.
+
+   The world matrices are still updated (renderer.render() is what normally
+   does that) because raycast picking and viewFocusPart() read them. */
+if(typeof location !== 'undefined' && /[?&#]norender\b/.test(location.search + location.hash)) SIM.draw = false;
+if(SIM.draw === undefined) SIM.draw = true;
+
+/* ------------------------------------------------------- DOM shorthands
+   Declared here so every later script can use them. */
+const $  = id=>document.getElementById(id);
+const el = (t,c,x)=>{const e=document.createElement(t); if(c)e.className=c; if(x!==undefined)e.textContent=x; return e;};
+function sect(host, title, right){
+  const s=el('div','sect'); const h=el('h3');
+  h.innerHTML = title + (right?'<span>'+right+'</span>':'');
+  s.appendChild(h); host.appendChild(s); return s;
+}
+
+/* ------------------------------------------------------------- overlays
+   Any full-page surface that owns the app — the startup/build wizard, the
+   servo-hardware bench, the import wizard, "Build your Maestro", the servo
+   hardware overlay. While one of these is open, the droid underneath must
+   not be driven and no cue must fire: a click or keystroke aimed at a
+   control drawn on the overlay (a checkbox, a name field, an option card)
+   is not a request to arm a thruster or bark a sound file. gamepad.js's
+   keydown handler consults this in addition to its own-target guard,
+   because the overlay's controls sit in the SAME document and a keydown
+   the overlay does not itself swallow still bubbles to window. */
+function uiModalOpen(){
+  const st = $('startup');   if(st && st.classList.contains('on'))    return true; // setup / build wizard
+  const sw = $('setupWrap'); if(sw && !sw.classList.contains('hide')) return true; // servo-hardware bench
+  const iw = $('impWiz');    if(iw && !iw.hidden)                     return true; // import wizard
+  const bw = $('bldWiz');    if(bw && !bw.hidden)                     return true; // Build your Maestro
+  const hw = $('hwWrap');    if(hw && !hw.hidden)                     return true; // servo hardware overlay
+  return false;
+}
+
+/* --------------------------------------------------------------- logging */
+const LOG_MAX = 600;
+const LOG = [];
+let logDirty = false;
+function lg(kind, text){
+  LOG.push({t:SIM.millis, k:kind, s:text});
+  if(LOG.length>LOG_MAX) LOG.shift();
+  logDirty = true;
+}
+
+/* ================================================================ ACTUATORS
+   One normalised 0..1 value per moving part. Profile A derives these from
+   PCA9685 pulses; profile B drives them from Maestro script timelines.
+   ======================================================================= */

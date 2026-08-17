@@ -1,0 +1,57 @@
+/* =====================================================================
+   TRACK BUILDER — the top-down 2D circuit editor (v1.41.0)
+
+   Same overlay language as .iwrap/.iwcard (08-import.css): dimmed
+   blurred backdrop, one card, tokens only so body.light follows for
+   free. Sits above the stage (#stageTools is z-index 6, 02-layout.css)
+   and the startup wizard (120) — reached FROM the stage, never nested
+   inside another overlay (trackEditOpen() checks uiModalOpen() first).
+
+   Buttons are the app's own button.b / .act / .prim / .danger
+   (05-controls.css) — nothing new to keep in sync with a re-skin; only
+   the overlay shell, the toolbar row and the canvas frame are here.
+   ===================================================================== */
+.tewrap{
+  position:fixed; inset:0; z-index:220;
+  background:color-mix(in srgb, var(--ink2) 82%, transparent);
+  backdrop-filter:blur(3px);
+  display:flex; align-items:center; justify-content:center; padding:24px;
+}
+.tecard{
+  width:min(760px,100%); max-height:100%;
+  display:flex; flex-direction:column;
+  background:var(--panel); border:1px solid var(--line2); border-radius:10px;
+  box-shadow:0 18px 60px var(--shadow); overflow:hidden;
+}
+.tehead{padding:14px 18px 10px; border-bottom:1px solid var(--line)}
+.tehead h2{font-size:16px; font-weight:650; letter-spacing:-.01em}
+.tesub{color:var(--dim); font-size:var(--fs-data); margin-top:3px; font-family:var(--mono)}
+
+.tetools{
+  display:flex; align-items:center; gap:6px; flex-wrap:wrap;
+  padding:10px 18px; border-bottom:1px solid var(--line); background:var(--surf);
+}
+.tegap{flex:1}
+
+.teframe{
+  padding:14px 18px; display:flex; justify-content:center; align-items:center;
+  background:var(--surf2); overflow:auto;
+}
+/* the canvas IS the map — ±7 m, 1:1 aspect (js/app/track-edit.js) */
+#teCanvas{
+  background:var(--ink); border:1px solid var(--line2); border-radius:6px;
+  touch-action:none; cursor:crosshair; display:block; max-width:100%; height:auto;
+}
+#teCanvas.tedrag{cursor:grabbing}
+
+.tefoot{
+  display:flex; align-items:center; min-height:14px;
+  padding:8px 18px 14px; font-family:var(--mono); font-size:var(--fs-data);
+}
+/* the 2.4 m spacing rule — WARNS, never blocks a save */
+.tewarn{color:var(--rd); display:none}
+.tewarn.on{display:block}
+
+/* the door onto the editor — same plate language as every other stage
+   button (.sbtn, 02-layout.css); no bespoke look for one more control */
+#btnTrackEdit{padding:5px 8px}

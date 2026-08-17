@@ -1,0 +1,109 @@
+<body>
+<header>
+  <h1><b>PCA</b> STUDIO</h1><span class="ver" id="ver"></span>
+  <button id="bSetup" title="Set up your boards, wiring and channels — the screen that builds this project">⚙ Setup</button>
+  <button id="bMstr" title="Import a Maestro settings file — channels, sequences, and the script's slot order">Import .mstr</button>
+  <button id="bLoad" title="Load a saved .pcastudio.json project">Load project</button>
+  <button id="bSave" title="Save everything as a .pcastudio.json file">Save project</button>
+  <button id="bHdr" class="prim" title="Generate sequences.h for the MaestroPCA Arduino library">Export sequences.h</button>
+  <span class="sp"></span>
+  <button id="bPanic" class="stop" title="Stop every sequence and switch all outputs off, on screen and on the hardware (Esc)">■ STOP ALL</button>
+  <button id="bMon" title="Show what the board is sending back">Serial monitor</button>
+  <button id="bConnect" title="Stream live servo positions to a real PCA9685 over Web Serial — needs the PCA_Bridge sketch on an Arduino">⚡ Connect hardware</button>
+  <span id="serialChip">virtual</span>
+  <input type="file" id="fMstr" accept=".mstr,.xml,text/xml" style="display:none">
+  <input type="file" id="fProj" accept=".json" style="display:none">
+</header>
+<main>
+  <section id="secCh">
+    <h2>Channels
+      <span class="sp"></span>
+      <label title="Pulse period trim for the bridge; the PCA9685's RC oscillator is only nominally 25 MHz">osc <input type="number" id="inOsc" min="20000000" max="30000000" step="10000" style="width:96px"> Hz</label>
+      <label title="Servo refresh rate — and the only lever on the PCA9685's output resolution: one count is the period ÷ 4096, so 50 Hz = 4.88 µs and 200 Hz = 1.22 µs. Most DIGITAL servos take 200; most analogue ones do not.">rate <input type="number" id="inFreq" min="40" max="400" step="10" style="width:62px"> Hz <span id="freqRes" class="stat"></span></label>
+      <button class="mini" id="bAddCh">+ channel</button>
+      <button class="mini" id="bDelCh">− last</button>
+      <button class="mini" id="bAllHome" title="Every channel to its home pose (off channels stay off)">all home</button>
+      <button class="mini" id="bAllOff" title="Stop pulses on every channel">all off</button>
+    </h2>
+    <div class="scroll" style="max-height:42vh">
+      <table id="chTable"></table>
+    </div>
+  </section>
+  <section id="secSeq">
+    <h2>Sequencer <span class="stat" id="seqHint">slot n = restartScript(n)</span>
+      <span class="sp"></span>
+      <button class="mini" id="bAddSeq">+ sequence</button>
+      <button class="mini" id="bDupSeq">duplicate</button>
+      <button class="mini" id="bRenSeq">rename</button>
+      <button class="mini" id="bDelSeq">delete</button>
+    </h2>
+    <div class="seqtabs" id="seqTabs"></div>
+    <div class="transport">
+      <button id="bPlay" class="prim">▶ play slot</button>
+      <button id="bStop">■ stop</button>
+      <button id="bStopAll" class="stop" title="Stop everything and switch all outputs off (Esc)">■ all off</button>
+      <label title="Repeat until stopped or displaced."><input type="checkbox" id="ckLoop"> loop</label>
+      <label title="If another sequence takes one of its channels, this one resumes by itself once they are free again — idle behaviour that survives being interrupted."><input type="checkbox" id="ckBg"> background</label>
+      <label title="Frames: a timeline you author. Sweep: eases from-to-from forever and cannot be truncated by a short frame. Wander: a fresh random target each period, eased by the channel's own speed — idle life.">kind
+        <select id="selKind"><option value="frames">frames</option><option value="osc">sweep</option><option value="wander">wander</option></select></label>
+      <span class="stat" id="playStat">idle</span>
+      <span class="sp" style="flex:1"></span>
+      <button class="mini" id="bAddFr">+ frame</button>
+      <span class="stat">blank cell = channel not driven (Maestro convention)</span>
+    </div>
+    <div class="viewbar">
+      <div class="seg" id="viewSeg">
+        <button data-v="bricks" class="on" title="Build the sequence by dragging bricks on a timeline. The frames underneath are generated from them.">🧱 Bricks</button>
+        <button data-v="frames" title="The frames themselves — durations and one target per channel. What actually exports.">▦ Frames</button>
+      </div>
+      <span class="sp"></span>
+      <span id="brickTools">
+        <select id="selShape" title="Drop a ready-made shape in at the end of the routine"></select>
+        <select id="selShapeOn" title="Which channels the shape is built from"></select>
+        <button class="mini" id="bShape">add shape</button>
+        <span class="sp"></span>
+        <button class="mini" id="bSlower" title="Stretch the whole routine — every start, length and ramp — by 25%">− slower</button>
+        <button class="mini" id="bFaster" title="Squeeze the whole routine by 20%. The channels' own speed limits still apply on compile.">+ faster</button>
+        <button class="mini" id="bUndo" title="Undo the last edit (Ctrl+Z)">↶</button>
+        <button class="mini" id="bRedo" title="Redo (Ctrl+Shift+Z)">↷</button>
+        <span class="stat" id="brickStat"></span>
+      </span>
+    </div>
+    <div id="brickWrap">
+      <div id="brickLib">
+        <div class="libhead">Drag in, or click to append</div>
+        <div id="libList"></div>
+      </div>
+      <div id="brickMain">
+        <div id="tlHead"></div>
+        <div class="scroll" id="tlScroll"><div id="tl"></div></div>
+        <div id="brickInsp" class="hide"></div>
+      </div>
+    </div>
+    <div class="scroll" id="frWrap" style="flex:1">
+      <table class="framegrid" id="frTable"></table>
+    </div>
+  </section>
+  <section id="secMon" class="hide">
+    <h2>Serial monitor <span class="stat" id="monPort">not connected</span>
+      <span class="sp"></span>
+      <label title="Scroll to the newest line automatically"><input type="checkbox" id="ckFollow" checked> follow</label>
+      <button class="mini" id="bMonClear">clear</button>
+      <button class="mini" id="bMonHide">hide</button>
+    </h2>
+    <div id="monWarn"></div>
+    <pre id="monOut"></pre>
+    <div class="monbar">
+      <input type="text" id="monIn" placeholder="send to the board — e.g. ?  for status, x to stop, 0-9 to run a slot">
+      <button class="mini" id="bMonSend">send</button>
+      <label title="Most Arduino consoles read single keypresses and need no line ending"><input type="checkbox" id="ckNl"> newline</label>
+    </div>
+  </section>
+</main>
+<footer>
+  <span>engine <b id="stTicks">0</b> ticks</span>
+  <span>writes <b id="stWrites">0</b></span>
+  <span>serial <b id="stSerial">—</b></span>
+  <span id="log">Open from disk, no build, no server. Iterate here; the droid project stays heavy so this doesn't have to.</span>
+</footer>
+<div id="setupWrap" class="hide"></div>

@@ -1,0 +1,364 @@
+<body>
+<div id="app">
+
+  <!-- SIM ONLY (v1.28.0). First child on purpose: hidden it is not a grid
+       item at all, so #app's `38px 1fr` is untouched in normal use, and in
+       kiosk mode the header goes display:none and this bar becomes row 1
+       with no grid maths. Static markup — kiosk.js binds #btnKioskExit
+       once at parse time, the #appMenu contract.
+       Shown/hidden by ONE rule — `body:not(.kiosk) #kioskBar{display:none}`
+       in 10-kiosk.css. Deliberately not the `hidden` attribute as well:
+       `#kioskBar{display:flex}` outranks the UA's `[hidden]`, so carrying
+       both would leave an attribute that reads authoritative and does
+       nothing. -->
+  <div id="kioskBar">
+    <div class="ktitle"><b>R2-D2</b> Sim only</div>
+    <div class="spacer"></div>
+    <span id="kioskState"></span>
+    <button id="btnKioskExit" title="leave sim only and put the full app back">Exit</button>
+  </div>
+
+  <header>
+    <div class="brand"><b>R2-D2</b> Astromech Simulator <span id="verTag" title="sim version — bumped on every delivery"></span></div>
+    <div class="spacer"></div>
+    <!-- The diagnostics bezel: one recessed plate, not six floating boxes.
+         The firmware tag is the cluster's first cell, so #chFault — hidden
+         until there IS a fault — is never first and its separator rule
+         vanishes with it (02-layout.css). Nothing in here may depend on
+         extra classes on the chips: hud.js rewrites className and text on
+         every UI tick, and all the styling keys off #hdrBezel descent. -->
+    <div id="hdrBezel">
+      <span class="fwtag" id="fwTag" title="the sketch this build runs — change it in Setup"></span>
+      <div class="chip bad" id="chFault" style="display:none"><span class="dot"></span><span>fault</span></div>
+      <div class="chip" id="chGamepad"><span class="dot"></span><span>No pad</span></div>
+      <div class="chip" id="chDrive"><span class="dot"></span><span>Drive off</span></div>
+      <div class="chip" id="chAuto"><span class="dot"></span><span>Auto off</span></div>
+      <div class="chip" id="chSpeed"><span class="dot"></span><span>Spd 1</span></div>
+      <div class="chip" id="chHP"><span class="dot"></span><span>HP off</span></div>
+      <!-- THE BOARD, FROM THE MAIN SCREEN (v1.43.0). Mike: "on the main
+           screen add the box that allows connection / disconnection and
+           shows the status of the connection to the PCA bridge." Until now
+           the only doors onto the link were inside the Servo hardware
+           overlay and the setup wizard's Channels step — so whether a real
+           droid was on the end of the USB cable was a thing you had to open
+           a full-page tool to find out. It is a chip like the others, it
+           takes a click, and serial-link.js repaints it through the same
+           registry every other link surface uses. -->
+      <div class="chip" id="chLink"><span class="dot"></span><span>No board</span></div>
+    </div>
+    <div id="viewsel" title="How much of the app to show"></div>
+    <button class="hbtn" id="btnSetup" title="The build setup — hardware, wiring, panels and colours">Setup</button>
+    <button class="hbtn" id="btnKbd" title="Keyboard shortcuts (? or F1)">?</button>
+    <button class="hbtn" id="btnAppMenu" title="Save &amp; load, text size and the light/dark theme">Menu</button>
+  </header>
+
+  <!-- The header's right wing, folded into the Menu button above. STATIC
+       markup on purpose: btnTheme, btnScaleDn/Up, uiScaleLbl and btnSaveLoad
+       must stay alive in the DOM at all times — main.js binds them once at
+       boot and the suites reference them — so the menu is shown/hidden
+       (views.js appMenuOpen/Close), never rebuilt. -->
+  <div id="appMenu" hidden>
+    <div class="amrow"><span class="amlbl">Theme</span>
+      <button class="hbtn" id="btnTheme" title="Switch the frame between dark and light">Light</button>
+    </div>
+    <div class="amrow"><span class="amlbl">Text size</span>
+      <button class="hbtn" id="btnScaleDn" title="Smaller interface text">A−</button>
+      <span class="hbtn" id="uiScaleLbl" title="click to go back to 100%">100%</span>
+      <button class="hbtn" id="btnScaleUp" title="Larger interface text">A+</button>
+    </div>
+    <div class="amrow"><span class="amlbl">Setup file</span>
+      <button class="hbtn" id="btnSaveLoad" title="Export or import your whole setup as one .json">Save &amp; load…</button>
+    </div>
+    <div class="amrow"><span class="amlbl">Public</span>
+      <button class="hbtn" id="btnKiosk" title="Sim only — hand the laptop over: the droid, the backdrop and the pad, and nothing that can change the build. Set a temporary password to lock the way out.">Sim only…</button>
+    </div>
+    <!-- ABOUT (v1.44.0). The simulator travels as ONE self-contained HTML
+         file, so the people running it are frequently people who never saw
+         the repo it came from — and the credits have to travel with the
+         thing itself, not only with its README. Static markup like the rest
+         of this menu: main.js binds it once at boot. -->
+    <div class="amrow"><span class="amlbl">About</span>
+      <button class="hbtn" id="btnAbout" title="Version, credits and licence — who made the parts this is built from">Credits…</button>
+    </div>
+  </div>
+
+  <div id="dropzone">drop a .mstr, a sketch .ino, an .r2m model, an audio track, the sound-pack zip or a setup .json anywhere</div>
+
+  <div id="startup">
+    <div class="stpcard">
+      <div class="stphead">
+        <div>
+          <div class="stptitle" id="stpTitle">Set your droid up</div>
+          <div class="stpsub" id="stpSub">Tell me what is in your droid and the simulator configures itself to match.</div>
+        </div>
+        <div class="stphdr">
+          <div id="stpTheme" class="stpthm" title="light or dark — from any step"></div>
+          <button class="hbtn" id="btnStartupX" title="Close">Close</button>
+        </div>
+      </div>
+      <div id="stprail"></div>
+      <div class="stpbody" id="startupBody"></div>
+      <div class="stpfoot">
+        <button class="b" id="btnStpBack">← Back</button>
+        <div class="hint" id="stpFoot">Everything here is changeable later — nothing is locked in.</div>
+        <button class="b" id="btnStartupGo">Skip the rest</button>
+        <button class="b prim" id="btnStpNext">Next →</button>
+      </div>
+    </div>
+  </div>
+  <div id="main">
+    <div id="left">
+      <div id="stage">
+        <div class="hud" id="hudTL">
+          <div class="hudrow"><span class="k">Drive</span><span class="bar"><i id="bDrive"></i></span><span class="v" id="vDrive">0</span></div>
+          <div class="hudrow"><span class="k">Turn</span><span class="bar"><i id="bTurn"></i></span><span class="v" id="vTurn">0</span></div>
+          <div class="hudrow"><span class="k">Dome</span><span class="bar"><i id="bDome"></i></span><span class="v" id="vDome">0</span></div>
+        </div>
+        <div class="hud" id="hudTR">
+          <div class="hudrow"><span class="k">Loop</span><span class="v" id="vLoop">0 Hz</span></div>
+          <div class="hudrow"><span class="k">Uptime</span><span class="v" id="vUp">0.0 s</span></div>
+          <div class="hudrow"><span class="k">Vol</span><span class="v am" id="vVol">14</span></div>
+        </div>
+        <div class="hud" id="hudBL">DRAG orbit · WHEEL zoom · RIGHT-DRAG pan</div>
+        <div class="hud" id="hudMouse" style="display:none"></div>
+        <div class="hud" id="hudTrack" style="display:none"></div>
+        <div class="hud" id="hudTutor" style="display:none"></div>
+        <div id="stageTools">
+          <button class="sbtn" id="btnFollow">Follow</button>
+          <button class="sbtn" id="btnGrid">Grid</button>
+          <button class="sbtn" id="btnReset">Reset pose</button>
+          <button class="sbtn" id="btnCam">Front</button>
+          <button class="sbtn" id="btnStageBG" title="Stage background: follow the frame theme, or hold light/dark independently">BG: auto</button>
+          <button class="sbtn" id="btnEnv" title="Where the droid is standing — studio, workshop, desert or hangar bay">Studio</button>
+          <button class="sbtn" id="btnTutor" title="Teach me to operate my droid — a set of lessons you complete on the droid itself">Learn</button>
+          <button class="sbtn" id="btnTrack" title="Timed practice circuit — arm the feet and take the gates in order">Track</button>
+          <button class="sbtn" id="btnModel" title="What is on the stage">R2-D2</button>
+        </div>
+      </div>
+
+      <div id="splitH" class="split" title="drag to resize · double-click to reset"></div>
+
+      <div id="padwrap">
+        <div id="stripmode">
+          <button class="smbtn act" data-m="pad" title="the controller strip — the on-screen pad and its keyboard map">Controller</button>
+          <button class="smbtn" data-m="seq" title="the sequencer — build sequences out of bricks and put them on the board">Sequencer</button>
+        </div>
+        <div id="pupbar"></div>
+        <div id="padstage">
+          <div id="pupcount"></div>
+          <svg id="padsvg" viewBox="0 0 660 300" xmlns="http://www.w3.org/2000/svg">
+            <!-- triggers -->
+            <g id="g_LT" class="hit"><rect x="95" y="16" width="72" height="26" rx="10" class="pb" id="b_LT"></rect>
+              <clipPath id="clipLT"><rect x="95" y="16" width="72" height="26" rx="10"></rect></clipPath>
+              <rect id="f_LT" x="95" y="16" width="0" height="26" class="trigfill" clip-path="url(#clipLT)" opacity=".85"></rect>
+              <text class="pbtxt" x="131" y="29">LT</text></g>
+            <g id="g_RT" class="hit"><rect x="493" y="16" width="72" height="26" rx="10" class="pb" id="b_RT"></rect>
+              <clipPath id="clipRT"><rect x="493" y="16" width="72" height="26" rx="10"></rect></clipPath>
+              <rect id="f_RT" x="493" y="16" width="0" height="26" class="trigfill" clip-path="url(#clipRT)" opacity=".85"></rect>
+              <text class="pbtxt" x="529" y="29">RT</text></g>
+            <!-- bumpers -->
+            <g id="g_LB" class="hit"><rect x="88" y="48" width="86" height="22" rx="9" class="pb" id="b_LB"></rect><text class="pbtxt" x="131" y="59">LB</text></g>
+            <g id="g_RB" class="hit"><rect x="486" y="48" width="86" height="22" rx="9" class="pb" id="b_RB"></rect><text class="pbtxt" x="529" y="59">RB</text></g>
+
+            <!-- shell -->
+            <path class="shell" d="M172,74 C120,74 72,120 72,180 C72,232 84,276 130,290 C172,302 198,272 210,246 C238,256 300,264 330,264 C360,264 422,256 450,246 C462,272 488,302 530,290 C576,276 588,232 588,180 C588,120 540,74 488,74 Z"></path>
+
+            <!-- xbox guide + leds -->
+            <g id="g_XBOX" class="hit"><circle cx="330" cy="118" r="17" class="pb" id="b_XBOX"></circle><text class="pbtxt" x="330" y="118" style="font-size:8px">X</text></g>
+            <rect class="ledq" id="led1" x="311" y="99"  width="12" height="12" rx="2"></rect>
+            <rect class="ledq" id="led2" x="337" y="99"  width="12" height="12" rx="2"></rect>
+            <rect class="ledq" id="led3" x="311" y="125" width="12" height="12" rx="2"></rect>
+            <rect class="ledq" id="led4" x="337" y="125" width="12" height="12" rx="2"></rect>
+
+            <!-- back / start -->
+            <g id="g_BACK" class="hit"><circle cx="282" cy="158" r="13" class="pb" id="b_BACK"></circle><text class="pbtxt" x="282" y="158" style="font-size:7px">BK</text></g>
+            <g id="g_START" class="hit"><circle cx="378" cy="158" r="13" class="pb" id="b_START"></circle><text class="pbtxt" x="378" y="158" style="font-size:7px">ST</text></g>
+
+            <!-- left stick -->
+            <circle cx="158" cy="146" r="36" class="stickbase"></circle>
+            <circle cx="158" cy="146" r="1.5" fill="#39445a"></circle>
+            <circle id="s_L" cx="158" cy="146" r="23" class="sticktop hit"></circle>
+            <text class="lab" x="158" y="196">L3 / DRIVE</text>
+
+            <!-- right stick -->
+            <circle cx="406" cy="204" r="36" class="stickbase"></circle>
+            <circle cx="406" cy="204" r="1.5" fill="#39445a"></circle>
+            <circle id="s_R" cx="406" cy="204" r="23" class="sticktop hit"></circle>
+            <text class="lab" x="406" y="254">R3 / DOME</text>
+
+            <!-- dpad -->
+            <g id="g_UP" class="hit"><rect x="240" y="182" width="22" height="24" rx="4" class="pb" id="b_UP"></rect></g>
+            <g id="g_DOWN" class="hit"><rect x="240" y="226" width="22" height="24" rx="4" class="pb" id="b_DOWN"></rect></g>
+            <g id="g_LEFT" class="hit"><rect x="216" y="205" width="24" height="22" rx="4" class="pb" id="b_LEFT"></rect></g>
+            <g id="g_RIGHT" class="hit"><rect x="262" y="205" width="24" height="22" rx="4" class="pb" id="b_RIGHT"></rect></g>
+            <rect x="240" y="205" width="22" height="22" fill="#1c232e"></rect>
+
+            <!-- abxy -->
+            <g id="g_Y" class="hit"><circle cx="500" cy="112" r="17" class="pb" id="b_Y"></circle><text class="pbtxt" x="500" y="112">Y</text></g>
+            <g id="g_X" class="hit"><circle cx="466" cy="146" r="17" class="pb" id="b_X"></circle><text class="pbtxt" x="466" y="146">X</text></g>
+            <g id="g_B" class="hit"><circle cx="534" cy="146" r="17" class="pb" id="b_B"></circle><text class="pbtxt" x="534" y="146">B</text></g>
+            <g id="g_A" class="hit"><circle cx="500" cy="180" r="17" class="pb" id="b_A"></circle><text class="pbtxt" x="500" y="180">A</text></g>
+          </svg>
+        </div>
+        <div id="padside">
+          <h4>Keyboard</h4>
+          <div class="kbrow"><span>Left stick</span><span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></span></div>
+          <div class="kbrow"><span>Right stick</span><span><kbd>I</kbd><kbd>J</kbd><kbd>K</kbd><kbd>L</kbd></span></div>
+          <div class="kbrow"><span>D-pad</span><span><kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd></span></div>
+          <div class="kbrow"><span>LB / RB</span><span><kbd>Q</kbd><kbd>E</kbd></span></div>
+          <div class="kbrow"><span>LT / RT</span><span><kbd>Z</kbd><kbd>C</kbd></span></div>
+          <div class="kbrow"><span>A / B / X / Y</span><span><kbd>Spc</kbd><kbd>B</kbd><kbd>V</kbd><kbd>Y</kbd></span></div>
+          <div class="kbrow"><span>Start / Back</span><span><kbd>↵</kbd><kbd>N</kbd></span></div>
+          <div class="kbrow"><span>L3 / R3</span><span><kbd>R</kbd><kbd>F</kbd></span></div>
+          <div class="kbrow"><span>Guide</span><span><kbd>G</kbd></span></div>
+          <div class="hint" style="margin-top:9px">Sticks: drag them, or hold a key.<br>Plug in a real pad and press a button — the on-screen pad mirrors it.</div>
+        </div>
+        <div id="pupside"></div>
+        <div id="seqwrap">
+          <div id="seqtop">
+            <span class="seqlbl" id="seqName">no sequence</span>
+            <div class="spacer"></div>
+            <button class="b" id="sqPlay" title="preview the sequence on the model">▶ Play</button>
+            <button class="b" id="sqStop" title="stop the preview">■</button>
+            <button class="b" id="sqLive" title="let sequences drive the real servos as well as the model">⚡ No board</button>
+            <span class="sqtime" id="sqTime" title="the playhead — drag it on the ruler, or press play">0.00s</span>
+            <span style="width:8px"></span>
+            <span id="sqSnapWrap" title="how dragged bricks snap — to the beat when music is loaded"></span>
+            <label class="blkswitch" id="sqAdvWrap" title="expert settings — per-brick speed and acceleration overrides"><input type="checkbox" id="sqAdv">Advanced</label>
+            <span style="width:8px"></span>
+            <button class="b" id="sqUndo" title="undo the last edit to this sequence (Ctrl+Z)" disabled>↶</button>
+            <button class="b" id="sqRedo" title="redo (Ctrl+Y or Ctrl+Shift+Z)" disabled>↷</button>
+            <span style="width:8px"></span>
+            <button class="b act" id="sqViewBlocks" title="build it out of bricks">Bricks</button>
+            <button class="b" id="sqViewPose" title="pose every channel by hand">Pose</button>
+            <button class="b" id="sqViewTable" title="the frames this compiles to">Frames</button>
+            <span style="width:8px"></span>
+            <button class="b" id="sqVHead" title="frame the dome">Head</button>
+            <button class="b" id="sqVBody" title="frame the body">Body</button>
+            <button class="b" id="sqVFull" title="frame the whole droid">Full</button>
+            <span style="width:8px"></span>
+            <button class="b prim" id="sqBuild" title="select, order and validate the sequences that go on the board, then generate the script">⚙ Build your Maestro</button>
+            <button class="b" id="sqBig" title="leave sequence mode and go back to the controller">← Back to Drive</button>
+          </div>
+          <div id="musbar"></div>
+          <div id="muspop"></div>
+          <canvas id="muswave"></canvas>
+          <div id="seqbody">
+            <div id="seqblocks"></div>
+            <div id="seqframes">
+              <div id="seqframebar">
+                <button class="b" id="sqCapture">＋ Capture frame</button>
+                <button class="b" id="sqUpdate">Update frame</button>
+                <button class="b" id="sqDel">Delete frame</button>
+                <button class="b" id="sqDup">Duplicate</button>
+              </div>
+              <div id="seqtl"></div>
+              <div id="seqpose"></div>
+              <div id="seqtable"></div>
+            </div>
+          </div>
+          <div id="seqlib"></div>
+          <div id="seqinsp"></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="splitV" class="split" title="drag to resize · double-click to reset"></div>
+
+    <div id="side">
+      <!-- Tab ORDER is load-bearing (v1.17.0, B1). Each workspace hides the
+           buttons it does not offer, so the row a workspace shows is this
+           order filtered — and each must read the way workspaces.js lists
+           it: Drive = pHelp,pServo,pLearn · Bench = pMae,pServo,pCon ·
+           Configure = pCfg,pCad. That is why Maestro sits second rather
+           than next to Model. sequencer.test.js pins all three. -->
+      <div id="tabs">
+        <button data-p="pHelp" class="act">Controls</button>
+        <button data-p="pMae" id="tabMae">Servo / Sequence config</button>
+        <button data-p="pServo">Outputs</button>
+        <button data-p="pCon">Serial</button>
+        <button data-p="pLearn">Learn</button>
+        <button data-p="pCfg">Config</button>
+        <button data-p="pCad" id="tabCad">Model</button>
+        <label id="wsAdvWrap" hidden title="the serial console and the sketch constants — off by default because they can break the droid">
+          <input type="checkbox" id="wsAdv">Advanced
+        </label>
+      </div>
+
+      <!-- ================= CONTROLS ================= -->
+      <div class="pane act" id="pHelp">
+        <div class="sect">
+          <h3>Sound <span id="sndChip"></span></h3>
+          <div id="sndBox">
+            <div id="sndNum">--</div>
+            <div id="sndMeta">
+              <div><span class="lbl" id="sndChipName">—</span> <span id="sndBus"></span></div>
+              <div id="sndDesc">idle</div>
+              <div>vol <span id="sndVol">0</span>/30</div>
+            </div>
+            <div class="eq"><i></i><i></i><i></i><i></i><i></i></div>
+          </div>
+          <div id="sbankRow">
+            <span id="sbankStat">no sound files</span>
+            <button class="b" id="btnSounds" title="load the Padawan pack — the zip from github.com/Imperiallandm/r2sounds, or the numbered mp3s">Load sounds</button>
+            <button class="b" id="btnSoundsClear" title="forget the stored sound files">✕</button>
+          </div>
+        </div>
+        <div id="hwBlurb" class="hint" style="margin:-6px 0 14px"></div>
+        <div id="mapHost"></div>
+      </div>
+
+      <!-- ================= OUTPUTS ================= -->
+      <div class="pane" id="pServo">
+        <div id="outHost"></div>
+      </div>
+
+      <!-- ================= SERIAL ================= -->
+      <div class="pane" id="pCon" style="display:none">
+        <div class="conbar">
+          <button class="b act" data-f="sab">Sabertooth</button>
+          <button class="b act" data-f="syr">Syren</button>
+          <button class="b act" data-f="pwm">PWM</button>
+          <button class="b act" data-f="mae">Maestro</button>
+          <button class="b act" data-f="mp3">Audio</button>
+          <button class="b act" data-f="i2c">I2C</button>
+          <button class="b" id="btnClear">Clear</button>
+          <label class="sw"><input type="checkbox" id="cbAutoscroll" checked>autoscroll</label>
+        </div>
+        <div id="console"></div>
+      </div>
+
+      <!-- ================= LEARN ================= -->
+      <div class="pane" id="pLearn">
+        <div id="tutorHost"></div>
+      </div>
+
+      <!-- ================= CONFIG ================= -->
+      <div class="pane" id="pCfg">
+        <div id="cfgHost"></div>
+      </div>
+
+      <!-- ================= MAESTRO ================= -->
+      <div class="pane" id="pMae">
+        <div id="maeHost"></div>
+      </div>
+
+      <!-- ================= MODEL / CAD ================= -->
+      <div class="pane" id="pCad">
+        <div id="cadHost"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ IMPORT YOUR CONFIG (overlay) ============ -->
+<div id="impWiz" class="iwrap" hidden></div>
+
+<!-- ============ BUILD YOUR MAESTRO (overlay) ============ -->
+<div id="bldWiz" class="iwrap" hidden></div>
+
+<!-- ============ SERVO HARDWARE (overlay) ============ -->
+<div id="hwWrap" class="iwrap" hidden></div>
+
+<!-- ============ SET UP YOUR SERVO HARDWARE (overlay) ============ -->
+<div id="setupWrap" class="hide"></div>

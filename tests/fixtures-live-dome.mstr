@@ -1,0 +1,194 @@
+<!--Pololu Maestro servo controller settings file, http://www.pololu.com/catalog/product/1350-->
+<UscSettings version="1">
+  <NeverSuspend>false</NeverSuspend>
+  <SerialMode>UART_FIXED_BAUD_RATE</SerialMode>
+  <FixedBaudRate>9600</FixedBaudRate>
+  <SerialTimeout>0</SerialTimeout>
+  <EnableCrc>false</EnableCrc>
+  <SerialDeviceNumber>12</SerialDeviceNumber>
+  <SerialMiniSscOffset>0</SerialMiniSscOffset>
+  <Channels MiniMaestroServoPeriod="80000" ServoMultiplier="1">
+    <!--Period = 20 ms-->
+    <!--Channel 0-->
+    <Channel name="PP5" mode="Servo" min="4544" max="7296" homemode="Off" home="4544" speed="80" acceleration="10" neutral="6000" range="1905" />
+    <!--Channel 1-->
+    <Channel name="PP6" mode="Servo" min="4544" max="7296" homemode="Off" home="4544" speed="80" acceleration="10" neutral="6000" range="1905" />
+    <!--Channel 2-->
+    <Channel name="PP1" mode="Servo" min="5056" max="7744" homemode="Off" home="5056" speed="80" acceleration="10" neutral="6000" range="1905" />
+    <!--Channel 3-->
+    <Channel name="PP2" mode="Servo" min="4544" max="7296" homemode="Off" home="4544" speed="80" acceleration="10" neutral="6000" range="1905" />
+    <!--Channel 4-->
+    <Channel name="HP3-1" mode="Servo" min="3968" max="8000" homemode="Off" home="3968" speed="80" acceleration="10" neutral="6000" range="1905" />
+    <!--Channel 5-->
+    <Channel name="HP3-2" mode="Servo" min="3968" max="8000" homemode="Off" home="3968" speed="80" acceleration="10" neutral="6000" range="1905" />
+    <!--Channel 6-->
+    <Channel name="P13" mode="Servo" min="4032" max="7616" homemode="Off" home="4032" speed="80" acceleration="10" neutral="6015" range="1905" />
+    <!--Channel 7-->
+    <Channel name="HP1-1" mode="Servo" min="3968" max="8000" homemode="Off" home="3968" speed="80" acceleration="10" neutral="6000" range="1905" />
+    <!--Channel 8-->
+    <Channel name="HP1-2" mode="Servo" min="3968" max="8000" homemode="Off" home="3968" speed="80" acceleration="10" neutral="6000" range="1905" />
+    <!--Channel 9-->
+    <Channel name="P1-Fix" mode="Servo" min="3968" max="8000" homemode="Off" home="3968" speed="80" acceleration="10" neutral="6000" range="1905" />
+    <!--Channel 10-->
+    <Channel name="P2" mode="Servo" min="4032" max="7616" homemode="Off" home="4032" speed="80" acceleration="10" neutral="6000" range="1905" />
+    <!--Channel 11-->
+    <Channel name="P3" mode="Servo" min="4032" max="7360" homemode="Off" home="4032" speed="80" acceleration="10" neutral="6069" range="1905" />
+    <!--Channel 12-->
+    <Channel name="P4" mode="Servo" min="3968" max="7616" homemode="Off" home="3968" speed="80" acceleration="10" neutral="6000" range="1905" />
+    <!--Channel 13-->
+    <Channel name="P7" mode="Servo" min="4416" max="8000" homemode="Off" home="4416" speed="80" acceleration="10" neutral="6000" range="1905" />
+    <!--Channel 14-->
+    <Channel name="HP2-1" mode="Servo" min="3776" max="8000" homemode="Off" home="3776" speed="80" acceleration="10" neutral="6000" range="1905" />
+    <!--Channel 15-->
+    <Channel name="HP2-2" mode="Servo" min="3968" max="8000" homemode="Off" home="3968" speed="80" acceleration="10" neutral="6000" range="1905" />
+    <!--Channel 16-->
+    <Channel name="P11" mode="Servo" min="4416" max="7744" homemode="Off" home="4416" speed="80" acceleration="10" neutral="6000" range="1905" />
+    <!--Channel 17-->
+    <Channel name="" mode="Servo" min="3968" max="8000" homemode="Off" home="3968" speed="80" acceleration="10" neutral="6000" range="1905" />
+  </Channels>
+  <Sequences>
+    <Sequence name="All close" useSpeedAndAcceleration="false">
+      <Frame name="Frame 0" duration="500">4544 4544 5056 4544 3968 3968 4032 3968 3968 3968 4032 4032 3968 4416 3776 3968 4416 0 s 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 a 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0</Frame>
+      <Frame name="Frame 1" duration="500">4544 4544 5056 4544 3968 3968 4032 3968 3968 3968 4032 4032 3968 4416 3776 3968 4416 0 s 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 a 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0</Frame>
+    </Sequence>
+    <Sequence name="All Open" useSpeedAndAcceleration="false">
+      <Frame name="Frame 0" duration="500">7296 7296 7744 7296 0 0 7616 0 0 8000 7616 7360 7616 8000 3776 3968 7711 0 s 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 a 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0</Frame>
+    </Sequence>
+    <Sequence name="All open - All Close" useSpeedAndAcceleration="false">
+      <Frame name="Frame 0" duration="2000">7296 7296 7744 7296 8000 8000 7616 3968 3968 8000 7616 7360 7616 8000 8000 8000 7744 0 s 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 a 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0</Frame>
+      <Frame name="Frame 1" duration="500">4544 4544 5056 4544 3968 3968 4032 3968 3968 3968 4032 4032 3968 4416 3776 3968 4416 0 s 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 a 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0</Frame>
+    </Sequence>
+    <Sequence name="Full Wave" useSpeedAndAcceleration="false">
+      <Frame name="Frame 0" duration="500">4544 4544 5056 4544 3968 3968 4032 3968 3968 3968 4032 4046 3968 4416 3776 3968 4416 0 s 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 a 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0</Frame>
+      <Frame name="Frame 1" duration="500">7296 4544 5056 4544 3968 3968 4032 3968 3968 3968 4032 4046 3968 4416 3776 3968 4416 0 s 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 a 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0</Frame>
+      <Frame name="Frame 2" duration="500">7296 7296 5056 4544 3968 3968 4032 3968 3968 3968 4032 4046 3968 4416 3776 3968 4416 0 s 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 a 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0</Frame>
+      <Frame name="Frame 3" duration="500">7296 7296 7744 4544 3968 3968 4032 3968 3968 3968 4032 4046 3968 4416 3776 3968 4416 0 s 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 a 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0</Frame>
+      <Frame name="Frame 4" duration="500">7296 7296 7744 7296 3968 3968 4032 3968 3968 3968 4032 4046 3968 4416 3776 3968 4416 0 s 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 a 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0</Frame>
+      <Frame name="Frame 5" duration="500">7296 7296 7744 7296 3968 3968 7616 3968 3968 3968 4032 4046 3968 4416 3776 3968 4416 0 s 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 a 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0</Frame>
+      <Frame name="Frame 6" duration="500">7296 7296 7744 7296 3968 3968 7616 3968 3968 8000 4032 4046 3968 4416 3776 3968 4416 0 s 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 a 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0</Frame>
+      <Frame name="Frame 7" duration="500">7296 7296 7744 7296 3968 3968 7616 3968 3968 8000 7616 4046 3968 4416 3776 3968 4416 0 s 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 a 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0</Frame>
+      <Frame name="Frame 8" duration="500">7296 7296 7744 7296 3968 3968 7616 3968 3968 8000 7616 7360 3968 4416 3776 3968 4416 0 s 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 a 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0</Frame>
+      <Frame name="Frame 9" duration="500">7296 7296 7744 7296 3968 3968 7616 3968 3968 8000 7616 7360 7616 4416 3776 3968 4416 0 s 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 a 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0</Frame>
+      <Frame name="Frame 10" duration="500">7296 7296 7744 7296 3968 3968 7616 3968 3968 8000 7616 7360 7616 8000 3776 3968 4416 0 s 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 a 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0</Frame>
+      <Frame name="Frame 11" duration="500">7296 7296 7744 7296 3968 3968 7616 3968 3968 8000 7616 7360 7616 8000 3776 3968 7744 0 s 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 a 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0</Frame>
+      <Frame name="Frame 12" duration="500">4544 7296 7744 7296 3968 3968 7616 3968 3968 8000 7616 7360 7616 8000 3776 3968 7744 0 s 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 a 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0</Frame>
+      <Frame name="Frame 13" duration="500">4544 4544 7744 7296 3968 3968 7616 3968 3968 8000 7616 7360 7616 8000 3776 3968 7744 0 s 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 a 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0</Frame>
+      <Frame name="Frame 14" duration="500">4544 4544 5056 7296 3968 3968 7616 3968 3968 8000 7616 7360 7616 8000 3776 3968 7744 0 s 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 a 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0</Frame>
+      <Frame name="Frame 15" duration="500">4544 4544 5056 4544 3968 3968 7616 3968 3968 8000 7616 7360 7616 8000 3776 3968 7744 0 s 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 a 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0</Frame>
+      <Frame name="Frame 16" duration="500">4544 4544 5056 4544 3968 3968 4032 3968 3968 8000 7616 7360 7616 8000 3776 3968 7744 0 s 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 a 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0</Frame>
+      <Frame name="Frame 17" duration="500">4544 4544 5056 4544 3968 3968 4032 3968 3968 3968 7616 7360 7616 8000 3776 3968 7744 0 s 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 a 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0</Frame>
+      <Frame name="Frame 18" duration="500">4544 4544 5056 4544 3968 3968 4032 3968 3968 3968 4032 7360 7616 8000 3776 3968 7744 0 s 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 a 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0</Frame>
+      <Frame name="Frame 19" duration="500">4544 4544 5056 4544 3968 3968 4032 3968 3968 3968 4032 4032 7616 8000 3776 3968 7744 0 s 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 a 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0</Frame>
+      <Frame name="Frame 20" duration="500">4544 4544 5056 4544 3968 3968 4032 3968 3968 3968 4032 4032 3968 8000 3776 3968 7744 0 s 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 a 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0</Frame>
+      <Frame name="Frame 21" duration="500">4544 4544 5056 4544 3968 3968 4032 3968 3968 3968 4032 4032 3968 4416 3776 3968 7744 0 s 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 a 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0</Frame>
+      <Frame name="Frame 22" duration="500">4544 4544 5056 4544 3968 3968 4032 3968 3968 3968 4032 4032 3968 4416 3776 3968 4416 0 s 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 a 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0</Frame>
+    </Sequence>
+  </Sequences>
+  <Script ScriptDone="true"># Full Wave
+begin
+  500 4544 4544 5056 4544 3968 3968 
+  4032 3968 3968 3968 4032 4046 
+  3968 4416 3776 3968 4416 0 frame_0..17 # Frame 0
+  500 7296 frame_0 # Frame 1
+  500 7296 frame_1 # Frame 2
+  500 7744 frame_2 # Frame 3
+  500 7296 frame_3 # Frame 4
+  500 7616 frame_6 # Frame 5
+  500 8000 frame_9 # Frame 6
+  500 7616 frame_10 # Frame 7
+  500 7360 frame_11 # Frame 8
+  500 7616 frame_12 # Frame 9
+  500 8000 frame_13 # Frame 10
+  500 7744 frame_16 # Frame 11
+  500 4544 frame_0 # Frame 12
+  500 4544 frame_1 # Frame 13
+  500 5056 frame_2 # Frame 14
+  500 4544 frame_3 # Frame 15
+  500 4032 frame_6 # Frame 16
+  500 3968 frame_9 # Frame 17
+  500 4032 frame_10 # Frame 18
+  500 4032 frame_11 # Frame 19
+  500 3968 frame_12 # Frame 20
+  500 4416 frame_13 # Frame 21
+  500 4416 frame_16 # Frame 22
+repeat
+
+sub frame_0..17
+  17 servo
+  16 servo
+  15 servo
+  14 servo
+  13 servo
+  12 servo
+  11 servo
+  10 servo
+  9 servo
+  8 servo
+  7 servo
+  6 servo
+  5 servo
+  4 servo
+  3 servo
+  2 servo
+  1 servo
+  0 servo
+  delay
+  return
+
+sub frame_0
+  0 servo
+  delay
+  return
+
+sub frame_1
+  1 servo
+  delay
+  return
+
+sub frame_2
+  2 servo
+  delay
+  return
+
+sub frame_3
+  3 servo
+  delay
+  return
+
+sub frame_6
+  6 servo
+  delay
+  return
+
+sub frame_9
+  9 servo
+  delay
+  return
+
+sub frame_10
+  10 servo
+  delay
+  return
+
+sub frame_11
+  11 servo
+  delay
+  return
+
+sub frame_12
+  12 servo
+  delay
+  return
+
+sub frame_13
+  13 servo
+  delay
+  return
+
+sub frame_16
+  16 servo
+  delay
+  return
+
+</Script>
+</UscSettings>

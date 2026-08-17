@@ -1,0 +1,54 @@
+# Tag a version, get a downloadable simulator.
+#
+# The single-file build is NOT in the repository — it is 7.7 MB of generated
+# output and a tracked copy goes stale (see .gitignore). So it is built here
+# and attached to the release, which is what the README's download link
+# points at.
+#
+#   git tag v1.44.0 && git push origin v1.44.0
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install Playwright and its browser
+        run: |
+          npm ci || npm install
+          npx playwright install --with-deps chromium
+
+      - name: Build
+        run: ./build.sh
+
+      - name: Run the suites before publishing anything
+        run: ./test.sh
+
+      - name: Attach the simulator to the release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            R2D2-Simulator.html
+            pca-studio/PCA-Studio.html
+          body: |
+            **Download `R2D2-Simulator.html` and open it in Chrome or Edge.**
+            That is the whole installation — one self-contained file, no server,
+            no internet. `PCA-Studio.html` is the standalone servo bench.
+
+            See CREDITS.md for what in this file belongs to other people, and
+            on what terms.
+          generate_release_notes: true

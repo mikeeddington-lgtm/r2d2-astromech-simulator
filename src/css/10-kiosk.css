@@ -1,0 +1,74 @@
+/* =====================================================================
+   SIM ONLY — the public driving mode (v1.28.0). Ground truth for the
+   behaviour is src/js/app/kiosk.js; this file is only what you SEE.
+
+   The whole mode is one body class. Everything below either hides a
+   surface that could reconfigure the droid, or gives back the space it
+   was using — nothing here changes a layout the app uses outside kiosk,
+   so leaving the mode needs no restoration pass.
+
+   The bar takes the header's grid track rather than floating over the
+   stage: #app is `grid-template-rows:38px 1fr` (01-tokens.css) and with
+   the header display:none and #kioskBar shown, the bar simply IS row 1.
+   No absolute positioning over the stage — bindCamera()'s pointer
+   capture makes anything sitting on the stage a hazard (HANDOVER §7).
+   ===================================================================== */
+
+#kioskBar{
+  display:flex;align-items:center;gap:14px;padding:0 14px;min-width:0;
+  background:linear-gradient(180deg,var(--surf2),var(--bg2));
+  border-bottom:1px solid var(--line);
+}
+body:not(.kiosk) #kioskBar{display:none}
+#kioskBar .ktitle{
+  font-family:var(--mono);font-size:12px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--ctaHi);white-space:nowrap;
+}
+#kioskBar .ktitle b{color:var(--txt);font-weight:600}
+#kioskBar .spacer{flex:1}
+/* the lock state is the one thing on this bar that changes, so it gets
+   the readable weight and the button stays quiet until it is wanted */
+#kioskState{
+  font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;color:var(--dim);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;
+}
+
+/* ---------------- what sim only takes away ----------------
+   Each line is a door out of "just drive it". Read this list as the
+   visible half of the promise; the two doors that display:none cannot
+   close — the file drop and openStartup() — are guarded in kiosk.js. */
+body.kiosk header{display:none}          /* setup, menu, workspaces, the ? card's button */
+body.kiosk #side,
+body.kiosk #splitV{display:none}         /* every tab: Maestro, Config, Model, Serial */
+body.kiosk #main{grid-template-columns:minmax(0,1fr) 0 0}
+body.kiosk #stageTools{display:none}     /* model / backdrop / environment / track pickers */
+body.kiosk #stripmode{display:none}      /* the door to the sequencer desk */
+body.kiosk #padwrap{grid-template-rows:0 auto minmax(0,1fr)}
+body.kiosk #pupbar,
+body.kiosk #pupside{display:none}        /* the puppet rig owns the servos — not at a show */
+body.kiosk #dropzone{display:none}       /* the drop itself is refused in kiosk.js */
+/* the stage/pad splitter goes too: dragging it to nothing is a fine way
+   for a stranger to lose the controller. The track collapses to 0 so the
+   pad keeps the height Mike sized it at before he handed the laptop over.
+
+   visibility, NOT display — and this one cost a screenshot. #left, #main
+   and #padwrap all rely on AUTO-PLACEMENT: display:none takes an element
+   out of the grid entirely, so hiding the splitter promoted #padwrap from
+   row 3 to row 2 and the whole controller strip collapsed to nothing while
+   the row it should have been in sat empty. visibility:hidden keeps it a
+   grid item holding row 2 open at 0px. Anything else hidden here is either
+   the LAST item in its container (#side) or explicitly placed
+   (#stripmode, 03-pad.css), which is why display:none is safe for those. */
+body.kiosk #splitH{visibility:hidden;pointer-events:none}
+body.kiosk #left{grid-template-rows:minmax(0,1fr) 0 var(--padH,258px)}
+
+/* the exit reads as an action, not as another status chip — it is the
+   only button on the bar and the only way back */
+#btnKioskExit{
+  background:var(--cta,var(--cy));color:var(--onCta,var(--onAcc));
+  border:1px solid transparent;border-radius:6px;cursor:pointer;
+  font-family:var(--mono);font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;
+  font-weight:700;padding:5px 12px;white-space:nowrap;
+}
+#btnKioskExit:hover{filter:brightness(1.08)}
+#btnKioskExit:focus-visible{outline:2px solid var(--focus,var(--cta));outline-offset:2px}

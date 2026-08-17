@@ -1,0 +1,584 @@
+'use strict';
+/* =====================================================================
+   MAESTRO UI — sidebar pane (import / channels / sequences) plus the
+   sequencer that takes over the bottom strip.
+   ===================================================================== */
+
+/* ------------------------------------------------- sidebar Maestro pane */
+function buildMaestroPane(){
+  const host=$('maeHost'); if(!host) return;
+  host.innerHTML='';
+
+  /* v1.27.0: a PCA9685 build is no longer turned away here. The sequence
+     library, the editor and the loadout are all board-agnostic — what
+     changes is where they END UP: a .mstr for a Pololu board, or a
+     sequences.h for the MaestroPCA co-processor. Only the Pololu-specific
+     furniture (the board picker, the script) is hidden. */
+  const pca = (typeof boardIsPca === 'function') && MSTR.loaded && boardIsPca(MSTR.board);
+  if(!PROFILE.hasMaestro && !pca && !(typeof buildCanSequence === 'function' && buildCanSequence())){
+    const n=el('div','note cy prose');
+    n.innerHTML='<b>'+PROFILE.short+' has no Maestro.</b> This sketch drives the body through two PCA9685 boards, so there is no settings file to import. Switch to <b>Maestro 2025</b> or <b>Maestro 2022</b> to use this tab.';
+    host.appendChild(n);
+    return;
+  }
+  /* NOTE: rendering this pane must NOT generate a starter. It briefly did,
+     and two suites caught it immediately — rebuildMaestroUI() runs from
+     dozens of places, so a side effect here means MSTR is loaded at moments
+     nothing asked for it, and `makeStarter()` with no argument then inherits
+     whatever board that starter chose. The desk (setStripMode) and the
+     builder (bldOpen) are the two places that legitimately create one. */
+  if(pca){
+    const n=el('div','note cy prose');
+    n.innerHTML='<b>PCA9685 route.</b> These sequences export as <b>sequences.h</b> '
+      +'for the <b>MaestroPCA</b> library, not as a <code>.mstr</code> — the co-processor '
+      +'answers <code>restartScript(n)</code> exactly as a Maestro does, so the slot '
+      +'numbers below are what your sketch already sends. Endpoints are yours to '
+      +'calibrate; nothing here changes them.';
+    host.appendChild(n);
+  }
+
+  /* Mike: "Sequences", "Script loadout" and "Subroutine index" were three
+     sections about the same eight objects — the library, whether each one
+     is on the board, and the generated sub it compiles to. One list now
+     (2026-08-14): board order leads (it's what restartScript(n) hits and
+     what the old loadout summary showed), library-only routines trail
+     after as "not loaded". Rename/delete still act on the row you last
+     clicked (EDIT.seq); ordering the board stays in the full-screen
+     builder below — one editor for "what number is this", not two. */
+  const s4=sect(host,'Sequences','library · board order · what the sketch fires');
+  const loadout=loadoutNames();
+  const seqRow=(seq,libIndex,slot)=>{
+    const d=el('div','seqrow'+(slot>=0?' ldrow':'')+(libIndex===EDIT.seq?' sel':''));
+    const badge=el('span','sqbadge'+(slot>=0?' on':'')+(slot>=8?' far':''), slot>=0?String(slot):'not loaded');
+    badge.title = slot>=0
+      ? (slot<8 ? 'restartScript('+slot+') — the sketch can fire this one' : 'subroutine '+slot+' — past 7, so no controller button reaches it')
+      : 'in your library but not on the board — add it with the ⚙ builder below';
+    d.appendChild(badge);
+    d.appendChild(el('span','nm',seq.name));
+    const sub=el('span','sub','sub '+niceName(seq.name)); sub.title='the generated subroutine name';
+    d.appendChild(sub);
+    d.appendChild(el('span','mt',seq.frames.length+'f · '+seqTotal(seq)+'ms'));
+    const bPrev=el('button','b','▶'); bPrev.title='preview it on the model';
+    bPrev.addEventListener('click',e=>{ e.stopPropagation(); if(seq.frames.length) seqStart('edit', seq.frames, 'preview'); });
+    d.appendChild(bPrev);
+    d.addEventListener('click',e=>{
+      if(e.target.closest('button')) return;
+      EDIT.seq=libIndex; EDIT.frame=-1; setStripMode('seq'); rebuildMaestroUI();
+    });
+    return d;
+  };
+  if(!loadout.length){
+    const n=el('div','note prose');
+    n.innerHTML='<b>Nothing is on the board yet.</b> Add a routine below — it becomes subroutine 0.';
+    s4.appendChild(n);
+  }
+  loadout.forEach((nm,slot)=>{
+    const seq=MSTR.sequences.find(q=>q.name===nm);
+    if(seq) s4.appendChild(seqRow(seq, MSTR.sequences.indexOf(seq), slot));
+  });
+  MSTR.sequences.forEach((seq,i)=>{
+    if(loadout.indexOf(seq.name)>=0) return;
+    s4.appendChild(seqRow(seq, i, -1));
+  });
+  const bar4=el('div','conbar');
+  const bAdd=el('button','b','+ Sequence');
+  bAdd.addEventListener('click',()=>{
+    const base = new Array(MSTR.servoCount).fill(0);
+    MSTR.channels.forEach(c=>{ if(/^servo/i.test(c.mode)) base[c.i]=c.home; });
+    MSTR.sequences.push({name:'Sequence '+MSTR.sequences.length, frames:[{name:'Frame 0',duration:500,targets:base}]});
+    EDIT.seq=MSTR.sequences.length-1; EDIT.frame=0; reindexSubs(); rebuildMaestroUI();
+  });
+  const bRen=el('button','b','Rename');
+  bRen.addEventListener('click',async ()=>{
+    const seq=MSTR.sequences[EDIT.seq]; if(!seq) return;
+    const v=await appPrompt('Sequence name (becomes the sub name):',
+      {title:'Rename sequence', value:seq.name, yes:'Rename'});
+    /* '' and cancel both keep the old name; spaces still become underscores
+       in the generated sub name — that lives in niceName()/genScript, which
+       read seq.name at build time, so the raw name passes through untouched */
+    if(v){ loadoutRename(seq.name, v); seq.name=v; reindexSubs(); rebuildMaestroUI(); }
+  });
+  const bDelS=el('button','b','Delete');
+  bDelS.addEventListener('click',()=>{
+    if(MSTR.sequences.length<=1) return;
+    const gone = MSTR.sequences[EDIT.seq];
+    if(gone) loadoutDrop(gone.name);
+    MSTR.sequences.splice(EDIT.seq,1); EDIT.seq=Math.max(0,EDIT.seq-1); EDIT.frame=-1;
+    reindexSubs(); rebuildMaestroUI();
+  });
+  bar4.appendChild(bAdd); bar4.appendChild(bRen); bar4.appendChild(bDelS);
+  s4.appendChild(bar4);
+
+  const bar4b=el('div','conbar');
+  const bBld=el('button','b prim','⚙ '
+    + ((typeof bldTitle === 'function') ? bldTitle() : 'Build your Maestro') + '…');
+  bBld.title = 'the full-screen builder: select which sequences are on the board, set their order, validate, and generate the script';
+  bBld.addEventListener('click',()=>{ if(typeof bldOpen==='function') bldOpen(); });
+  bar4b.appendChild(bBld);
+  s4.appendChild(bar4b);
+
+  const h4=el('div','hint prose');
+  h4.innerHTML='Slot badges are subroutine numbers — the sketch only ever calls <code>restartScript(0)</code>…<code>(7)</code>, '
+    + 'so a routine past 7, or still <b>not loaded</b>, is unreachable from the controller. Click a routine to edit it in the '
+    + '<b>Sequencer strip</b>; the <b>⚙ builder</b> above is the only thing that changes what is on the board and in what order. '
+    + 'Rename freely — spaces become underscores in the generated <code>sub</code> name.';
+  s4.appendChild(h4);
+  const foot4=el('div','hint');
+  foot4.innerHTML='<b>'+loadout.length+'</b> of <b>'+MSTR.sequences.length+'</b> on the board.';
+  s4.appendChild(foot4);
+
+  /* --- generated script preview --- */
+
+  /* --- which board --- */
+  /* The Maestro board used to be pickable here. It is a BUILD answer now —
+     "dome servos" / "body servos" in the setup — and having it in two places
+     meant the pane could silently disagree with the wiring sheet. Mike, 2026-07-27. */
+  /* WHOSE FILE IS THE FILE? (v1.39.1)
+     Mike: "the only thing I see the mestro one which should be hidden by
+     default only the abilty to import meastro sequencs should be available."
+
+     This section has said "Settings file · Import your config…" since the app
+     was a Maestro tool with nothing else in it. On a PCA9685 build that is
+     now actively misleading: the file it means is a Pololu .mstr, which that
+     builder has never had and never will, while the file they DO have — the
+     servo config this app exported — had no button anywhere on this screen.
+
+     So the primary route follows the build. What is never taken away is
+     importing a Maestro's SEQUENCES: choreography is the one thing that
+     travels between rigs, most of what the community shares is a .mstr, and
+     `mstrAdoptSequences()` plays those moves through YOUR servo settings
+     without touching the channel table. The whole-file import stays reachable
+     for a genuine Maestro→PCA migration, as a line of text rather than a
+     button in the bar. */
+  const isMaestroBuild = (typeof buildGet !== 'function' || typeof servoFamily !== 'function')
+    || servoFamily(buildGet().domeServo) === 'maestro';
+  const s0=sect(host, isMaestroBuild ? 'Settings file' : 'Servo config & sequences',
+                MSTR.loaded?xmlEsc(MSTR.fileName):'nothing loaded');
+  const bar=el('div','conbar');
+  const fin=document.createElement('input'); fin.type='file'; fin.accept='.mstr,.xml,text/xml'; fin.style.display='none';
+  fin.addEventListener('change',()=>{ if(fin.files[0]) readMstrFile(fin.files[0]); fin.value=''; });
+
+  /* One guided route in, rather than a bare file picker: the wizard is where
+     the file gets explained, the channels get mapped and the lint runs. */
+  const bImp=el('button','b'+(isMaestroBuild?' prim':''),
+                isMaestroBuild ? 'Import your config…' : 'Maestro sequences…');
+  bImp.title = isMaestroBuild
+    ? 'Guided import of the settings file you saved from Maestro Control Center'
+    : 'Take the SEQUENCES out of a Pololu .mstr and play them through your own servo settings — your channel table is not touched';
+  bImp.addEventListener('click',()=>{
+    if(isMaestroBuild){ impwizOpen(); return; }
+    seqOnly.click();
+  });
+
+  /* sequences-only: the same reader, none of the channel table */
+  const seqOnly=document.createElement('input');
+  seqOnly.type='file'; seqOnly.accept='.mstr,.xml,text/xml'; seqOnly.style.display='none';
+  seqOnly.addEventListener('change',()=>{
+    const f=seqOnly.files[0]; seqOnly.value='';
+    if(!f) return;
+    const fr=new FileReader();
+    fr.onload=()=>{
+      try{
+        const P=mstrParse(String(fr.result), f.name);
+        mstrAdoptSequences(P);
+        rebuildMaestroUI();
+        toast('Adopted '+P.sequences.length+' sequence(s) from '+f.name+' — playing through YOUR servo settings');
+        lg('sys','sequences adopted from '+f.name+' — '+P.sequences.length+', channel table untouched');
+      }catch(e){
+        lg('warn','sequence import failed: '+e.message);
+        toast('Could not read '+f.name+': '+e.message,'err');
+      }
+    };
+    fr.readAsText(f);
+  });
+
+  /* THE BUTTON MIKE COULD NOT FIND */
+  const bCfg=el('button','b'+(isMaestroBuild?'':' prim'),'Import servo config…');
+  bCfg.id='btnCfgImport';
+  bCfg.title='the travel this app exports — names, min, centre, max, speed. It replaces the endpoints and leaves your sequences and panel wiring alone';
+  bCfg.addEventListener('click',()=>{ if(typeof servoCfgPick==='function') servoCfgPick(()=>rebuildMaestroUI()); });
+  /* the other question that had no answer on this screen (v1.39.2) —
+     "where do I assign servos to panels?" The editor is the setup's Panels
+     step and stays there; what was missing was a way IN to it from the tab
+     where you are already thinking in channels. */
+  const bMap=el('button','b','Assign panels…');
+  bMap.id='btnAssignPanels';
+  bMap.title='which servo moves which panel — opens the setup on its Panels step, part by part, with a Test button for each';
+  bMap.addEventListener('click',()=>{
+    if(typeof wizOpen === 'function' && typeof wizStepIndex === 'function'){
+      const i = wizStepIndex('_panels');
+      if(i >= 0){ wizOpen(i); return; }
+    }
+    if(typeof wizOpen === 'function') wizOpen(0);
+  });
+  const bCfgX=el('button','b','Export servo config');
+  bCfgX.title='name and travel for every channel — the file to keep, and the one the setup wizard reads back';
+  bCfgX.addEventListener('click',()=>{ if(typeof servoCfgExport==='function') servoCfgExport(); });
+  const mkGen=(label, which, note)=>{
+    const b=el('button','b',label);
+    b.addEventListener('click',()=>{
+      makeStarter(which); CFG.maestroSource='imported';
+      rebuildMaestroUI();
+      const m=$('maeMsg'); if(m) m.textContent=note;
+    });
+    return b;
+  };
+  const bGen  = mkGen('Body starter','body','Body layout built for the '+boardById(MSTR.board).label+' — doors on subroutines 0-3.');
+  const bGenD = mkGen('Dome starter','dome','Dome layout built for the '+boardById(MSTR.board).label+' — pies first, side panels fill the rest.');
+  const bGenA = mkGen('Frik head starter','anzellan','Anzellan face layout built for the '+boardById(MSTR.board).label+' — 11 channels, mouth first, resting mid-travel.');
+  const bExp=el('button','b','Export .mstr');
+  bExp.disabled=!MSTR.loaded;
+  bExp.addEventListener('click',exportMstr);
+  const bExpH=el('button','b','Export PCA9685 header');
+  bExpH.id='btnExpPca';
+  bExpH.title='sequences.h for the MaestroPCA Arduino library — the same loadout and slot numbers, played on a PCA9685 instead of a Maestro';
+  bExpH.disabled=!MSTR.loaded;
+  bExpH.addEventListener('click',exportPcaHeader);
+  if(isMaestroBuild) bar.appendChild(bImp);
+  bar.appendChild(bCfg); bar.appendChild(bCfgX); bar.appendChild(bMap);
+  if(!isMaestroBuild) bar.appendChild(bImp);
+  bar.appendChild(bGen); bar.appendChild(bGenD); bar.appendChild(bGenA); bar.appendChild(bExp); bar.appendChild(bExpH);
+  bar.appendChild(fin); bar.appendChild(seqOnly);
+  s0.appendChild(bar);
+  const msg=el('div','hint prose'); msg.id='maeMsg';
+  msg.innerHTML = MSTR.loaded
+    ? MSTR.servoCount+' channels · '+MSTR.sequences.length+' sequence(s) · '+MSTR.subs.length+' subroutine(s)'
+    : (isMaestroBuild
+        ? 'Import the file you saved from Maestro Control Center, or drop it anywhere on the window. No file yet? <b>Body starter</b> and <b>Dome starter</b> each build a named 24-channel layout whose subroutines 0–7 line up with the sketch. The sketch drives one Maestro, so pick the board you are wiring.'
+        : '<b>Import servo config</b> reads the travel this app exports — names, endpoints, centre, speed — and leaves your sequences and panel wiring alone. Drop the file anywhere on the window and it lands here too. <b>Maestro sequences</b> takes the choreography out of somebody else\'s .mstr and plays it through YOUR servo settings. No layout yet? <b>Body starter</b> and <b>Dome starter</b> build a named table to work from.');
+  s0.appendChild(msg);
+  if(!isMaestroBuild){
+    const adv=el('div','hint');
+    adv.innerHTML = 'Coming <b>from</b> a Maestro? The full settings import — channel table, endpoints and all — is still there: '
+      + '<a href="#" id="lnkMstrFull">import a whole .mstr</a>. It replaces your channel table with theirs, which is why it is '
+      + 'not a button on a build that has no Maestro in it.';
+    s0.appendChild(adv);
+    const a=adv.querySelector('#lnkMstrFull');
+    if(a) a.addEventListener('click',e=>{ e.preventDefault(); impwizOpen(); });
+  }
+
+  if(!MSTR.loaded){
+    const n=el('div','note cy prose');
+    /* Control Center trivia, and only a Maestro builder needs it. On a PCA
+       build the useful sentence is a different one. (v1.39.1) */
+    n.innerHTML = isMaestroBuild
+      ? '<b>Where sequences live.</b> Control Center keeps sequences in the Windows registry, not on the Maestro. They only reach a file when you <i>Save settings file</i>, and only reach the board via <b>Copy all Sequences to Script</b>. If your file has a script but no <code>&lt;Sequences&gt;</code>, the sim rebuilds the timelines by decoding the <code>sub</code> blocks instead.'
+      : '<b>Nothing to import? Start from a table.</b> A servo config carries travel for channels that already exist, so on a fresh build make the layout first — <b>Body starter</b> or <b>Dome starter</b> — then import the travel onto it, or measure it on the bench. The two are the same channel table seen from either end.';
+    host.appendChild(n);
+    return;
+  }
+
+  /* --- which source drives the droid --- */
+  const s1=sect(host,'Script source');
+  [['imported','Imported subroutines — restartScript(n) plays sub n'],
+   ['builtin','Built-in stand-ins — pick per slot in Config']].forEach(([v,label])=>{
+    const l=el('label','sw');
+    const r=document.createElement('input'); r.type='radio'; r.name='maesrc'; r.checked=(CFG.maestroSource===v);
+    r.addEventListener('change',()=>{ if(r.checked){ CFG.maestroSource=v; lg('sys','maestro source → '+v); buildOutputs(); } });
+    l.appendChild(r); l.appendChild(document.createTextNode(label));
+    s1.appendChild(l);
+  });
+
+  /* Subroutine index used to live here as its own table — folded into the
+     unified Sequences list above (2026-08-14): the sub name and reachability
+     are now per-row (badge + .sub span), and the frame_* helper subs (which
+     have no sequence of their own) are no longer surfaced in the UI —
+     MSTR.subs still carries them for genScript()/reindexSubs() callers. */
+
+  /* --- the servo hardware bench (folded in from PCA Studio, 2026-08-12) --- */
+  const sHw = sect(host,'Servo hardware','the channel table, live');
+  const hwBar = el('div','conbar');
+  const bHw = el('button','b prim','Open the servo bench…');
+  bHw.title = 'The live channel table: drive a servo, watch where it actually is, '
+            + 'and set the endpoints, speed, release and ease that go into sequences.h';
+  bHw.addEventListener('click',()=>hwOpen());
+  hwBar.appendChild(bHw);
+  sHw.appendChild(hwBar);
+  const hHw = el('div','hint prose');
+  hHw.innerHTML = 'Everything PCA Studio does, against <b>this</b> droid\'s channels. '
+    + 'Drag a drive slider and the bar beside it shows where the servo actually is — the engine\'s '
+    + 'model of the board with nothing plugged in, the servo itself once something is. '
+    + '<b>release</b> and <b>ease</b> have always been exported into <code>sequences.h</code>; '
+    + 'this is the first place you can set them.';
+  sHw.appendChild(hHw);
+
+  /* --- channel → droid part mapping --- */
+  buildChannelMap(sect(host,'Outputs → moving parts','drag a slider to test it'));
+
+  /* --- sequence list --- */
+  const s5=sect(host,'Generated script','Control Center format');
+  const pre=el('pre','gen', genScript(MSTR.sequences, enabledChannels()));
+  s5.appendChild(pre);
+  const bar5=el('div','conbar');
+  const bCopy=el('button','b','Copy script');
+  bCopy.addEventListener('click',()=>{
+    navigator.clipboard.writeText(genScript(MSTR.sequences, enabledChannels())).then(
+      ()=>{ const m=$('maeMsg'); if(m) m.textContent='Script copied — paste it into the Control Center Script tab.'; },
+      ()=>{ const m=$('maeMsg'); if(m) m.textContent='Clipboard blocked; select the text above instead.'; });
+  });
+  bar5.appendChild(bCopy);
+  s5.appendChild(bar5);
+}
+
+/* ------------------------------------------------- channel → part mapping
+   The point of this table is that a Maestro channel number means nothing on
+   its own: you have to see which flap actually moves. Every row carries a
+   test slider that drives the model straight away, so you can walk the board
+   channel by channel and label it from what you see. */
+function cadPartsFor(act){
+  if(typeof CAD==='undefined' || !CAD.loaded) return 0;
+  return CAD.moving.filter(m=>m.act===act).length;
+}
+function buildChannelMap(host){
+  const bar=el('div','conbar');
+  const bAuto=el('button','b','Auto-map by name');
+  bAuto.title='Re-run the name matcher over every channel';
+  bAuto.addEventListener('click',()=>{
+    let n=0;
+    MSTR.channels.forEach(c=>{ const g=guessPart(c.name); if(g && g!==c.act){ c.act=g; n++; } });
+    rebuildMaestroUI();
+    const m=$('maeMsg'); if(m) m.textContent = n ? n+' channel(s) re-matched from their names.' : 'No changes — every name already matched.';
+  });
+  const bClear=el('button','b','Clear all');
+  bClear.addEventListener('click',()=>{ MSTR.channels.forEach(c=>c.act=''); rebuildMaestroUI(); });
+  const bServo=el('button','b','All to Servo');
+  bServo.title='Switch every Input/Output channel to Servo mode so it can drive a panel';
+  bServo.addEventListener('click',()=>{
+    MSTR.channels.forEach(c=>{ if(!/^servo/i.test(c.mode)){ c.mode='Servo'; c.homemode='Goto'; c.home=c.min; } });
+    rebuildMaestroUI();
+  });
+  const bHome=el('button','b','Home all');
+  bHome.addEventListener('click',()=>{
+    MSTR.channels.forEach(c=>{ EDIT.live[c.i]=c.home; if(c.act) ACT_T[c.act]=chanNorm(c,c.home); });
+    rebuildMaestroUI();
+  });
+  [bAuto,bClear,bServo,bHome].forEach(b=>bar.appendChild(b));
+  host.appendChild(bar);
+
+  const hdr=el('div','maerow wide');
+  [['ci','#'],['cn','Channel'],['cn','Drives'],['cn','inv'],['cn','Test'],['mv','Part']]
+    .forEach(([cls,txt])=>{ const e=el('div',cls,txt); e.style.color='var(--dimmer)'; e.style.fontSize='9px'; e.style.textTransform='uppercase'; hdr.appendChild(e); });
+  host.appendChild(hdr);
+
+  let hidden=0;
+  MSTR.channels.forEach(c=>{
+    if(!/^servo/i.test(c.mode)){ hidden++; return; }
+    const r=el('div','maerow wide');
+    r.appendChild(el('div','ci',c.i));
+
+    const nm=el('div','cn',c.name);
+    nm.title=c.name+'  ('+c.min+'–'+c.max+' qus = '+qus(c.min)+'–'+qus(c.max)+')  — click to rename';
+    nm.style.cursor='text';
+    nm.addEventListener('click',async ()=>{
+      const v=await appPrompt('Channel '+c.i+' name (this is what the name matcher reads):',
+        {title:'Rename channel', value:c.name, yes:'Rename'});
+      if(v!==null && v.trim()){ c.name=v.trim(); rebuildMaestroUI(); }
+    });
+    r.appendChild(nm);
+
+    const sel=document.createElement('select');
+    /* the '' none-option: PART_LIST[0] is ['—',''] whichever route the rest
+       of the list takes below, so this stays byte-identical either way */
+    const [noneLabel,noneKey] = PART_LIST[0];
+    const o0=document.createElement('option'); o0.value=noneKey; o0.textContent=actLabel(noneLabel,noneKey);
+    if(c.act===noneKey) o0.selected=true;
+    sel.appendChild(o0);
+    /* v1.4x — Mike: "the attached doesnt appear to match what I configured"
+       (see the Part-column comment below) applied here too: PART_LIST's
+       hand-written labels drift from the CAD ("Dome pie 1" where partLabel
+       now says "Pie 1") and never learn a rename. chPartOptions() is the
+       same dynamic, CAD-driven, rename-aware list chPicker() in
+       app/boards.js already builds from — one source for every "what does
+       this channel drive" dropdown in the app. The CAD name rides in the
+       tooltip, not the label (chPartOptions' own comment: leading every
+       option with "Pie 2  (Pie5)" made four of them look identical).
+       PCA Studio never opens this pane at all (it has no droid/CAD — see
+       maestro/hw-ui.js's header comment), but CAD.loaded can still be false
+       for a moment inside the sim itself, before loadCadFromPayload()
+       resolves — either way, PART_LIST is the fallback so this dropdown is
+       never left holding only the ten "Other" placeholders. */
+    const cadReady = typeof CAD!=='undefined' && CAD.loaded && typeof chPartOptions==='function';
+    if(cadReady){
+      const grpOther=document.createElement('optgroup'); grpOther.label='Not on the model';
+      chPartOptions().forEach(op=>{
+        const o=document.createElement('option'); o.value=op.act; o.textContent=op.label;
+        if(op.cad) o.title=op.cad;
+        if(c.act===op.act) o.selected=true;
+        (op.other ? grpOther : sel).appendChild(o);
+      });
+      if(grpOther.childElementCount) sel.appendChild(grpOther);
+    }else{
+      /* label every option with the CAD part it moves — "pie 0" on its own means
+         nothing at the bench, "Dome pie 1 · MainPie3" does */
+      PART_LIST.forEach(([label,key])=>{
+        if(!key) return;                                    // the none-option is already in, above
+        const o=document.createElement('option'); o.value=key; o.textContent=actLabel(label,key);
+        if(c.act===key) o.selected=true; sel.appendChild(o);
+      });
+      /* v1.40.0 — Mike: "option to choose others that are not part of the
+         model, say Other 1 through 10" (core/actuators.js OTH_KEYS). PART_LIST
+         is the droid's own parts, so these ten group apart in their own
+         optgroup rather than being spliced into that list. */
+      if(typeof OTH_KEYS !== 'undefined' && OTH_KEYS.length){
+        const grpOther=document.createElement('optgroup'); grpOther.label='Not on the model';
+        OTH_KEYS.forEach((key,i)=>{
+          const o=document.createElement('option'); o.value=key; o.textContent='Other '+(i+1);
+          if(c.act===key) o.selected=true; grpOther.appendChild(o);
+        });
+        sel.appendChild(grpOther);
+      }
+    }
+    sel.title = actTip(c.act);
+    sel.addEventListener('change',()=>{
+      const v = sel.value;
+      // v1.39.5: a part has exactly one channel — clear-then-set, same as HW.setPart
+      if(v) MSTR.channels.forEach(o=>{ if(o!==c && o.act===v) o.act=''; });
+      c.act = v; rebuildMaestroUI();
+    });
+    r.appendChild(sel);
+
+    const cb=document.createElement('input'); cb.type='checkbox'; cb.checked=c.invert; cb.title='invert travel';
+    cb.addEventListener('change',()=>{ c.invert=cb.checked; if(c.act) ACT_T[c.act]=chanNorm(c, EDIT.live[c.i]); });
+    r.appendChild(cb);
+
+    const sl=document.createElement('input');
+    sl.type='range'; sl.min=Math.min(c.min,c.max); sl.max=Math.max(c.min,c.max); sl.step=4;
+    sl.value=EDIT.live[c.i]!==undefined?EDIT.live[c.i]:c.home;
+    sl.disabled=!c.act;
+    sl.title=c.act?'drag to drive this channel — the droid follows':'map a part first';
+    sl.addEventListener('input',()=>{
+      const v=+sl.value; EDIT.live[c.i]=v;
+      if(c.act) ACT_T[c.act]=chanNorm(c,v);
+      sl.title = qus(v)+' — the droid follows as you drag';
+    });
+    r.appendChild(sl);
+
+    /* WHICH NAME GOES IN THIS COLUMN (v1.39.3)
+       Mike, of a table whose Drives column said "Dome pie 2, 3, 4, 5" while
+       this one said "Pie5" four times over: "the attached doesnt appear to
+       match what I configured."
+
+       Nothing was wrong with the mapping — this cell showed the CAD name,
+       and four of the six inner pies are all literally called Pie5 in
+       MrBaddeley's Fusion export (cad/naming.js says so at the top). A
+       column that repeats one name down four rows reads as a bug whatever
+       its provenance, and it is the wrong name to lead with anyway: the
+       useful one is what the BUILDER calls that panel — their rename, or
+       the build's own "Pie 2" — which is also what the brick, the wiring
+       sheet and the Panels table all say. The CAD name is still one hover
+       away, where it belongs for anyone matching this to a Fusion tree. */
+    const n = c.act ? cadPartsFor(c.act) : 0;
+    const cadNm = c.act ? actCadName(c.act) : '';
+    const lbl   = (c.act && typeof actPartLabel === 'function') ? actPartLabel(c.act) : '';
+    const shown = lbl || cadNm;
+    const st = el('div','mv'+(c.act ? (n?' ok':' no') : ''),
+      shown ? (shown.length > 11 ? shown.slice(0,10)+'…' : shown) : (c.act ? 'proc' : '—'));
+    st.title = !c.act ? 'not mapped'
+      : n ? (shown + (cadNm && cadNm !== shown ? '\nCAD: ' + cadNm : '') + '\n' + actTip(c.act))
+          : 'no CAD part carries this actuator — the procedural droid still shows it';
+    r.appendChild(st);
+
+    host.appendChild(r);
+  });
+
+  const wbar=el('div','conbar');
+  const bWire=el('button','b','Wiring sheet');
+  bWire.title='A printable table: actuator, CAD part name, position on the droid, and the channel it is on';
+  bWire.addEventListener('click',()=>{ const f=downloadWiring('html');
+    const m=$('maeMsg'); if(m) m.textContent='Saved '+f+' — open it and print, or keep it on a tablet at the bench.'; });
+  const bWireC=el('button','b','…as CSV');
+  bWireC.addEventListener('click',()=>{ const f=downloadWiring('csv');
+    const m=$('maeMsg'); if(m) m.textContent='Saved '+f+'.'; });
+  wbar.appendChild(bWire); wbar.appendChild(bWireC);
+  host.appendChild(wbar);
+
+  const mapped = MSTR.channels.filter(c=>c.act).length;
+  const h=el('div','hint prose');
+  h.innerHTML = '<b>'+mapped+'</b> of '+MSTR.channels.length+' channels drive something.'
+    + (hidden ? ' <b>'+hidden+'</b> channel(s) are set to Input/Output and are hidden — <b>All to Servo</b> brings them in.' : '')
+    + ' Drag a <b>Test</b> slider and the mapped part moves on the model immediately, which is the quickest way to label a board you have already wired: sweep a channel, see what opens, name it here.'
+    + ' <b>Part</b> is the name the piece has in your Fusion model — hover it for the bearing from the front and which hinge it uses. <b>proc</b> means the actuator exists but no CAD part claims it.'
+    + ' The actuator IDs are numbered by position round the droid, not by the CAD\'s numbering, so <b>pie 0</b> is <b>MainPie3</b> — the <b>Wiring sheet</b> prints both side by side.';
+  host.appendChild(h);
+}
+
+/* the subroutine table is generated from the LOADOUT, not the library — a
+   routine you are still building in the sequencer has no subroutine number
+   until you put it on the board (Mike, 2026-07-27) */
+function reindexSubs(){
+  const script = genScript(loadoutSeqs(), enabledChannels());
+  MSTR.scriptText = script;
+  const raw = parseScriptSubs(script);
+  MSTR.subs = raw.map(s=>({index:s.index,name:s.name,body:s.body,
+    kind:/^frame_/i.test(s.name)?'frame':'sequence', seqIndex:-1}));
+  MSTR.subs.forEach(s=>{ if(s.kind==='sequence'){
+    s.seqIndex = MSTR.sequences.findIndex(q=>niceName(q.name).toLowerCase()===s.name.toLowerCase());
+  }});
+}
+
+/* The import door. With no config loaded the file IS your config and goes
+   in whole. With one loaded, the choice is the user's (Mike, 2026-08-08):
+   servo settings are personal calibration, sequences are portable — so the
+   default posture is "their art, your endpoints", and replacing your
+   channel table takes an explicit second confirmation. */
+async function mstrImportChoice(P){
+  if(!MSTR.loaded){ mstrApply(P); return 'all'; }
+  const seqs = P.sequences.length;
+  const wantAll = !(await appConfirm(
+    P.fileName+' carries its own servo settings (endpoints, homes, speeds) and '
+    +seqs+' sequence(s).\n\nSequences only plays their moves through YOUR servo '
+    +'settings. Everything replaces your channel table with theirs.',
+    {title:'Import what?', yes:'Sequences only', no:'Everything…'}));
+  if(!wantAll){ mstrAdoptSequences(P); return 'seq'; }
+  const sure = await appConfirm(
+    'Replace the servo settings for '+MSTR.servoCount+' channel(s) — endpoints, '
+    +'homes, speeds and accelerations — with the ones in '+P.fileName+'?\n\n'
+    +'Those numbers are tuned to a specific droid\'s linkages. If this file is '
+    +'not from YOUR board, your calibration is lost (export a backup first).',
+    {title:'Overwrite your servo settings?', yes:'Overwrite', no:'Cancel', danger:true});
+  if(!sure) return 'cancel';
+  mstrApply(P);
+  return 'all';
+}
+function readMstrFile(file){
+  const fr=new FileReader();
+  fr.onload=async ()=>{
+    try{
+      const P = mstrParse(String(fr.result), file.name);
+      const did = await mstrImportChoice(P);
+      if(did === 'cancel'){ toast('Import cancelled — your servo settings are untouched'); return; }
+      if(did === 'all') CFG.maestroSource='imported';
+      rebuildMaestroUI();
+      document.querySelector('#tabs button[data-p="pMae"]').click();
+      const ms=$('maeMsg');
+      if(did === 'seq'){
+        if(ms) ms.textContent='Adopted the sequences from '+file.name+' onto your servo settings — find them in the sequencer library.';
+        toast('Adopted '+P.sequences.length+' sequence(s) from '+file.name+' — playing through YOUR servo settings');
+      }else{
+        if(ms) ms.textContent='Imported '+file.name+'. Check the channel mapping below, then tap RT/LT + d-pad.';
+        toast('Imported '+file.name+' — '+MSTR.servoCount+' channels, '+MSTR.sequences.length+' sequence(s)');
+      }
+    }catch(e){
+      lg('warn','import failed: '+e.message);
+      buildMaestroPane();
+      const m=$('maeMsg'); if(m){ m.style.color='var(--rd)'; m.textContent='Could not read that file: '+e.message; }
+      toast('Could not read '+file.name+': '+e.message, 'err');
+    }
+  };
+  fr.readAsText(file);
+}
+function exportMstr(){
+  reindexSubs();
+  const text = mstrBytes(buildMstrText());
+  const blob = new Blob([text], {type:'text/xml'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download = MSTR.fileName.replace(/\.mstr$/i,'') + '.mstr';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 4000);
+  lg('mae','exported '+a.download+' — '+MSTR.sequences.length+' sequences, '+MSTR.subs.length+' subroutines');
+  toast('Exported '+a.download+' — verify endpoints on YOUR hardware before running at speed', 'warn');
+  const m=$('maeMsg'); if(m){ m.innerHTML='Exported <b>'+a.download+'</b> — open it in Control Center, then Apply Settings. '+
+    '<b style="color:var(--am)">Before running at speed: verify every servo\'s endpoints and direction on YOUR hardware.</b> '+
+    'The travel values in this file are simulator placeholders, and a wrong endpoint can stall a servo against the shell.'; }
+}

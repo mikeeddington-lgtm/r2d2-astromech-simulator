@@ -1,0 +1,42 @@
+{
+  "title": "PCA Studio \u2014 PCA9685 sequencer & tester",
+  "_comment": [
+    "PCA Studio is BUILT, like the sim, and for the same reason: the engine",
+    "and the sequences.h generator used to exist as a hand-kept copy inside",
+    "PCA-Studio.html, and a hand-kept copy is a copy that eventually differs.",
+    "Two of the three copies are now one file, shared from src/js/maestro.",
+    "",
+    "Paths are relative to the REPO ROOT, so a shared module reads as what it",
+    "is. Order matters \u2014 each file becomes its own <script>.",
+    "",
+    "Output is a single self-contained pca-studio/PCA-Studio.html: still one",
+    "file you open from disk with no server. Run ./build.sh after editing."
+  ],
+  "css": [
+    "pca-studio/src/css/studio.css",
+    "src/css/12-setup-hw.css"
+  ],
+  "body": "pca-studio/src/html/body.html",
+  "js": [
+    "pca-studio/src/js/00-core.js",
+    "src/js/maestro/servo-units.js",
+    "src/js/maestro/pcaseq.js",
+    "src/js/maestro/travel.js",
+    "src/js/maestro/pca-gen.js",
+    "pca-studio/src/js/10-mstr-mini.js",
+    "src/js/maestro/serial-link.js",
+    "pca-studio/src/js/30-project.js",
+    "pca-studio/src/js/44-hw-host.js",
+    "src/js/maestro/hw-clock.js",
+    "src/js/maestro/hw-table.js",
+    "pca-studio/src/js/40-ui.js",
+    "pca-studio/src/js/45-blocks-host.js",
+    "src/js/maestro/blocks.js",
+    "pca-studio/src/js/50-blocks-ui.js",
+    "src/js/core/esc-guard.js",
+    "src/js/maestro/setup-hw.js",
+    "src/js/maestro/setup-hw-channels.js",
+    "src/js/maestro/setup-hw-cal.js",
+    "pca-studio/src/js/99-boot.js"
+  ]
+}

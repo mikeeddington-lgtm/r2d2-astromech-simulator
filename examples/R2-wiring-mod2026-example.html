@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<title>R2-D2 wiring reference — mod2026</title>
+<style>
+  *{box-sizing:border-box}
+  body{font:12px/1.45 -apple-system,Segoe UI,Roboto,sans-serif;color:#111;margin:22px;max-width:1100px}
+  h1{font-size:19px;margin:0 0 2px}
+  .sub{color:#555;font-size:11px;margin-bottom:14px}
+  .note{background:#fff8e6;border-left:3px solid #d9a300;padding:8px 11px;font-size:11px;margin:0 0 16px;line-height:1.6}
+  table{border-collapse:collapse;width:100%;margin-bottom:22px}
+  th{text-align:left;font-size:9.5px;letter-spacing:.06em;text-transform:uppercase;color:#666;
+     border-bottom:1.5px solid #333;padding:5px 6px;white-space:nowrap}
+  td{border-bottom:1px solid #e3e3e3;padding:4px 6px;vertical-align:top}
+  tr:nth-child(even) td{background:#fafafa}
+  .m{font-family:ui-monospace,Consolas,monospace;font-size:11px}
+  .cad{color:#0a5}
+  .n{text-align:right;white-space:nowrap}
+  .b{font-weight:700}
+  .w{color:#666;font-size:11px}
+  .none{color:#b00;font-style:italic}
+  tr.un td{background:#fff4f4}
+  .tick{width:34px;border-left:1px solid #ccc}
+  h2{font-size:13px;margin:20px 0 6px}
+  footer{color:#777;font-size:10px;border-top:1px solid #ddd;padding-top:8px;margin-top:8px}
+  @media print{ body{margin:0;max-width:none} .note{background:none} tr:nth-child(even) td{background:none} }
+</style></head><body>
+<h1>R2-D2 MK4 — wiring reference</h1>
+<div class="sub">padawan360 mod2026 &middot; padawan_secure _mode.ino &middot; generated 2026-07-26 08:50</div>
+
+<p class="note"><b>Two naming systems.</b> <b>CAD name</b> is from the Fusion model
+(MrBaddeley MK4) and is what the printed part is called. <b>Actuator</b> is the
+simulator's ID, numbered <b>by position around the droid</b>, front first —
+so they deliberately do not match: <code>pie0</code> is <code>MainPie3</code>.
+Wire to the channel, label the loom with the CAD name, and use the bearing to
+find it on the droid. <b>Bearing</b> is degrees clockwise from the front.</p>
+
+<h2>Driven — 17 channels</h2>
+<table><thead><tr>
+<th>Actuator</th><th>Part</th><th>CAD name</th><th>Bearing</th><th>Position</th>
+<th>Board</th><th>Ch</th><th>Channel name</th><th>Travel</th><th>Inv</th><th>&#10003;</th>
+</tr></thead><tbody>
+<tr>
+    <td class="m act">doorL</td>
+    <td>Left body door</td>
+    <td class="m cad">FLBreadpanDoor</td>
+    <td class="n">303&deg;</td>
+    <td class="w">front-left</td>
+    <td>PCA9685 0x40</td>
+    <td class="n b">0</td>
+    <td class="m">Left body door</td>
+    <td class="n">487–300 µs</td>
+    <td class="n"></td>
+    <td class="tick"></td></tr>
+<tr>
+    <td class="m act">doorR</td>
+    <td>Right body door</td>
+    <td class="m cad">FRBreadpandoor</td>
+    <td class="n">57&deg;</td>
+    <td class="w">front-right</td>
+    <td>PCA9685 0x40</td>
+    <td class="n b">1</td>
+    <td class="m">Right body door</td>
+    <td class="n">170–320 µs</td>
+    <td class="n"></td>
+    <td class="tick"></td></tr>
+<tr>
+    <td class="m act">dataport</td>
+    <td>Dataport door</td>
+    <td class="m cad">DataPortDoor</td>
+    <td class="n">328&deg;</td>
+    <td class="w">front-left</td>
+    <td>PCA9685 0x40</td>
+    <td class="n b">8</td>
+    <td class="m">Dataport door</td>
+    <td class="n">180–360 µs</td>
+    <td class="n"></td>
+    <td class="tick"></td></tr>
+<tr>
+    <td class="m act">chargebay</td>
+    <td>Chargebay door</td>
+    <td class="m cad">ChargingBayDoor</td>
+    <td class="n">34&deg;</td>
+    <td class="w">front-right</td>
+    <td>PCA9685 0x40</td>
+    <td class="n b">9</td>
+    <td class="m">Chargebay door</td>
+    <td class="n">310–180 µs</td>
+    <td class="n"></td>
+    <td class="tick"></td></tr>
+<tr>
+    <td class="m act">utilUp</td>
+    <td>Upper utility arm</td>
+    <td class="m cad">UpperUtilityArm</td>
+    <td class="n">352&deg;</td>
+    <td class="w">front</td>
+    <td>PCA9685 0x40</td>
+    <td class="n b">5</td>
+    <td class="m">Upper utility arm</td>
+    <td class="n">130–535 µs</td>
+    <td class="n"></td>
+    <td class="tick"></td></tr>
+<tr>
+    <td class="m act">utilLo</td>
+    <td>Lower utility arm</td>
+    <td class="m cad">LowerUtilityArm</td>
+    <td class="n">8&deg;</td>
+    <td class="w">front</td>
+    <td>PCA9685 0x40</td>
+    <td class="n b">4</td>
+    <td class="m">Lower utility arm</td>
+    <td class="n">130–535 µs</td>
+    <td class="n"></td>
+    <td class="tick"></td></tr>
+<tr>
+    <td class="m act">pie0</td>
+    <td>Dome pie 1</td>
+    <td class="m cad">MainPie3</td>
+    <td class="n">25&deg;</td>
+    <td class="w">front-right</td>
+    <td>PCA9685 0x41</td>
+    <td class="n b">0</td>
+    <td class="m">Dome pie 1</td>
+    <td class="n">180–420 µs</td>
+    <td class="n"></td>
+    <td class="tick"></td></tr>
+<tr>
+    <td class="m act">pie1</td>
+    <td>Dome pie 2</td>
+    <td class="m cad">MainPie4</td>
+    <td class="n">87&deg;</td>
+    <td class="w">right</td>
+    <td>PCA9685 0x41</td>
+    <td class="n b">1</td>
+    <td class="m">Dome pie 2</td>
+    <td class="n">180–420 µs</td>
+    <td class="n"></td>
+    <td class="tick"></td></tr>
+<tr>
+    <td class="m act">pie2</td>
+    <td>Dome pie 3</td>
+    <td class="m cad">MainPie5</td>
+    <td class="n">146&deg;</td>
+    <td class="w">rear-right</td>
+    <td>PCA9685 0x41</td>
+    <td class="n b">2</td>
+    <td class="m">Dome pie 3</td>
+    <td class="n">180–420 µs</td>
+    <td class="n"></td>
+    <td class="tick"></td></tr>
+<tr>
+    <td class="m act">pie3</td>
+    <td>Dome pie 4</td>
+    <td class="m cad">MainPie6</td>
+    <td class="n">207&deg;</td>
+    <td class="w">rear-left</td>
+    <td>PCA9685 0x41</td>
+    <td class="n b">3</td>
+    <td class="m">Dome pie 4</td>
+    <td class="n">180–420 µs</td>
+    <td class="n"></td>
+    <td class="tick"></td></tr>
+<tr>
+    <td class="m act">pie4</td>
+    <td>Dome pie 5</td>
+    <td class="m cad">MainPie1</td>
+    <td class="n">266&deg;</td>
+    <td class="w">left</td>
+    <td>PCA9685 0x41</td>
+    <td class="n b">4</td>
+    <td class="m">Dome pie 5</td>
+    <td class="n">180–420 µs</td>
+    <td class="n"></td>
+    <td class="tick"></td></tr>
+<tr>
+    <td class="m act">pie5</td>
+    <td>Dome pie 6</td>
+    <td class="m cad">MainPie2</td>
+    <td class="n">330&deg;</td>
+    <td class="w">front-left</td>
+    <td>PCA9685 0x41</td>
+    <td class="n b">5</td>
+    <td class="m">Dome pie 6</td>
+    <td class="n">180–420 µs</td>
+    <td class="n"></td>
+    <td class="tick"></td></tr>
+<tr>
+    <td class="m act">pie6</td>
+    <td>Dome pie 7</td>
+    <td class="m cad">Pie5</td>
+    <td class="n">29&deg;</td>
+    <td class="w">front-right</td>
+    <td>PCA9685 0x41</td>
+    <td class="n b">6</td>
+    <td class="m">Dome pie 7</td>
+    <td class="n">180–420 µs</td>
+    <td class="n"></td>
+    <td class="tick"></td></tr>
+<tr>
+    <td class="m act">pie7</td>
+    <td>Dome pie 8</td>
+    <td class="m cad">Pie5</td>
+    <td class="n">89&deg;</td>
+    <td class="w">right</td>
+    <td>PCA9685 0x41</td>
+    <td class="n b">7</td>
+    <td class="m">Dome pie 8</td>
+    <td class="n">180–420 µs</td>
+    <td class="n"></td>
+    <td class="tick"></td></tr>
+<tr>
+    <td class="m act">pie8</td>
+    <td>Dome pie 9</td>
+    <td class="m cad">Pie1</td>
+    <td class="n">150&deg;</td>
+    <td class="w">rear-right</td>
+    <td>PCA9685 0x41</td>
+    <td class="n b">8</td>
+    <td class="m">Dome pie 9</td>
+    <td class="n">180–420 µs</td>
+    <td class="n"></td>
+    <td class="tick"></td></tr>
+<tr>
+    <td class="m act">pie9</td>
+    <td>Dome pie 10</td>
+    <td class="m cad">Pie6</td>
+    <td class="n">217&deg;</td>
+    <td class="w">rear-left</td>
+    <td>PCA9685 0x41</td>
+    <td class="n b">9</td>
+    <td class="m">Dome pie 10</td>
+    <td class="n">180–420 µs</td>
+    <td class="n"></td>
+    <td class="tick"></td></tr>
+<tr>
+    <td class="m act">pie10</td>
+    <td>Dome pie 11</td>
+    <td class="m cad">Pie5</td>
+    <td class="n">264&deg;</td>
+    <td class="w">left</td>
+    <td>PCA9685 0x41</td>
+    <td class="n b">10</td>
+    <td class="m">Dome pie 11</td>
+    <td class="n">180–420 µs</td>
+    <td class="n"></td>
+    <td class="tick"></td></tr>
+</tbody></table>
+
+<h2>Rigged in the model but nothing drives them — 19</h2>
+<table><thead><tr>
+<th>Actuator</th><th>Part</th><th>CAD name</th><th>Bearing</th><th>Position</th>
+<th>Board</th><th>Ch</th><th>Channel name</th><th>Travel</th><th>Inv</th><th>&#10003;</th>
+</tr></thead><tbody>
+<tr class="un">
+    <td class="m act">doorRL</td>
+    <td>Rear-left body door</td>
+    <td class="m cad">RLBreadpanDoor</td>
+    <td class="n">237&deg;</td>
+    <td class="w">rear-left</td>
+    <td><span class="none">not driven</span></td>
+    <td class="n b"></td>
+    <td class="m"></td>
+    <td class="n"></td>
+    <td class="n"></td>
+    <td class="tick"></td></tr>
+<tr class="un">
+    <td class="m act">doorRR</td>
+    <td>Rear-right body door</td>
+    <td class="m cad">RRBreadpandoor</td>
+    <td class="n">123&deg;</td>
+    <td class="w">rear-right</td>
+    <td><span class="none">not driven</span></td>
+    <td class="n b"></td>
+    <td class="m"></td>
+    <td class="n"></td>
+    <td class="n"></td>
+    <td class="tick"></td></tr>
+<tr class="un">
+    <td class="m act">smallDoor</td>
+    <td>Small long door</td>
+    <td class="m cad">SmallLongDoor</td>
+    <td class="n">22&deg;</td>
+    <td class="w">front</td>
+    <td><span class="none">not driven</span></td>
+    <td class="n b"></td>
+    <td class="m"></td>
+    <td class="n"></td>
+    <td class="n"></td>
+    <td class="tick"></td></tr>
+<tr class="un">
+    <td class="m act">drawer</td>
+    <td>Drawer</td>
+    <td class="m cad">Drawer</td>
+    <td class="n">340&deg;</td>
+    <td class="w">front</td>
+    <td><span class="none">not driven</span></td>
+    <td class="n b"></td>
+    <td class="m"></td>
+    <td class="n"></td>
+    <td class="n"></td>
+    <td class="tick"></td></tr>
+<tr class="un">
+    <td class="m act">pie11</td>
+    <td>Dome pie 12</td>
+    <td class="m cad">Pie5</td>
+    <td class="n">329&deg;</td>
+    <td class="w">front-left</td>
+    <td><span class="none">not driven</span></td>
+    <td class="n b"></td>
+    <td class="m"></td>
+    <td class="n"></td>
+    <td class="n"></td>
+    <td class="tick"></td></tr>
+<tr class="un">
+    <td class="m act">panel0</td>
+    <td>Dome side panel 1</td>
+    <td class="m cad">Panel13</td>
+    <td class="n">12&deg;</td>
+    <td class="w">front</td>
+    <td><span class="none">not driven</span></td>
+    <td class="n b"></td>
+    <td class="m"></td>
+    <td class="n"></td>
+    <td class="n"></td>
+    <td class="tick"></td></tr>
+<tr class="un">
+    <td class="m act">panel1</td>
+    <td>Dome side panel 2</td>
+    <td class="m cad">Panel5</td>
+    <td class="n">23&deg;</td>
+    <td class="w">front-right</td>
+    <td><span class="none">not driven</span></td>
+    <td class="n b"></td>
+    <td class="m"></td>
+    <td class="n"></td>
+    <td class="n"></td>
+    <td class="tick"></td></tr>
+<tr class="un">
+    <td class="m act">panel2</td>
+    <td>Dome side panel 3</td>
+    <td class="m cad">Panel4</td>
+    <td class="n">35&deg;</td>
+    <td class="w">front-right</td>
+    <td><span class="none">not driven</span></td>
+    <td class="n b"></td>
+    <td class="m"></td>
+    <td class="n"></td>
+    <td class="n"></td>
+    <td class="tick"></td></tr>
+<tr class="un">
+    <td class="m act">panel3</td>
+    <td>Dome side panel 4</td>
+    <td class="m cad">Panel3</td>
+    <td class="n">65&deg;</td>
+    <td class="w">front-right</td>
+    <td><span class="none">not driven</span></td>
+    <td class="n b"></td>
+    <td class="m"></td>
+    <td class="n"></td>
+    <td class="n"></td>
+    <td class="tick"></td></tr>
+<tr class="un">
+    <td class="m act">panel4</td>
+    <td>Dome side panel 5</td>
+    <td class="m cad">Panel2</td>
+    <td class="n">130&deg;</td>
+    <td class="w">rear-right</td>
+    <td><span class="none">not driven</span></td>
+    <td class="n b"></td>
+    <td class="m"></td>
+    <td class="n"></td>
+    <td class="n"></td>
+    <td class="tick"></td></tr>
+<tr class="un">
+    <td class="m act">panel5</td>
+    <td>Dome side panel 6</td>
+    <td class="m cad">Panel1</td>
+    <td class="n">196&deg;</td>
+    <td class="w">rear</td>
+    <td><span class="none">not driven</span></td>
+    <td class="n b"></td>
+    <td class="m"></td>
+    <td class="n"></td>
+    <td class="n"></td>
+    <td class="tick"></td></tr>
+<tr class="un">
+    <td class="m act">panel6</td>
+    <td>Dome side panel 7</td>
+    <td class="m cad">Panel12</td>
+    <td class="n">226&deg;</td>
+    <td class="w">rear-left</td>
+    <td><span class="none">not driven</span></td>
+    <td class="n b"></td>
+    <td class="m"></td>
+    <td class="n"></td>
+    <td class="n"></td>
+    <td class="tick"></td></tr>
+<tr class="un">
+    <td class="m act">panel7</td>
+    <td>Dome side panel 8</td>
+    <td class="m cad">Panel10</td>
+    <td class="n">250&deg;</td>
+    <td class="w">left</td>
+    <td><span class="none">not driven</span></td>
+    <td class="n b"></td>
+    <td class="m"></td>
+    <td class="n"></td>
+    <td class="n"></td>
+    <td class="tick"></td></tr>
+<tr class="un">
+    <td class="m act">panel8</td>
+    <td>Dome side panel 9</td>
+    <td class="m cad">Panel11</td>
+    <td class="n">250&deg;</td>
+    <td class="w">left</td>
+    <td><span class="none">not driven</span></td>
+    <td class="n b"></td>
+    <td class="m"></td>
+    <td class="n"></td>
+    <td class="n"></td>
+    <td class="tick"></td></tr>
+<tr class="un">
+    <td class="m act">panel9</td>
+    <td>Dome side panel 10</td>
+    <td class="m cad">Panel9</td>
+    <td class="n">269&deg;</td>
+    <td class="w">left</td>
+    <td><span class="none">not driven</span></td>
+    <td class="n b"></td>
+    <td class="m"></td>
+    <td class="n"></td>
+    <td class="n"></td>
+    <td class="tick"></td></tr>
+<tr class="un">
+    <td class="m act">panel10</td>
+    <td>Dome side panel 11</td>
+    <td class="m cad">Panel8</td>
+    <td class="n">290&deg;</td>
+    <td class="w">left</td>
+    <td><span class="none">not driven</span></td>
+    <td class="n b"></td>
+    <td class="m"></td>
+    <td class="n"></td>
+    <td class="n"></td>
+    <td class="tick"></td></tr>
+<tr class="un">
+    <td class="m act">panel11</td>
+    <td>Dome side panel 12</td>
+    <td class="m cad">Panel7</td>
+    <td class="n">304&deg;</td>
+    <td class="w">front-left</td>
+    <td><span class="none">not driven</span></td>
+    <td class="n b"></td>
+    <td class="m"></td>
+    <td class="n"></td>
+    <td class="n"></td>
+    <td class="tick"></td></tr>
+<tr class="un">
+    <td class="m act">panel12</td>
+    <td>Dome side panel 13</td>
+    <td class="m cad">Panel6</td>
+    <td class="n">319&deg;</td>
+    <td class="w">front-left</td>
+    <td><span class="none">not driven</span></td>
+    <td class="n b"></td>
+    <td class="m"></td>
+    <td class="n"></td>
+    <td class="n"></td>
+    <td class="tick"></td></tr>
+<tr class="un">
+    <td class="m act">panel13</td>
+    <td>Dome side panel 14</td>
+    <td class="m cad">Panel14</td>
+    <td class="n">356&deg;</td>
+    <td class="w">front</td>
+    <td><span class="none">not driven</span></td>
+    <td class="n b"></td>
+    <td class="m"></td>
+    <td class="n"></td>
+    <td class="n"></td>
+    <td class="tick"></td></tr>
+</tbody></table>
+
+<h2>Driven, but not in the CAD exports — 4</h2>
+<p class="sub">The firmware has channels for these, but the geometry for them was
+never exported from Fusion, so there is nothing to check them against on screen.</p>
+<table><thead><tr>
+<th>Actuator</th><th>Part</th><th>CAD name</th><th>Bearing</th><th>Position</th>
+<th>Board</th><th>Ch</th><th>Channel name</th><th>Travel</th><th>Inv</th><th>&#10003;</th>
+</tr></thead><tbody>
+<tr>
+    <td class="m act">gripArm</td>
+    <td>Gripper arm</td>
+    <td class="m cad"><span class="none">no CAD part</span></td>
+    <td class="n"></td>
+    <td class="w"></td>
+    <td>PCA9685 0x40</td>
+    <td class="n b">2</td>
+    <td class="m">Gripper arm</td>
+    <td class="n">170–620 µs</td>
+    <td class="n"></td>
+    <td class="tick"></td></tr>
+<tr>
+    <td class="m act">claw</td>
+    <td>Gripper claw</td>
+    <td class="m cad"><span class="none">no CAD part</span></td>
+    <td class="n"></td>
+    <td class="w"></td>
+    <td>PCA9685 0x40</td>
+    <td class="n b">3</td>
+    <td class="m">Gripper claw</td>
+    <td class="n">270–360 µs</td>
+    <td class="n"></td>
+    <td class="tick"></td></tr>
+<tr>
+    <td class="m act">interArm</td>
+    <td>Interface arm</td>
+    <td class="m cad"><span class="none">no CAD part</span></td>
+    <td class="n"></td>
+    <td class="w"></td>
+    <td>PCA9685 0x40</td>
+    <td class="n b">6</td>
+    <td class="m">Interface arm</td>
+    <td class="n">620–190 µs</td>
+    <td class="n"></td>
+    <td class="tick"></td></tr>
+<tr>
+    <td class="m act">interTool</td>
+    <td>Interface tool</td>
+    <td class="m cad"><span class="none">no CAD part</span></td>
+    <td class="n"></td>
+    <td class="w"></td>
+    <td>PCA9685 0x40</td>
+    <td class="n b">7</td>
+    <td class="m">Interface tool</td>
+    <td class="n">140–430 µs</td>
+    <td class="n"></td>
+    <td class="tick"></td></tr>
+</tbody></table>
+
+<footer>Generated by the R2-D2 Astromech Simulator. Travel figures are the
+endpoints currently set in the sim, not measured on the droid — check each one
+against its mechanical limits before running it at speed. Geometry: MrBaddeley
+Printed Droid MK4.</footer>
+</body></html>

@@ -1,0 +1,407 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Servo brains compared — Maestro · PCA9685 · ESP32 · Teensy</title>
+<style>
+:root{
+  --bg:#111417;--panel:#191e23;--panel2:#1f262c;--line:#2c353d;
+  --tx:#d7dde2;--dim:#8a949d;--faint:#59636c;
+  --am:#f0a832;--gn:#57c78a;--rd:#e0483a;--bl:#5aa7e0;--pu:#b98ce0;
+  --mono:ui-monospace,'Cascadia Code',Consolas,Menlo,monospace;
+}
+*{box-sizing:border-box}
+body{margin:0 auto;background:var(--bg);color:var(--tx);max-width:1180px;
+  font:14px/1.7 -apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;padding:26px 22px 70px}
+h1{font:600 21px/1.3 var(--mono);letter-spacing:.02em;margin:0 0 4px}
+h1 b{color:var(--am)}
+.sub{color:var(--dim);font-family:var(--mono);font-size:12px;margin-bottom:26px}
+h2{font:600 11px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;
+  color:var(--dim);margin:38px 0 12px;padding-bottom:7px;border-bottom:1px solid var(--line)}
+h3{font:600 14px/1.4 var(--mono);color:var(--tx);margin:22px 0 6px}
+p{margin:0 0 13px;max-width:88ch}
+b{color:var(--tx)}
+code{font-family:var(--mono);background:var(--panel2);border:1px solid var(--line);
+  border-radius:3px;padding:1px 5px;font-size:12px}
+table{border-collapse:collapse;width:100%;font-size:12.5px;margin:6px 0 4px}
+th{text-align:left;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);
+  font-weight:600;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:bottom}
+th.h{color:var(--tx);font-size:12px;letter-spacing:0;text-transform:none;font-family:var(--mono)}
+th.us{color:var(--am)}
+td{padding:7px 10px;border-bottom:1px solid #20272d;color:var(--dim);vertical-align:top}
+td.k{color:var(--tx);width:190px}
+tr:hover td{background:#1c2329}
+td.y{color:var(--gn)}td.n{color:#c9756b}td.m{color:var(--am)}
+.col-us{background:#181f24}
+.note{background:var(--panel);border-left:3px solid var(--bl);border-radius:0 8px 8px 0;
+  padding:13px 16px;margin:16px 0;color:var(--dim);font-size:13px}
+.note b{color:var(--tx)}
+.note.am{border-left-color:var(--am)}
+.note.gn{border-left-color:var(--gn)}
+.verdict{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:16px 18px;margin:14px 0}
+.verdict h3{margin-top:0}
+.foot{margin-top:36px;padding-top:14px;border-top:1px solid var(--line);
+  color:var(--faint);font-family:var(--mono);font-size:11px}
+ul{max-width:88ch;color:var(--dim)}
+li{margin-bottom:7px}
+li b{color:var(--tx)}
+@media print{body{background:#fff;color:#111;max-width:none}
+  *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  table,.verdict{break-inside:avoid}}
+</style>
+</head>
+<body>
+
+<h1><b>SERVO BRAINS</b> COMPARED</h1>
+<div class="sub">Pololu Maestro · PCA9685 + co-processor (what we built) · ESP32 · Teensy 4.1 — 11 August 2026<br>plus: two ESP32s across a wire, and what if an ESP32 replaced the Mega ADK entirely?</div>
+
+<h2>First, the question you asked</h2>
+
+<h3>Does the Maestro run things in parallel or serial?</h3>
+
+<p><b>Both, and the distinction is the whole reason we built what we built.</b></p>
+
+<p><b>Motion is parallel.</b> Every channel has its own speed and acceleration limit,
+and the Maestro's firmware updates all of them every servo period — 20 ms by
+default. Twelve panels can be mid-travel at once, each at its own rate, and
+nothing you do to one affects another. That part is genuinely simultaneous
+and it is what makes a Maestro feel good.</p>
+
+<p><b>Sequences are serial.</b> The script engine is a single stack machine
+running one instruction at a time. There is exactly one script, and
+<code>restartScript(n)</code> does what it says — it <i>restarts</i>, abandoning
+whatever was running and jumping to subroutine <i>n</i>. You cannot have a
+holoprojector idling while the pies do something else, because the second
+command kills the first. A "wait" in a sequence is a <code>delay</code> that
+stops the whole script.</p>
+
+<p>That is the ceiling we went past. <b>MaestroPCA runs four sequences at once</b>
+on disjoint channels, plus a background layer that gets displaced by a real
+gesture and <b>resumes by itself</b> when the channels free up. The idle holo
+keeps sweeping while a panel opens; the sweep comes back on its own when the
+panel is done. No Maestro can do that, at any price.</p>
+
+<div class="note gn"><b>Worth being precise about what "isolation" buys you,
+because it is often confused with parallelism.</b> A Maestro's real selling
+point is that it is a <i>different CPU</i>: your host sketch can stall on
+<code>Usb.Task()</code> or a <code>delay(750)</code> and the panels keep easing.
+That is isolation, not concurrency — and our co-processor has exactly the same
+property, for £4.</p>
+
+<h2>The four options, side by side</h2>
+
+<table>
+<tr>
+  <th>&nbsp;</th>
+  <th class="h">Maestro Mini 24</th>
+  <th class="h us col-us">PCA9685 ×2 + Nano<br><span style="color:var(--faint);font-weight:400">what we built</span></th>
+  <th class="h">ESP32 + PCA9685<br><span style="color:var(--gn);font-weight:400">built &mdash; not yet on silicon</span></th>
+  <th class="h">Teensy 4.1 direct<br><span style="color:var(--faint);font-weight:400">not built</span></th>
+</tr>
+<tr><td class="k">Rough cost</td>
+  <td>~£40</td><td class="col-us">~£10 (2 boards + Nano)</td><td>~£11</td><td>~£28</td></tr>
+<tr><td class="k">Channels</td>
+  <td>24</td><td class="col-us">16 per board, 62 boards addressable — 32 is the usual pair</td>
+  <td>16 per board, same bus</td><td>12 with the Servo library; ~27 PWM-capable pins if you drive them directly</td></tr>
+<tr><td class="k">Boards to wire</td>
+  <td class="y">1</td><td class="col-us m">3</td><td class="m">3</td><td class="y">1</td></tr>
+<tr><td class="k">Who computes speed &amp; acceleration</td>
+  <td>the board's firmware</td><td class="col-us">our code, 100 times a second</td>
+  <td>our code, and it would have cycles to spare</td><td>our code, with cycles to burn</td></tr>
+<tr><td class="k">Pulse resolution</td>
+  <td class="y">0.25 µs (quarter-µs, the unit everything here speaks)</td>
+  <td class="col-us m">4.88 µs — 12 bits across a 20 ms period</td>
+  <td class="m">4.88 µs through a PCA9685; ~0.3 µs if it drives ≤16 servos itself</td>
+  <td class="y">sub-µs, hardware timers</td></tr>
+<tr><td class="k">Update rate</td>
+  <td>50 Hz (20 ms, settable)</td><td class="col-us">100 Hz engine tick, 50 Hz pulses</td>
+  <td>as fast as you like</td><td>as fast as you like</td></tr>
+<tr><td class="k">Concurrent sequences</td>
+  <td class="n">no — one script, one stack</td><td class="col-us y">4 tracks on disjoint channels</td>
+  <td class="y">4, or as many as you write</td><td class="y">as many as you write</td></tr>
+<tr><td class="k">Background idle that resumes</td>
+  <td class="n">no</td><td class="col-us y">yes</td><td class="y">yes</td><td class="y">yes</td></tr>
+<tr><td class="k">Release when parked (silent, no current)</td>
+  <td class="n">no</td><td class="col-us y">yes, per channel</td><td class="y">yes</td><td class="y">yes</td></tr>
+<tr><td class="k">Easing</td>
+  <td>acceleration curve only</td><td class="col-us y">accel + soft launch + overshoot</td>
+  <td class="y">same, ours</td><td class="y">same, ours</td></tr>
+<tr><td class="k">Sequence storage</td>
+  <td class="m">8 KB of script — the limit you hit first</td>
+  <td class="col-us">~28 KB of Nano flash; 128 slots addressable</td>
+  <td class="y">4 MB — effectively unlimited</td><td class="y">8 MB</td></tr>
+<tr><td class="k">Host interface</td>
+  <td><code>restartScript(n)</code> over serial</td>
+  <td class="col-us y">identical — the host sketch needs no changes at all</td>
+  <td>identical, plus WiFi</td><td>identical</td></tr>
+<tr><td class="k">Isolated from the host CPU</td>
+  <td class="y">yes</td><td class="col-us y">yes</td><td class="y">yes</td><td class="y">yes</td></tr>
+<tr><td class="k">Authored in</td>
+  <td class="m">Control Center (Windows)</td>
+  <td class="col-us y">the sim / PCA Studio — bricks, 3D preview, the lot</td>
+  <td class="y">same, and could be served <i>by the droid</i></td><td class="y">same</td></tr>
+<tr><td class="k">Firmware you can change</td>
+  <td class="n">no</td><td class="col-us y">yes — it is ours</td><td class="y">yes</td><td class="y">yes</td></tr>
+<tr><td class="k">Logic level</td>
+  <td>5 V</td><td class="col-us">5 V</td><td class="m">3.3 V (fine for a PCA9685; never feed it 5 V)</td><td class="m">3.3 V, not 5 V tolerant</td></tr>
+<tr><td class="k">Wireless</td>
+  <td class="n">no</td><td class="col-us n">no</td><td class="y">WiFi + Bluetooth on board</td><td class="n">no (4.1 has ethernet)</td></tr>
+</table>
+
+<div class="note am"><b>The 4.88 µs number, since it is the one place the PCA
+route is genuinely behind.</b> A PCA9685 divides its period into 4096 steps, so
+at 50 Hz each step is 20000 ÷ 4096 = 4.88 µs. Our targets are quarter-µs and get
+rounded to the nearest step. On a 1000 µs throw that is 0.5% — about half a
+degree on a 90° servo, which is comfortably inside the slop of a printed
+linkage and a 3D-printed horn. It has never been visible on your bench. But it
+is why the oscillator trim in Setup matters: the board's RC clock is only
+<i>nominally</i> 25 MHz, and an untrimmed one shifts every pulse by more than
+that rounding does.</div>
+
+<h2>Is an ESP32 worth building?</h2>
+
+<div class="verdict">
+<h3>Short answer: only for the radio — and that might be reason enough.</h3>
+
+<p><b>It would not improve the motion.</b> That is the thing to be clear about
+before spending a weekend on it. The Nano already runs the whole engine — four
+tracks, easing, background layers, release-when-parked — at 100 Hz in 27 KB of
+flash and 1.2 KB of RAM, and it is not close to struggling. Motion quality on
+this route is set by the PCA9685's 4.88 µs steps, not by the processor asking
+for them. A 240 MHz dual-core would make exactly the same servos do exactly the
+same thing.</p>
+
+<p><b>What it would actually add is wireless.</b> An ESP32 can hold the sequences
+<i>and</i> serve the editor. That means: change a routine at a convention
+without opening the dome; trigger a slot from your phone; watch the serial
+monitor from across the room; drop a new <code>sequences.h</code> in over the
+air instead of unplugging a Nano. For a droid that gets taken places, that is a
+real quality-of-life difference rather than a spec-sheet one.</p>
+
+<p><b>And it costs the same.</b> An ESP32 dev board is about £5, the same as a
+Nano. So the trade is not money — it is 3.3 V logic, a fussier toolchain, and
+brown-out sensitivity, against WiFi and effectively unlimited sequence
+storage.</p>
+
+<p><b>One genuinely interesting option we have not considered:</b> for a dome of
+16 servos or fewer, an ESP32 can drive them <i>directly</i>. It has 16 hardware
+LEDC channels (8 high-speed, 8 low-speed, across 4 timers), and at 50 Hz it can
+use 16-bit resolution — about 0.3 µs a step, <b>better than the PCA9685 and
+close to the Maestro</b>. No I²C, no expander, no address jumpers. The moment
+you need a seventeenth channel you are back to a PCA9685, so it does not suit
+the MK4 dome plus body — but for a standalone prop or the body alone it is the
+tidiest thing on this page.</p>
+</div>
+
+<h2>What about a Teensy?</h2>
+
+<div class="verdict">
+<h3>It solves a problem you do not have.</h3>
+
+<p>A Teensy 4.1 is a 600 MHz Cortex-M7 with superb timing, ~27 PWM-capable pins
+and 8 MB of flash. It would drive servos directly with sub-microsecond
+resolution — the best motion on this page, on paper.</p>
+
+<p>Two things spoil it for this job. The stock <b>Servo library only handles 12
+motors</b> on a Teensy 4.x, so past a dozen channels you are writing timer code
+yourself or adding a PCA9685 anyway — at which point the 600 MHz is doing
+nothing the Nano was not. And it is <b>£28 against £4</b>, with no radio.</p>
+
+<p>Where a Teensy earns its money is hard-real-time work: reading encoders,
+closed-loop control, audio DSP. A droid panel that has to move 30° over 400 ms
+is none of those. If you ever build a walking or balancing rig, revisit it.</p>
+</div>
+
+<div class="note gn"><b>Since this page was written, two of its "not built"
+columns stopped being hypothetical.</b> <code>MpcaLedcOutput</code> drives
+servos off ESP32 pins, <code>examples/Esp32Droid</code> is the co-processor
+with a web page, and <code>MpcaSplitOutput</code> puts a second board on the
+far end of a wire. All of it runs against the same <code>sequences.h</code> and
+the same editor; none of it has met real silicon yet.</div>
+
+<h2>ESP32 + the PCA9685 boards, instead of a Nano</h2>
+
+<p>The straightest swap on this page: keep the two expanders exactly as they
+are and put an ESP32 where the Nano was. One <code>#define</code> in
+<code>examples/Esp32Droid</code> — <code>MPCA_DIRECT_PINS 0</code> — and PCA
+Studio's setup screen writes the rest of the config block for you.</p>
+
+<table>
+<tr><th>&nbsp;</th><th class="h">Nano + 2 × PCA9685</th><th class="h us col-us">ESP32 + 2 × PCA9685</th></tr>
+<tr><td class="k">Motion</td><td colspan="2" class="m" style="text-align:center">
+  <b>Identical.</b> Same engine, same 100 Hz tick, same 4.88 µs PCA9685 steps.
+  The processor was never the limit — the expander's resolution is.</td></tr>
+<tr><td class="k">Cost</td><td>~£4</td><td class="col-us">~£5</td></tr>
+<tr><td class="k">Channels</td><td>32 today, 62 boards addressable</td><td class="col-us">the same — I2C, not the ESP32's 16 PWM channels</td></tr>
+<tr><td class="k">Sequence storage</td><td class="m">~28 KB of flash, 128 slots</td><td class="col-us y">4 MB. You will not reach it.</td></tr>
+<tr><td class="k">Wireless</td><td class="n">none</td><td class="col-us y">a web page: slots as buttons, on your phone</td></tr>
+<tr><td class="k">Reflashing</td><td>USB, dome open</td><td class="col-us y">over the air, dome shut</td></tr>
+<tr><td class="k">Logic level</td><td class="y">5 V, same as everything else</td><td class="col-us m">3.3 V — fine for a PCA9685, but nothing may push 5 V back into a pin</td></tr>
+<tr><td class="k">Wiring difference</td><td>SDA A4 · SCL A5</td><td class="col-us">SDA 21 · SCL 22, VCC from 3V3. V+ is the servo supply either way.</td></tr>
+<tr><td class="k">Toolchain</td><td class="y">nothing to install</td><td class="col-us m">the ESP32 board package, and its LEDC API changed at core 3.0</td></tr>
+</table>
+
+<div class="note am"><b>So the honest summary is: you are buying a radio and
+some flash for £1.</b> Not better motion — the servos cannot tell which chip
+asked. Whether that is worth changing a working board for comes down to
+whether "fire a routine from my phone without opening the dome" is a thing you
+will actually do at an event. If it is, this is the cheapest way to get it,
+and nothing about your sequences, your endpoints or your host sketch
+changes.</div>
+
+<div class="note"><b>One thing to know before ordering.</b> If you ever want
+the ESP32's <i>own</i> pins driving servos — 0.3 µs steps, no expander at all
+— that path tops out at <b>16 channels</b>, because that is how many LEDC
+channels the silicon has. Your dome and body together are past that, so on
+your droid the PCA9685s stay and the ESP32 is a host with a radio. On a
+smaller rig it would be a genuinely tidier machine.</div>
+
+<h2>Two ESP32s, one master &mdash; getting past sixteen channels</h2>
+
+<p>Since the ESP32's own pins top out at sixteen, the obvious next thought is
+a second board. It works, and <code>MpcaSplitOutput</code> does it: boards
+<code>0..n-1</code> go to a local output, everything above goes down a serial
+link to an <code>Esp32Slave</code> that does nothing but make pulses. <b>The
+channel table needs no change at all</b> &mdash; it already says which board
+each channel is on, and nothing ever promised a "board" was a PCA9685.</p>
+
+<div class="note am"><b>But do not do it for the channel count.</b> Look at
+what the second ESP32 is actually doing: receiving positions and making
+pulses. That is precisely a PCA9685's job &mdash; and a PCA9685 does it in
+silicon for £5, with no firmware to flash, no second binary to keep in step
+with the first, and an addressing scheme that already works. Two ESP32s cost
+the same and give you a worse expander with a link protocol to debug.</div>
+
+<p>The sixteen servo signal wires still have to physically reach the second
+board either way, so the wiring does not get simpler; you save two wires on
+the run between boards. And the resolution you gain &mdash; 0.3 µs against
+4.88 µs &mdash; is half a percent of a throw, inside the slop of a printed
+linkage.</p>
+
+<h3>Where it does win: distance</h3>
+
+<p>I²C was never designed for long runs. It is a short, capacitance-sensitive
+bus, and a droid has a slip ring in the middle of it. A UART tolerates a long
+noisy run far better. <b>If the body bank ends up at the far end of the loom
+and I²C starts misbehaving, this is the right fix</b> &mdash; and an ESP32 pair
+can do it over ESP-NOW with no data wires between dome and body at all, which
+no PCA9685 offers at any price.</p>
+
+<div class="note"><b>It cost 4 bytes to have.</b> The linker drops the whole
+split backend when nothing references it &mdash; measured on the real AVR
+build, 27,010 → 27,014. So it sits in the library unused until the day I²C
+gives trouble, and costs nothing until then.</div>
+
+<h2>What if the ESP32 runs the whole 2026 droid?</h2>
+
+<p>Different question from the one above, and a better one. Not an ESP32 as a
+servo co-processor next to a Mega ADK — an ESP32 <i>instead of</i> the Mega
+ADK, running the mod2026 sketch itself.</p>
+
+<div class="note am"><b>The short version: it does not make the sketch better,
+it makes the CONTROLLER CHAIN better — and only if you change the
+controller.</b> Everything else about mod2026 ports across without drama; the
+input layer is the whole job, and it is also the whole prize.</div>
+
+<h3>What you delete</h3>
+
+<p>mod2026 talks to an Xbox 360 <b>wireless receiver</b> through a
+<b>USB Host Shield</b> (the MAX3421E the Mega ADK has built in). That is two
+components and a library — <code>XBOXRECV</code> from USB Host Shield 2.0 —
+existing purely to get a controller's buttons into the sketch.</p>
+
+<p>An ESP32 has Bluetooth on the die. With <b>Bluepad32</b>, an Xbox
+One/Series pad (models 1708 / 1914) or a PS4/PS5 pad connects <i>straight to
+the board</i>. No dongle, no host shield, no MAX3421E. Two boards and a USB
+stack become one library call.</p>
+
+<div class="note"><b>The catch, and it is a real one: the Xbox 360 wireless
+controller is not Bluetooth.</b> It uses Microsoft's own 2.4 GHz protocol,
+which is exactly why it needs that receiver. It cannot pair with an ESP32 at
+all. So this only pays off if you move to a newer pad. Keep the 360 controller
+and you must bolt a MAX3421E module onto the ESP32's SPI — which works, but
+you have then rebuilt the Mega ADK badly.</div>
+
+<div class="note"><b>And it must be a CLASSIC ESP32.</b> Bluepad32 needs
+Bluetooth BR/EDR for PS3/PS4/PS5 and the older Xbox pads, and BR/EDR does not
+exist on the ESP32-S3, C3, C6 or H2 — those are BLE-only. The £5 original is
+the right chip here, which is convenient.</div>
+
+<h3>What ports easily</h3>
+
+<table>
+<tr><th>Part of mod2026</th><th>On an ESP32</th></tr>
+<tr><td class="k">Servos (2 × PCA9685)</td><td class="y">I2C, unchanged. 3.3 V is a valid logic high for a PCA9685. Under 16 channels you could drop the expanders entirely and use <code>MpcaLedcOutput</code> — but the MK4 dome plus body is well past 16, so keep them.</td></tr>
+<tr><td class="k">Dome &amp; foot motors (Syren10, Sabertooth)</td><td class="m">Packetised serial, and the ESP32 has three UARTs — but check the logic level. Their inputs expect 0–5 V TTL and a 3.3 V high is close to the threshold. A level shifter on those two lines is cheap insurance.</td></tr>
+<tr><td class="k">Sound (DY-SV5W / MP3Trigger)</td><td class="m">Serial, same caveat. Nothing may send 5 V back into an ESP32 pin — none of these are 5 V tolerant.</td></tr>
+<tr><td class="k">Lighting (AstroPixels / WS2812)</td><td class="y">Better than on AVR: the RMT peripheral drives addressable LEDs in hardware instead of bit-banging with interrupts off.</td></tr>
+<tr><td class="k">The controller</td><td class="n">A rewrite. The button MAP survives; the plumbing under it does not.</td></tr>
+<tr><td class="k">Sequences</td><td class="y">Already portable — this library, this <code>sequences.h</code>, and now a web page to fire slots from.</td></tr>
+</table>
+
+<h3>Worth doing?</h3>
+
+<p><b>For a new build, yes, and it is tempting.</b> One £5 board replaces a
+Mega ADK, a USB host shield and a receiver dongle; you gain WiFi for firing
+routines from a phone, far more storage, and better LED timing. The droid gets
+simpler, not more complicated.</p>
+
+<p><b>For a droid that already works, no.</b> Mike's runs a Mega ADK and an
+Xbox 360 pad, and this trade asks him to replace the controller, re-do the
+input layer, add level shifters and re-test the whole drive chain — to arrive
+at the same droid with a nicer radio. The PCA9685 co-processor gets the
+sequencer benefits already, on the hardware that is in the dome.</p>
+
+<p>The useful middle: <b>an ESP32 as the servo co-processor today</b>
+(<code>examples/Esp32Droid</code>, done), which needs no change to the host at
+all — the Mega ADK still sends <code>restartScript(n)</code> and does not know
+what is on the other end. If the Bluetooth controller ever appeals, that is a
+separate change on a separate board, and neither one blocks the other.</p>
+
+<h2>What I would do</h2>
+
+<ul>
+<li><b>Stay on the PCA9685 route for the droid.</b> It is the only option here
+that does concurrency, background idles and release-when-parked, it costs a
+quarter of a Maestro, and the firmware is ours — when the bench said overshoot
+needed headroom, we changed the engine. Nothing on this page beats that for
+this job.</li>
+<li><b>Keep the Maestro option working</b>, because other people have them and
+the sim exports for both. It is a fine board; it is just a 2010 answer to the
+question.</li>
+<li><b>Build the ESP32 version when you want the radio</b>, not before. With
+your two PCA9685s it is a £1 swap for a Nano and one <code>#define</code>; the
+motion is identical because the expander sets it, not the CPU. It is the same C++; only the PWM writes and the
+link change. Realistically a day, most of it on the WiFi side rather than the
+motion.</li>
+<li><b>Skip the Teensy</b> unless a future project needs real-time control rather
+than choreography.</li>
+<li><b>Do not use two ESP32s to get past sixteen channels</b> — a second
+PCA9685 is cheaper, needs no firmware and cannot go out of sync. Keep
+<code>MpcaSplitOutput</code> in your pocket for the day I²C struggles across
+the neck, which is the one thing it genuinely beats.</li>
+<li><b>Do not re-host the 2026 droid on an ESP32</b> — not this droid. The
+prize there is deleting the USB host shield and the receiver, and collecting
+it means changing the controller. Worth it on a build that has not been wired
+yet; not worth it on one that works.</li>
+</ul>
+
+<div class="note"><b>One thing worth doing regardless.</b> The engine is already
+written against an abstraction — it hands positions to a list of PCA9685
+objects. Making that a small interface rather than a concrete type is an hour's
+work, and it is what would let an ESP32 (or a Teensy driving pins directly) drop
+in underneath the same sequences, the same editor and the same
+<code>sequences.h</code>. Worth doing the next time that file is open, whether
+or not you ever buy either board.</div>
+
+<div class="foot">Sources: PJRC Servo library documentation (Teensy channel
+limits and PWM pins) · Espressif ESP-IDF LEDC reference (16 channels across two
+groups, 4 timers) · Pololu Maestro user's guide 0J40 (script model, quarter-µs
+units, 20 ms period) · NXP PCA9685 datasheet (12-bit, nominal 25 MHz RC
+oscillator) · Bluepad32 supported-gamepads documentation (Xbox 1708/1914,
+PS3/4/5, and BR/EDR only on the classic ESP32) · and our own bench
+measurements in HANDOVER.md.</div>
+
+</body>
+</html>

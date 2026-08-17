@@ -1,0 +1,34 @@
+{
+  "name": "r2d2-astromech-simulator",
+  "version": "1.44.0",
+  "private": false,
+  "description": "Browser simulator for an R2-D2 astromech build \u2014 real Padawan360 firmware sketches against a model of the hardware",
+  "scripts": {
+    "build": "node tools/build.js",
+    "test": "./test.sh",
+    "test:dev": "./test.sh dev.html"
+  },
+  "devDependencies": {
+    "@fontsource/ibm-plex-mono": "^5.3.0",
+    "@fontsource/ibm-plex-sans": "^5.3.0",
+    "playwright": "^1.40.0"
+  },
+  "keywords": [
+    "r2d2",
+    "astromech",
+    "droid",
+    "simulator",
+    "arduino",
+    "padawan360",
+    "pololu-maestro",
+    "pca9685",
+    "three.js",
+    "star-wars"
+  ],
+  "license": "SEE LICENSE IN LICENSE",
+  "homepage": "",
+  "repository": {
+    "type": "git",
+    "url": ""
+  }
+}

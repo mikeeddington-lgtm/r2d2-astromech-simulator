@@ -1,0 +1,140 @@
+:root{
+  --bg:#111417; --panel:#191e23; --panel2:#1f262c; --line:#2c353d;
+  --tx:#d7dde2; --dim:#8a949d; --faint:#59636c;
+  --am:#f0a832; --am2:#c8871c; --gn:#57c78a; --rd:#e06056; --bl:#5aa7e0;
+  --mono:ui-monospace,'Cascadia Code','Consolas',Menlo,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{background:var(--bg);color:var(--tx);font:13px/1.45 var(--mono);display:flex;flex-direction:column}
+button{font:inherit;color:var(--tx);background:var(--panel2);border:1px solid var(--line);border-radius:4px;padding:3px 10px;cursor:pointer}
+button:hover{border-color:var(--am2)}
+button:disabled{opacity:.4;cursor:default}
+button.prim{background:var(--am2);border-color:var(--am2);color:#14100a;font-weight:600}
+button.mini{padding:1px 6px;font-size:11px}
+input[type=text],input[type=number]{font:inherit;color:var(--tx);background:#12161a;border:1px solid var(--line);border-radius:3px;padding:2px 5px}
+input[type=number]{width:62px;text-align:right}
+input[type=number]::-webkit-inner-spin-button{opacity:.35}
+input[type=range]{accent-color:var(--am)}
+input[type=checkbox]{accent-color:var(--am)}
+header{display:flex;align-items:center;gap:10px;padding:8px 14px;background:var(--panel);border-bottom:1px solid var(--line);flex-wrap:wrap}
+header h1{font-size:14px;margin:0;font-weight:600;letter-spacing:.04em}
+header h1 b{color:var(--am)}
+header .ver{color:var(--faint);font-size:11px}
+header .sp{flex:1}
+#serialChip{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border:1px solid var(--line);border-radius:12px;color:var(--dim)}
+#serialChip.on{border-color:var(--gn);color:var(--gn)}
+main{flex:1;display:grid;grid-template-rows:auto 1fr;gap:10px;padding:10px 14px;overflow:hidden}
+section{background:var(--panel);border:1px solid var(--line);border-radius:6px;display:flex;flex-direction:column;min-height:0}
+section>h2{font-size:11px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);margin:0;padding:7px 12px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px}
+section>h2 .sp{flex:1}
+.scroll{overflow:auto;min-height:0}
+table{border-collapse:collapse;width:100%}
+th{font-size:10px;font-weight:600;color:var(--faint);text-transform:uppercase;letter-spacing:.06em;text-align:left;padding:4px 6px;position:sticky;top:0;background:var(--panel);z-index:2}
+/* uppercase turns µ into Greek capital Mu, so a "µs" header renders as "MS"
+   and reads as milliseconds. Any header unit goes in a .u the transform
+   does not touch — this applies to BOTH tables, hence the bare selector. */
+th .u{text-transform:none}
+td{padding:2px 6px;border-top:1px solid #20272d;white-space:nowrap;vertical-align:middle}
+tr:hover td{background:#1c2329}
+.chname{width:110px}
+.pin{color:var(--faint)}
+.poswrap{position:relative;width:170px;height:14px;background:#12161a;border:1px solid var(--line);border-radius:3px;overflow:hidden}
+.posbar{position:absolute;top:0;bottom:0;left:0;background:linear-gradient(90deg,var(--am2),var(--am));width:0%}
+.posoff .posbar{background:#3a434b}
+.postick{position:absolute;top:0;bottom:0;width:1px;background:var(--bl);opacity:.8}
+.us{color:var(--dim);width:74px;display:inline-block;text-align:right}
+.seqtabs{display:flex;gap:6px;flex-wrap:wrap;padding:8px 12px;border-bottom:1px solid var(--line)}
+.seqtab{padding:3px 10px;border:1px solid var(--line);border-radius:4px;cursor:pointer;color:var(--dim)}
+.seqtab .slot{color:var(--faint);margin-right:6px}
+.seqtab.on{border-color:var(--am);color:var(--tx)}
+.seqtab.playing{border-color:var(--gn);color:var(--gn)}
+.transport{display:flex;align-items:center;gap:8px;padding:7px 12px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.transport .stat{color:var(--dim)}
+.framegrid td input[type=number]{width:56px;background:transparent;border-color:transparent;text-align:right}
+.framegrid td input[type=number]:hover,.framegrid td input[type=number]:focus{border-color:var(--line);background:#12161a}
+.framegrid td input.blank{color:var(--faint)}
+.framegrid .fname{width:90px}
+.framegrid .fdur{background:#161c21}
+.framegrid tr.cur td{background:#22301f}
+.framegrid th.chcol{max-width:64px;overflow:hidden;text-overflow:ellipsis}
+footer{display:flex;gap:16px;padding:6px 14px;border-top:1px solid var(--line);background:var(--panel);color:var(--dim);font-size:11px;flex-wrap:wrap}
+footer b{color:var(--tx);font-weight:600}
+#log{flex:1;color:var(--faint);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.warn{color:var(--am)}
+.err{color:var(--rd)}
+kbd{border:1px solid var(--line);border-radius:3px;padding:0 4px;font-size:10px;color:var(--dim)}
+button.stop{background:#4a1f1c;border-color:var(--rd);color:#ffb9b3;font-weight:600}
+button.stop:hover{background:var(--rd);color:#1a0f0e;border-color:var(--rd)}
+#secMon{max-height:34vh}
+#secMon.hide{display:none}
+#monOut{flex:1;overflow:auto;padding:8px 12px;margin:0;font:12px/1.5 var(--mono);
+        color:var(--tx);white-space:pre-wrap;word-break:break-word;background:#0e1114}
+#monOut .tx{color:var(--am)}
+#monOut .sys{color:var(--faint)}
+.monbar{display:flex;gap:8px;align-items:center;padding:6px 12px;border-top:1px solid var(--line)}
+.monbar input[type=text]{flex:1}
+#monWarn{padding:8px 12px;background:#4a1f1c;color:#ffd6d2;border-bottom:1px solid var(--rd);display:none}
+#monWarn.on{display:block}
+
+/* ===================================================== brick sequencer
+   The timeline view. Bricks are absolutely positioned inside a lane whose
+   width IS the routine's length at the current zoom, so one number (px per
+   ms) controls the whole drawing and hit-testing stays trivial. */
+.viewbar{display:flex;align-items:center;gap:8px;padding:6px 10px;
+  border-bottom:1px solid var(--line);background:var(--panel2);flex-wrap:wrap}
+.seg{display:flex;border:1px solid var(--line);border-radius:5px;overflow:hidden}
+.seg button{background:var(--panel);border:0;border-right:1px solid var(--line);
+  color:var(--dim);padding:4px 10px;font:inherit;font-size:12px;cursor:pointer}
+.seg button:last-child{border-right:0}
+.seg button.on{background:var(--am);color:#151a1e;font-weight:600}
+#brickWrap{display:flex;flex:1;min-height:0}
+#brickWrap.hide,#frWrap.hide,#brickTools.hide{display:none}
+#brickLib{width:186px;flex:none;border-right:1px solid var(--line);
+  overflow:auto;background:var(--panel)}
+#brickLib .libhead{font-size:10px;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--faint);padding:8px 10px 4px}
+#brickLib .libgrp{font-size:10px;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--faint);padding:8px 10px 2px;border-top:1px solid var(--line);margin-top:4px}
+.libitem{display:flex;align-items:center;gap:7px;padding:5px 10px;cursor:grab;font-size:12.5px}
+.libitem:hover{background:var(--panel2)}
+.libitem .sw{width:10px;height:10px;border-radius:2px;flex:none}
+.libitem .sub{margin-left:auto;color:var(--faint);font-size:11px}
+#brickMain{flex:1;min-width:0;display:flex;flex-direction:column}
+#tlHead{height:20px;position:relative;border-bottom:1px solid var(--line);
+  background:var(--panel2);overflow:hidden;flex:none}
+#tlHead .tick{position:absolute;top:0;bottom:0;border-left:1px solid var(--line)}
+#tlHead .tick span{position:absolute;left:3px;top:3px;font-size:10px;color:var(--faint)}
+#tlScroll{flex:1;overflow:auto}
+#tl{position:relative;min-height:100%}
+.lane{position:relative;height:34px;border-bottom:1px solid #20272d}
+.lane.alt{background:#161b20}
+.lane .lname{position:sticky;left:0;z-index:2;display:inline-block;
+  padding:3px 8px;font-size:11px;color:var(--dim);background:var(--panel);
+  border-right:1px solid var(--line);border-bottom:1px solid #20272d;
+  width:118px;height:34px;line-height:28px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.brick{position:absolute;top:4px;height:26px;border-radius:4px;cursor:grab;
+  box-sizing:border-box;border:1px solid rgba(0,0,0,.45);overflow:hidden;
+  font-size:11px;line-height:24px;color:#10161b;padding:0 6px;white-space:nowrap}
+.brick.sel{outline:2px solid #fff;outline-offset:-1px;z-index:3}
+.brick.seqbrick{background:repeating-linear-gradient(45deg,#6b7a88,#6b7a88 6px,#5d6b78 6px,#5d6b78 12px);color:#e8eef3}
+/* the ramps are drawn as a fade rather than a flat wash, so a brick reads
+   as the SHAPE of its move: steep edges are a snap, long fades an ease.
+   A flat overlay looked identical to a brick whose ramps filled it. */
+.brick .ramp{position:absolute;top:0;bottom:0;pointer-events:none}
+.brick .ramp.l{left:0;background:linear-gradient(90deg,rgba(0,0,0,.5),rgba(0,0,0,0))}
+.brick .ramp.r{right:0;background:linear-gradient(270deg,rgba(0,0,0,.5),rgba(0,0,0,0))}
+.brick .grip{position:absolute;top:0;bottom:0;width:7px;cursor:ew-resize}
+.brick .grip.l{left:0}.brick .grip.r{right:0}
+.tlsnap{position:absolute;top:0;bottom:0;width:1px;background:var(--am);z-index:4;pointer-events:none}
+.tlsnap span{position:absolute;top:2px;left:4px;font-size:10px;color:var(--am);white-space:nowrap}
+#brickInsp{border-top:1px solid var(--line);background:var(--panel2);
+  padding:8px 12px;display:flex;gap:14px;align-items:center;flex-wrap:wrap;font-size:12px}
+#brickInsp.hide{display:none}
+#brickInsp label{display:flex;align-items:center;gap:5px;color:var(--dim)}
+#brickInsp input[type=number]{width:64px}
+#brickInsp .title{font-weight:600;color:var(--tx)}
+#brickInsp .floor{color:var(--am)}
+.adoptnote{padding:18px 20px;color:var(--dim);font-size:13px;line-height:1.7;max-width:640px}
+.adoptnote b{color:var(--tx)}
+.adoptnote .row{display:flex;gap:10px;align-items:center;margin-top:12px;flex-wrap:wrap}

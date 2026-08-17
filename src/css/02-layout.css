@@ -1,0 +1,254 @@
+/* App shell: header, the main grid, the stage and its HUD overlays. */
+/* ---------- header ---------- */
+header{
+  display:flex;align-items:center;gap:14px;padding:0 14px;
+  background:linear-gradient(180deg,var(--surf2),var(--bg2));
+  border-bottom:1px solid var(--line);
+  /* the header is a no-wrap flex row of chips — without min-width:0 its
+     min-content width becomes the #app grid column's width, the whole app
+     widens past the viewport and body{overflow:hidden} CROPS the sidebar.
+     On a 1280px laptop that put the Model tab off the right edge. */
+  min-width:0;
+}
+header .brand{font-family:var(--mono);font-size:12px;letter-spacing:.14em;color:var(--ctaHi);text-transform:uppercase}
+header .brand b{color:var(--txt);font-weight:600}
+header .brand #verTag{color:var(--dim);font-size:10px;letter-spacing:.06em;text-transform:none;margin-left:4px}
+header .sub{font-family:var(--mono);font-size:10.5px;color:var(--dimmer);letter-spacing:.06em}
+header .spacer{flex:1}
+
+/* ---------- the diagnostics bezel (v1.18.0, B2's one aesthetic risk) ----------
+   The five status chips + the firmware tag read as ONE instrument cluster:
+   a single recessed plate with thin internal separators, not six floating
+   boxes. Everything inside keeps its contract —
+     · hud.js REWRITES each chip's className ('chip on/warn/bad') and its
+       text every UI tick, so nothing here may depend on extra classes ON
+       the chips: all styling keys off #hdrBezel descent.
+     · the chips themselves stay borderless + transparent (chrome.test.js
+       pins that status never dresses as a button) — the plate, the recess
+       and the separators all live on the bezel and the cell edges.
+     · #chFault toggles display via style, and the sub-1400px text-shedding
+       rules below still match the spans inside. */
+#hdrBezel{
+  display:flex;align-items:stretch;height:26px;min-width:0;flex:0 1 auto;
+  background:linear-gradient(180deg,var(--ink2),var(--ink));
+  border:1px solid var(--line);border-radius:5px;overflow:hidden;
+  box-shadow:inset 0 1px 4px rgba(0,0,0,.42),inset 0 -1px 0 rgba(255,255,255,.04);
+}
+/* every cell after the first carries the separator on its left edge, so a
+   rule is only ever drawn between two visible cells — #chFault (hidden
+   until a fault) is never first, its rule vanishes with it */
+#hdrBezel > * + *{border-left:1px solid var(--line)}
+/* when the (long) fault cell lights mid-width, every cell gives ground
+   with an ellipsis rather than the last one being guillotined — the words
+   are always in the tooltip anyway (main.js syncs them every tick) */
+#hdrBezel .chip{padding:0 10px;border-radius:0;min-width:0}
+#hdrBezel .chip span+span{overflow:hidden;text-overflow:ellipsis}
+/* the firmware tag is the cluster's profile cell — its readout stays the
+   data cyan. The old standalone pill border is gone; the bezel frames it. */
+#hdrBezel .fwtag{
+  display:flex;align-items:center;border:none;border-radius:0;padding:0 10px;
+  background:linear-gradient(180deg,rgba(255,255,255,.03),transparent);
+}
+/* ---------- workspace switcher (v1.17.0, B1) ----------
+   The four .wsbtn buttons live in the old #viewsel host (07-startup.css
+   still carries its flex/border shell). Mono caps like every header
+   control; the ACTIVE workspace wears the --cta fill, the same treatment
+   as the sequencer strip door: both switches swap the app's whole footing,
+   so they share the one guaranteed-contrast fill in both themes.
+   .blocked dims Sequence under mod2026 — still clickable on purpose, so
+   the refusal can say why (workspaces.js toasts the strip door's words).
+   The focus ring is INSET: the host clips overflow, so the shared
+   outside-offset ring (05-controls.css) would lose its edges. */
+.wsbtn{
+  font-family:var(--mono);font-size:10px;letter-spacing:.09em;text-transform:uppercase;
+  background:var(--surf);color:var(--dim);border:none;border-right:1px solid var(--line2);
+  padding:5px 11px;cursor:pointer;white-space:nowrap;
+}
+.wsbtn:last-child{border-right:none}
+.wsbtn:hover{color:var(--txt);background:var(--hoverBg)}
+.wsbtn.act{background:var(--cta);color:var(--onCta);font-weight:700}
+.wsbtn.blocked{opacity:.45}
+.wsbtn:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
+
+/* The Bench's Advanced switch, at the right end of the tabs row. A LABEL,
+   not a button — panels.js wires a pane-switch onto every '#tabs button',
+   and this control gates the Serial tab, it must never BE one. Shown only
+   in the Bench workspace (workspaces.js toggles [hidden]). */
+#wsAdvWrap{
+  display:flex;align-items:center;gap:5px;margin-left:auto;flex:0 0 auto;
+  font-family:var(--mono);font-size:var(--fs-label);letter-spacing:.04em;text-transform:uppercase;
+  color:var(--dim);padding:0 10px;cursor:pointer;white-space:nowrap;user-select:none;
+}
+#wsAdvWrap[hidden]{display:none}
+#wsAdvWrap:hover{color:var(--txt)}
+#wsAdvWrap input{accent-color:var(--cta);margin:0}
+
+select.msel{
+  font-family:var(--mono);font-size:10.5px;background:var(--ink);color:var(--cy);
+  border:1px solid var(--line2);border-radius:3px;padding:3px 4px;width:100%;
+}
+select.msel:focus{outline:none;border-color:var(--cta)}
+/* Status is NOT pressable, so it no longer dresses like a button: no border,
+   no plate — a coloured dot and its word straight on the header. Only the
+   .hbtn action buttons wear a plate now (05-controls.css). */
+.chip{
+  font-family:var(--mono);font-size:10px;letter-spacing:.09em;text-transform:uppercase;
+  padding:3px 2px;border:none;background:transparent;border-radius:3px;color:var(--dim);
+  display:flex;align-items:center;gap:6px;white-space:nowrap;
+}
+.chip .dot{width:6px;height:6px;border-radius:50%;background:var(--dimmer);box-shadow:0 0 0 0 transparent;flex:none}
+.chip.on{color:var(--gn)}
+.chip.on .dot{background:var(--gn);box-shadow:0 0 8px var(--gn)}
+.chip.warn{color:var(--am)}
+.chip.warn .dot{background:var(--am);box-shadow:0 0 8px var(--am)}
+.chip.bad{color:var(--rd)}
+.chip.bad .dot{background:var(--rd);box-shadow:0 0 8px var(--rd)}
+
+/* CHANGE 2 (2026-08-15, UX 1.5a): the one status chip that doubles as a
+   toggle — hud.js wires the click through the same virtual-button path a
+   real START press uses (input/pad-ui.js). Same dot/word language as
+   every other chip above (still no border, no plate); the pointer
+   cursor is the only visual tell that it takes a click. */
+#chDrive{cursor:pointer}
+
+/* The link chip (v1.43.0) takes a click too — connect or disconnect the
+   real board without opening the bench. `.clickable` rather than another
+   id rule, so anything else in the bezel that grows a click gets the same
+   affordance for free. */
+#hdrBezel .chip.clickable{cursor:pointer}
+#hdrBezel .chip.clickable:hover{background:var(--ctaD)}
+
+/* Below ~1400px the status cluster sheds its text: the dot keeps the state
+   by colour and the words move into a tooltip (main.js keeps the chips'
+   title attributes in sync with the hidden text every UI tick). The bezel
+   cells are id-scoped, so the shed rules must be too. */
+@media (max-width:1400px){
+  header{gap:10px}
+  header .chip span+span{display:none}
+  #hdrBezel .chip{gap:0;padding:0 7px}
+  header .chip .dot{width:8px;height:8px}
+}
+@media (max-width:1300px){
+  header{gap:8px}
+  header .brand #verTag{display:none}
+  #hdrBezel .fwtag{padding:0 7px}
+}
+
+/* ---------- app menu (the header's right wing, folded — see body.html) ----------
+   Static markup shown/hidden rather than built on demand, because btnTheme,
+   btnScaleUp/Dn, uiScaleLbl and btnSaveLoad must stay alive in the DOM for
+   main.js's bindings and the test suites that reference them. */
+#appMenu{
+  position:fixed;z-index:140;background:var(--panel);border:1px solid var(--ctaD);border-radius:6px;
+  padding:10px 12px;min-width:238px;box-shadow:0 12px 40px var(--shadow);
+}
+#appMenu[hidden]{display:none}
+#appMenu .amrow{display:flex;align-items:center;gap:6px;padding:5px 0}
+#appMenu .amlbl{
+  flex:1;font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--dimmer);padding-right:16px;white-space:nowrap;
+}
+#appMenu .hbtn{margin-left:0}
+
+/* ---------- main layout ---------- */
+/* Draggable splitters (Mike, 2026-07-27: "these should be draggable").
+   Each handle is its own grid track, so dragging is just a variable write —
+   no absolute positioning, and nothing to keep in sync when the window
+   resizes. Sizes persist in PREFS; double-click a handle to reset it. */
+#main{display:grid;grid-template-columns:minmax(0,1fr) 5px var(--sideW,372px);min-height:0}
+#left{display:grid;grid-template-rows:minmax(0,1fr) 5px var(--padH,258px);min-width:0;min-height:0}
+.split{background:var(--line);position:relative;z-index:8;touch-action:none}
+.split:hover,.split.drag{background:var(--cta)}
+/* a 5px bar is a poor target — widen the hit area without moving the layout */
+.split::after{content:'';position:absolute;inset:-4px}
+#splitV{cursor:col-resize}
+#splitH{cursor:row-resize}
+#stage{position:relative;min-height:0;background:radial-gradient(ellipse at 50% 42%,var(--stageA) 0%,var(--stageB) 68%);min-width:0;min-height:0;overflow:hidden}
+/* the canvas must NOT contribute intrinsic size, or the grid column can
+   never shrink when the window does — absolute-position it instead */
+#stage canvas{display:block;position:absolute;left:0;top:0;width:100%;height:100%;z-index:0}
+
+/* HUD */
+.hud{position:absolute;pointer-events:none;font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;z-index:5}
+#hudTL{top:10px;left:12px;display:flex;flex-direction:column;gap:5px}
+#hudTR{top:10px;right:12px;text-align:right;display:flex;flex-direction:column;gap:5px;align-items:flex-end}
+#hudBL{bottom:10px;left:12px;color:var(--dimmer)}
+.hudrow{display:flex;gap:8px;align-items:center;background:var(--shadow);border:1px solid var(--line);border-radius:3px;padding:4px 8px;backdrop-filter:blur(4px)}
+.hudrow .k{color:var(--dimmer);text-transform:uppercase}
+.hudrow .v{color:var(--cy);min-width:44px;text-align:right}
+.hudrow .v.am{color:var(--am)}
+.hudrow .v.rd{color:var(--rd)}
+.hudrow .v.gn{color:var(--gn)}
+.bar{width:74px;height:5px;background:var(--track);border-radius:3px;overflow:hidden;position:relative}
+.bar i{position:absolute;top:0;bottom:0;left:50%;background:var(--cy);transition:none}
+#stageTools{position:absolute;bottom:10px;right:12px;display:flex;gap:6px;pointer-events:auto;z-index:6}
+.sbtn{
+  font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;
+  /* was a hard-coded dark rgba, which in light mode put dark text on a dark
+     plate — the one thing on the stage that never followed the theme */
+  background:var(--sbtnBg);color:var(--sbtnTxt);border:1px solid var(--line2);
+  padding:5px 9px;border-radius:3px;cursor:pointer;backdrop-filter:blur(4px);
+}
+.sbtn:hover{color:var(--txt);border-color:var(--ctaD)}
+.sbtn.act{color:var(--onCta);background:var(--cta);border-color:var(--cta)}
+/* a stage button whose picker is open — lit edge, NOT the .act fill, so it
+   cannot be mistaken for a toggled-on Follow/Grid/Learn/Track */
+.sbtn.picking{color:var(--txt);border-color:var(--cta)}
+
+/* ---------- stage pickers (v1.15.0, M3) ----------
+   Built on demand by stagePicker() in app/main.js and removed on close —
+   one small popover above the BG / environment / model button listing every
+   option, the current one ticked and filled. Same plate language as .sbtn
+   and .hudrow: dark translucent plate, backdrop blur, small mono rows.
+   Tokens only, so body.light follows. */
+#stagePick{
+  position:fixed;z-index:120;min-width:150px;
+  background:var(--sbtnBg);border:1px solid var(--line2);border-radius:4px;
+  padding:4px;backdrop-filter:blur(6px);box-shadow:0 10px 30px var(--shadow);
+}
+#stagePick .sprow{
+  display:flex;align-items:center;gap:7px;width:100%;text-align:left;
+  font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;
+  background:transparent;border:none;border-radius:3px;color:var(--sbtnTxt);
+  padding:5px 8px;cursor:pointer;white-space:nowrap;
+}
+#stagePick .sprow:hover{background:var(--hoverBg);color:var(--txt)}
+#stagePick .sprow .spmark{width:11px;color:var(--ctaHi);visibility:hidden;flex:none}
+#stagePick .sprow.cur{color:var(--ctaHi);background:var(--selBg)}
+#stagePick .sprow.cur .spmark{visibility:visible}
+
+/* ---------- "?" keyboard shortcuts overlay (v1.16.0, M7c) ----------
+   Built on demand by app/shortcuts.js and removed on close. Same overlay
+   language as the app dialog (.dlgwrap in 08-import.css): dimmed blurred
+   backdrop, one card — sized for a reference card, not a workspace.
+   z 250: over the wizard (120) and the popovers (140), under the confirm
+   dialog (300), which can never be up at the same time anyway ('?' does
+   not open over it). The rows and key caps reuse the pad legend's .kbrow
+   look (03-pad.css), bumped to the data size for a full-screen read.
+   Tokens only, so body.light follows for free. */
+#kbdHelp{
+  position:fixed;inset:0;z-index:250;
+  background:color-mix(in srgb, var(--ink2) 62%, transparent);
+  backdrop-filter:blur(2px);
+  display:flex;align-items:center;justify-content:center;padding:26px;
+}
+.kovcard{
+  width:min(880px,100%);max-height:100%;overflow:auto;
+  background:var(--panel);border:1px solid var(--line2);border-radius:9px;
+  box-shadow:0 18px 60px var(--shadow);
+  padding:15px 20px 12px;
+}
+.kovcard h4{
+  font-family:var(--mono);font-size:var(--fs-label);font-weight:600;
+  letter-spacing:.14em;text-transform:uppercase;
+  color:var(--dim);margin-bottom:12px;
+}
+.kovcols{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:6px 30px;align-items:start}
+.kovcol h5{
+  font-family:var(--mono);font-size:9.5px;font-weight:600;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--dimmer);
+  padding-bottom:4px;margin-bottom:4px;border-bottom:1px solid var(--line);
+}
+#kbdHelp .kbrow{font-size:var(--fs-data);padding:4px 0}
+#kbdHelp .kbrow kbd{font-size:var(--fs-data);margin-left:3px}
+.kovfoot{margin-top:12px;border-top:1px solid var(--line);padding-top:8px}

@@ -1,0 +1,16 @@
+{
+  "name": "r2d2-sim-video",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "render": "remotion render src/index.jsx Main out/r2d2-sim-features.mp4"
+  },
+  "dependencies": {
+    "@remotion/bundler": "^4.0.245",
+    "@remotion/cli": "4.0.245",
+    "@remotion/renderer": "^4.0.245",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "remotion": "4.0.245"
+  }
+}

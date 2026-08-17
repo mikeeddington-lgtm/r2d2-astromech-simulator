@@ -1,0 +1,839 @@
+/* Header buttons, the setup overlay, colour swatches and the Maestro
+   channel-mapping rows. */
+/* ---------------------------------------------- header buttons */
+.hbtn{
+  font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;
+  background:var(--surf2);color:var(--dim);border:1px solid var(--line2);
+  padding:4px 9px;border-radius:3px;cursor:pointer;margin-left:6px;
+}
+.hbtn:hover{color:var(--txt);border-color:var(--ctaD)}
+
+/* ---------------------------------------------- startup overlay */
+/* Mike, 2026-07-27: "the setup should be the full size of the webpage —
+   easier to see". So the overlay is full-bleed rather than a 720px card:
+   the wiring diagram and the panel table are the whole point of those steps
+   and they were being squeezed. The horizontal padding grows to keep the
+   CONTENT at a readable measure on a wide monitor while the borders and
+   backgrounds still run edge to edge — see --stpPad below. */
+#startup{
+  position:fixed;inset:0;background:var(--panel);
+  display:none;align-items:stretch;justify-content:center;z-index:120;padding:0;
+}
+body.light #startup{background:var(--panel)}
+#startup.on{display:flex}
+.stpcard{
+  --stpPad:max(18px, calc((100% - 1360px) / 2));
+  width:100%;height:100%;max-height:100%;display:flex;flex-direction:column;
+  background:var(--panel);border:0;border-radius:0;
+  box-shadow:none;overflow:hidden;
+}
+.stphead{
+  display:flex;align-items:flex-start;justify-content:space-between;gap:14px;
+  padding:18px var(--stpPad) 14px;border-bottom:1px solid var(--line);
+  background:linear-gradient(180deg,var(--surf2),var(--panel));
+}
+.stptitle{font-size:19px;font-weight:600;color:var(--txt);letter-spacing:.02em}
+.stpsub{font-family:var(--sans);font-size:var(--fs-body);color:var(--dim);line-height:1.55;margin-top:6px;max-width:78ch}
+.stpsub b{color:var(--txt);font-weight:600}
+.stpbody{padding:8px var(--stpPad) 18px;overflow-y:auto;flex:1}
+
+/* ---------------------------------------------- split mode: droid on the right
+   Mike, 2026-07-27: "when selecting servos panels and colours it should have
+   the robot in view maybe the right side of the screen". On those two steps
+   the overlay gives up the right of the window and the app reflows so the 3D
+   stage fills it — test a servo or change a colour and you watch it happen.
+   `wizSplit()` calls onResize() afterwards, or the canvas keeps its old size.
+   Same trick as body.seqbig, which docks the droid right for the sequencer. */
+body.wizsplit{--wizRight:clamp(320px, 38vw, 660px)}
+body.wizsplit #startup{right:var(--wizRight)}
+/* the stage must not merely be UNCOVERED, it has to move — otherwise the droid
+   stays centred in a full-width stage, which is behind the overlay */
+body.wizsplit #main{
+  grid-template-columns:minmax(0,1fr) 0 0;
+  margin-left:calc(100vw - var(--wizRight));
+}
+body.wizsplit #side,body.wizsplit #splitV{display:none}
+body.wizsplit #left{grid-template-rows:minmax(0,1fr)}
+body.wizsplit #padwrap,body.wizsplit #splitH{display:none}
+body.wizsplit #stage{border-left:1px solid var(--line2)}
+/* not enough room to show both — fall back to the full-width overlay */
+@media (max-width:1000px){
+  body.wizsplit #startup{right:0}
+  body.wizsplit #main{grid-template-columns:minmax(0,1fr) 5px var(--sideW,372px);margin-left:0}
+  body.wizsplit #side{display:grid}
+  body.wizsplit #splitV{display:block}
+}
+
+/* ---------------------------------------------- wizard step rail */
+#stprail{
+  display:flex;gap:4px;flex-wrap:wrap;padding:9px var(--stpPad);
+  border-bottom:1px solid var(--line);background:var(--surf);
+}
+.raildot{
+  font-family:var(--mono);font-size:10px;letter-spacing:.06em;text-transform:uppercase;
+  background:transparent;color:var(--dimmer);border:1px solid var(--line2);
+  padding:4px 10px;border-radius:12px;cursor:pointer;
+}
+.raildot:hover{color:var(--txt);border-color:var(--ctaD)}
+.raildot.done{color:var(--gn);border-color:var(--gn)}
+.raildot.act{background:var(--cta);color:var(--onCta);border-color:var(--cta);font-weight:700}
+
+/* ---------------------------------------------- wizard option cards */
+.optgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(268px,1fr));gap:10px;margin:12px 0 6px}
+.optcard{
+  background:var(--surf);border:1px solid var(--line2);border-radius:5px;
+  padding:12px 14px;cursor:pointer;transition:border-color .12s,background .12s;
+}
+.optcard:hover{border-color:var(--ctaD)}
+.optcard:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.optcard.act{border-color:var(--cta);background:var(--surf2);box-shadow:inset 0 0 0 1px var(--ctaD)}
+.optcard.blocked{opacity:.62}
+.optcard.blocked:hover{border-color:var(--rd)}
+.opthead{display:flex;align-items:baseline;gap:7px;justify-content:space-between}
+.opthead b{font-size:13.5px;color:var(--txt);font-weight:600}
+.optbadge{
+  font-family:var(--mono);font-size:8.5px;letter-spacing:.06em;text-transform:uppercase;
+  border:1px solid currentColor;border-radius:9px;padding:1px 5px;white-space:nowrap;
+}
+.optbadge.ok{color:var(--cy)}
+.optbadge.sub{color:var(--am)}
+.optbadge.park{color:var(--dimmer)}
+.optnote{font-family:var(--sans);font-size:var(--fs-body);color:var(--dim);line-height:1.55;margin-top:6px}
+.optwhy{font-family:var(--sans);font-size:var(--fs-body);color:var(--rd);line-height:1.55;margin-top:7px}
+
+/* ---------------------------------------------- wizard review table */
+.bsum{margin-top:6px}
+.bsumrow{display:grid;grid-template-columns:150px 1fr auto;gap:10px;align-items:center;
+  padding:5px 0;border-bottom:1px dotted var(--track)}
+.bsk{font-family:var(--mono);font-size:9.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--dim)}
+.bsv{font-size:13px;color:var(--txt);display:flex;align-items:center;gap:7px}
+.bsumrow button.b{padding:3px 8px;font-size:9.5px}
+.wdwrap{background:#fff;border:1px solid var(--line2);border-radius:5px;padding:10px;overflow-x:auto}
+.wdwrap svg{width:100%;height:auto;min-width:760px}
+
+/* ---------------------------------------------- config tab jump bar */
+.cfgnav{
+  display:flex;gap:4px;flex-wrap:wrap;position:sticky;top:0;z-index:5;
+  padding:6px 0 8px;margin-bottom:2px;background:var(--panel);border-bottom:1px solid var(--line);
+}
+.cfgnav button.b{padding:3px 8px;font-size:9.5px}
+
+/* ---------------------------------------------- panel ↔ servo assignment */
+.asrow{display:grid;grid-template-columns:1fr 162px 34px 28px;gap:6px;align-items:center;
+  padding:3px 0;border-bottom:1px dotted var(--track)}
+.asrow .cn{font-family:var(--mono);font-size:10.5px;color:var(--txt);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.asrow select{font-family:var(--mono);font-size:9.5px;min-width:0}
+.asrow.ashdr .cn{font-size:9px;letter-spacing:.06em;text-transform:uppercase;color:var(--dimmer)}
+.asfix{font-family:var(--mono);font-size:9.5px;color:var(--gn)}
+.asfix.dim{color:var(--dimmer)}
+.ascol{width:100%;height:20px;padding:0;border:1px solid var(--line2);border-radius:3px;background:none;cursor:pointer}
+.astest{padding:2px 0;font-size:9px;text-align:center}
+.stpfoot{
+  display:flex;align-items:center;justify-content:space-between;gap:14px;
+  padding:12px var(--stpPad);border-top:1px solid var(--line);background:var(--surf2);
+}
+.stpfoot .hint{margin-top:0;flex:1}
+
+/* colour role swatches */
+.swgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin-top:9px}
+.swcell{
+  background:var(--surf);border:1px solid var(--brdIn);border-radius:4px;
+  padding:8px;display:flex;flex-direction:column;align-items:center;gap:5px;text-align:center;
+}
+.swcell input[type=color]{
+  width:100%;height:30px;padding:0;border:1px solid var(--line2);border-radius:3px;
+  background:none;cursor:pointer;
+}
+.swlab{font-family:var(--mono);font-size:10px;color:var(--txt);letter-spacing:.03em}
+.swhint{font-family:var(--mono);font-size:9.5px;color:var(--dimmer);line-height:1.4}
+
+/* ---------------------------------------------- expanding output row
+   Clicking a row in the Outputs tables opens a drawer under it: the channel
+   it is wired to, a position slider, open/close, and the part colour. */
+.srv tr.clickrow{cursor:pointer}
+.srv tr.clickrow:hover td{background:var(--hoverBg)}
+.srv tr.clickrow.open td{background:var(--surf2);border-bottom-color:var(--ctaD)}
+.srv tr.clickrow.open td.ch{color:var(--ctaHi);font-weight:700}
+.srv tr.detrow td{padding:0;background:var(--surf)}
+.detcell{padding:0 !important;border-left:2px solid var(--cta)}
+.detwrap{width:0;min-width:100%;box-sizing:border-box;padding:9px 10px 11px;overflow:hidden}
+.dethead{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;margin-bottom:7px}
+.dethead b{font-size:12px;color:var(--txt)}
+.detsub{font-family:var(--mono);font-size:9.5px;color:var(--dimmer)}
+.detrow2{display:flex;align-items:center;gap:8px;padding:3px 0}
+.detlab{font-family:var(--mono);font-size:9.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--dim);min-width:58px}
+.detrow2 select{font-family:var(--mono);font-size:10px;background:var(--ink);color:var(--cy);
+  border:1px solid var(--line2);border-radius:3px;padding:3px;flex:1;min-width:0}
+.detrng{flex:1;accent-color:var(--cta);min-width:0}
+.detval{font-family:var(--mono);font-size:10px;color:var(--cy);min-width:34px;text-align:right}
+.detcell .conbar{margin-top:7px}
+.detcol{width:30px;height:22px;flex:none}
+
+/* ---------------------------------------------- part selection card */
+#selcard{
+  position:absolute;right:10px;top:10px;width:228px;z-index:30;display:none;
+  background:var(--panel);border:1px solid var(--line2);border-radius:5px;
+  padding:10px 12px;box-shadow:0 10px 34px var(--shadow);
+}
+#selcard.on{display:block}
+.selhead{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
+.seltitle{font-size:13px;font-weight:600;color:var(--txt);word-break:break-word}
+.selsub{font-family:var(--mono);font-size:9.5px;color:var(--dimmer);line-height:1.6;margin:4px 0 8px}
+.selsub b{color:var(--cy)}
+.selrow{display:grid;grid-template-columns:44px 1fr auto;gap:6px;align-items:center;padding:3px 0}
+.selrow label{font-family:var(--mono);font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.06em}
+.selrow input[type=text]{
+  font-family:var(--mono);font-size:10.5px;background:var(--ink);color:var(--cy);
+  border:1px solid var(--line2);border-radius:3px;padding:4px 6px;min-width:0;
+}
+.selrow input[type=text]:focus{outline:none;border-color:var(--cta)}
+.selrow input[type=color]{width:100%;height:24px;padding:0;border:1px solid var(--line2);border-radius:3px;background:none;cursor:pointer}
+.selrow input[type=range]{width:100%;accent-color:var(--cta);grid-column:2/4}
+.selgh{font-family:var(--mono);font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--dimmer);margin:9px 0 3px;border-top:1px solid var(--line);padding-top:8px}
+#selcard label.sw{padding:2px 0}
+#selcard button.b{margin-top:6px}
+
+/* ---------------------------------------------- groups (Model tab) */
+.grprow{display:grid;grid-template-columns:1fr 26px 32px repeat(6,minmax(0,auto));gap:4px;align-items:center;padding:3px 0;border-bottom:1px dotted var(--track)}
+.grprow .cn{font-family:var(--mono);font-size:10.5px;color:var(--txt);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.grprow .mv{font-family:var(--mono);font-size:9.5px;color:var(--dimmer);text-align:right}
+.grprow input[type=color]{width:100%;height:20px;padding:0;border:1px solid var(--line2);border-radius:3px;background:none;cursor:pointer}
+.grprow input[type=color].unset{opacity:.35}
+.grprow button.b{padding:3px 6px;font-size:9.5px}
+
+/* ---------------------------------------------- maestro channel mapping */
+.maerow.wide{grid-template-columns:22px 1fr 104px 22px 74px 30px}
+.maerow input[type=range]{width:100%;accent-color:var(--cta);height:14px}
+.maerow .mv{font-family:var(--mono);font-size:9.5px;color:var(--dimmer);text-align:right}
+.maerow .mv.ok{color:var(--gn)}
+.maerow .mv.no{color:var(--rd)}
+
+/* boards + pins */
+.boardcard{background:var(--surf);border:1px solid var(--brdIn);border-radius:4px;padding:8px;margin-bottom:8px}
+.boardcard.live{border-color:var(--ctaD)}
+.bchead{display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin-bottom:6px}
+.bchead b{font-family:var(--mono);font-size:10.5px;color:var(--txt)}
+.bcnote{font-family:var(--mono);font-size:9.5px;color:var(--dimmer)}
+.boardcard.live .bcnote{color:var(--cy)}
+.pinrow{display:grid;grid-template-columns:repeat(8,1fr);gap:4px}
+.pinbtn{font-family:var(--mono);font-size:10px;padding:5px 0;text-align:center;cursor:pointer;
+  background:var(--ink);color:var(--dimmer);border:1px solid var(--line2);border-radius:3px}
+.pinbtn.named{color:var(--am);border-color:var(--amDark)}
+.pinbtn.ok{color:var(--gn);border-color:var(--gn)}
+.pinbtn.sel{background:var(--cta);color:var(--onCta);border-color:var(--cta);font-weight:700}
+.pinbtn:hover{border-color:var(--cta)}
+/* selection card port row */
+.selport{font-family:var(--mono);font-size:10px;color:var(--gn)}
+.selport.dim{color:var(--dimmer)}
+#selcard select{font-family:var(--mono);font-size:10px;background:var(--ink);color:var(--cy);border:1px solid var(--line2);border-radius:3px;padding:3px;max-width:100%}
+/* track HUD */
+/* the mouse's own readout — the Drive/Turn bars honestly read zero while it
+   has the sticks, so this is the only feedback there is. Bottom centre, clear
+   of the track timer at the top and the orbit hint bottom-left. */
+#hudMouse{left:50%;transform:translateX(-50%);bottom:46px;text-align:center;line-height:1.6;
+  background:var(--shadow);border:1px solid var(--line);border-left:3px solid var(--cy);
+  border-radius:4px;padding:7px 14px;backdrop-filter:blur(4px);font-size:11px;color:var(--txt)}
+#hudMouse b{color:var(--cy);letter-spacing:.14em}
+/* a column of .hudrow PLATES (02-layout.css) — the values used to sit bare
+   on the scene and vanished over the hangar deck and the desert sand */
+#hudTrack{left:50%;transform:translateX(-50%);top:10px;display:flex;flex-direction:column;gap:5px;align-items:center}
+#hudTrack .hudrow{gap:10px;align-items:baseline}
+#hudTrack .k{font-family:var(--mono);font-size:9.5px;color:var(--dimmer);letter-spacing:.1em}
+#hudTrack .v{font-family:var(--mono);font-size:12px;color:var(--txt);white-space:nowrap}
+#hudTrack .v.big{font-size:16px;color:var(--cy)}
+#hudTrack .v.am{color:var(--am)}
+#hudTrack .v.rd{color:var(--rd)}
+/* music status */
+.musstat{font-family:var(--mono);font-size:10px;color:var(--gn);flex-basis:100%;padding-top:2px}
+.musstat.err{color:var(--rd)}
+
+/* favourite + metal swatches */
+.favrow{display:flex;gap:4px;align-items:center;padding:3px 0}
+.favsw{width:20px;height:20px;border:1px solid var(--line2);border-radius:3px;cursor:pointer;padding:0}
+.favsw:hover{border-color:var(--cta);transform:scale(1.12)}
+.favsw.met{border-radius:50%}
+.favlab{font-family:var(--mono);font-size:9.5px;color:var(--dimmer);margin-left:4px;text-transform:uppercase;letter-spacing:.08em}
+.favedit{width:34px;height:26px;padding:0;border:1px solid var(--line2);border-radius:3px;background:none;cursor:pointer}
+
+/* board photo (Pololu's labelled top view) with clickable channel strips */
+.bimgwrap{position:relative;margin:4px 0 2px;max-width:340px}
+.bimg{width:100%;display:block;border-radius:4px;border:1px solid var(--brdIn)}
+.bcredit{font-size:9px;color:var(--dim);text-align:right;margin-top:2px}
+.pinstrip{position:absolute;display:flex;align-items:center;justify-content:flex-start;padding-left:3px;
+  font-family:var(--mono);font-size:8px;color:#fff;text-shadow:0 0 3px #000;
+  border:1px dashed rgba(255,255,255,.35);border-radius:3px;
+  cursor:pointer;background:rgba(255,255,255,.04)}
+.pinstrip.h{justify-content:center;padding:0;align-items:flex-end}
+.pinstrip:hover{border-color:var(--cta);background:rgba(62,111,196,.22)}
+.pinstrip.ok{border-color:rgba(80,220,140,.6)}
+.pinstrip.named{border-color:rgba(242,166,60,.5)}
+
+/* channel picker popover */
+.chpick{position:fixed;z-index:60;background:var(--surf);border:1px solid var(--ctaD);border-radius:6px;
+  padding:10px;min-width:230px;max-width:320px;box-shadow:0 8px 28px rgba(0,0,0,.45)}
+.chpkh{font-weight:600;font-size:12px;margin-bottom:4px}
+.chpkcur{font-family:var(--mono);font-size:11px;color:var(--cy);margin-bottom:8px}
+.chpick select{width:100%;margin-bottom:8px}
+.chpick .hint{margin:0 0 8px}
+.chpkx{width:100%}
+
+/* ================================================================
+   v1.4.0 — bigger setup, environments, lessons, lap list
+   Mike: "when you can you should make the text bigger like the setup
+   screen fill the screen with the boxes and the next buttons etc."
+   ================================================================ */
+
+/* the setup header now carries the theme switch on every step */
+.stphdr{display:flex;align-items:center;gap:8px;flex:none}
+.stpthm{display:flex;gap:4px}
+.stpthm .hbtn{margin-left:0}
+.stpthm .hbtn.act{background:var(--cta);color:var(--onCta);border-color:var(--cta);font-weight:700}
+
+/* option cards fill the width they are given, and read at arm's length */
+.optgrid{grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px;margin:14px 0 8px}
+.optcard{padding:15px 17px;border-radius:6px}
+.opthead b{font-size:15px}
+.optbadge{font-size:9.5px;padding:2px 7px}
+.stptitle{font-size:22px}
+#stprail{padding:11px var(--stpPad)}
+.raildot{font-size:10.5px;padding:5px 12px}
+.stpbody .sect h3{font-size:11.5px}
+.stpbody .hint,.stpbody .note{font-size:var(--fs-data);line-height:1.7}
+.stpbody .b{font-size:11px;padding:7px 12px}
+.stpfoot .b{font-size:12px;padding:9px 16px}
+.stpfoot .hint{font-size:var(--fs-data)}
+.bsv{font-size:14px}
+.bsk{font-size:10.5px}
+
+/* the big obvious way out of the wizard */
+.finwrap{margin:22px 0 6px;text-align:center}
+.finbtn{
+  font-family:var(--mono);font-size:15px;letter-spacing:.06em;text-transform:uppercase;
+  background:var(--cta);color:var(--onCta);border:none;border-radius:6px;
+  padding:16px 42px;cursor:pointer;font-weight:700;
+  box-shadow:0 6px 22px var(--shadow);
+}
+.finbtn:hover{filter:brightness(1.08)}
+.finwrap .hint{margin-top:9px}
+
+/* ------------------------- firmware tag (a cell of the header bezel now) */
+.fwtag{
+  font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--cy);white-space:nowrap;
+}
+
+/* ---------------------------------------------- lap list on the track HUD
+   Since v1.14.0 it rides inside its own .hudrow plate, so the old border-top
+   separator went — the plate edge is the separation now. */
+.laplist{display:grid;grid-template-columns:auto auto auto;gap:2px 10px}
+.lapn{font-family:var(--mono);font-size:9.5px;color:var(--dimmer)}
+.lapt{font-family:var(--mono);font-size:10.5px;color:var(--txt);text-align:right}
+.lapt.best{color:var(--am);font-weight:700}
+.lappen{font-family:var(--mono);font-size:9.5px;color:var(--rd)}
+
+/* ---------------------------------------------- lessons */
+#hudTutor{
+  left:12px;bottom:44px;max-width:340px;pointer-events:none;
+  background:var(--shadow);border:1px solid var(--line2);border-left:3px solid var(--cy);
+  border-radius:4px;padding:9px 12px;backdrop-filter:blur(5px);
+}
+#hudTutor.pop{border-left-color:var(--gn);box-shadow:0 0 0 1px var(--gn)}
+.tuh{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
+.tuh b{font-size:13px;color:var(--txt);letter-spacing:.01em}
+.tuh span{font-family:var(--mono);font-size:10px;color:var(--cy)}
+.tub{font-family:var(--mono);font-size:11px;color:var(--dim);line-height:1.65;margin-top:5px}
+.tub b{color:var(--cy)}
+.tuw{font-family:var(--mono);font-size:10px;color:var(--dimmer);line-height:1.6;margin-top:6px}
+.tumeter{height:5px;background:var(--track);border-radius:3px;overflow:hidden;margin:8px 0 12px}
+.tumeter i{display:block;height:100%;background:var(--gn);transition:width .3s}
+.turow{
+  display:grid;grid-template-columns:26px 1fr;gap:9px;align-items:start;
+  padding:9px 0;border-bottom:1px dotted var(--track);cursor:pointer;
+}
+.turow:hover .tutitle{color:var(--ctaHi)}
+.tutick{
+  width:22px;height:22px;border-radius:50%;border:1px solid var(--line2);
+  display:flex;align-items:center;justify-content:center;
+  font-family:var(--mono);font-size:10px;color:var(--dimmer);
+}
+.turow.done .tutick{border-color:var(--gn);color:var(--gn)}
+.turow.cur .tutick{border-color:var(--cta);color:var(--onCta);background:var(--cta);font-weight:700}
+/* .tutitle rides on .ttl (--fs-title) and .tuhow/.tuwhy on .prose — their
+   old mono base sizes were dead under those classes (Stage-5 sweep) */
+.tutitle{color:var(--txt)}
+.turow.done .tutitle{color:var(--dim)}
+
+/* ================================================================
+   v1.5.0 — view modes, save & load, and the brick sequencer
+   ================================================================ */
+
+/* ---------------------------------------------- top-bar view modes */
+#viewsel{display:flex;border:1px solid var(--line2);border-radius:4px;overflow:hidden;margin-left:6px;flex-shrink:0}
+/* (the old .vwbtn view-mode rules lived here — dead since the v1.17.0
+   workspace switcher; removed in the Stage-5 sweep) */
+
+/* ---------------------------------------------- save & load popover */
+.slpop{
+  position:fixed;z-index:140;background:var(--panel);border:1px solid var(--ctaD);border-radius:6px;
+  padding:12px 14px;width:min(420px,92vw);box-shadow:0 12px 40px var(--shadow);
+}
+.slh{font-size:13px;font-weight:600;color:var(--txt);margin-bottom:8px}
+
+/* ---------------------------------------------- firmware links */
+.lnkrow{display:grid;grid-template-columns:190px 1fr;gap:4px 12px;padding:8px 0;border-bottom:1px dotted var(--track)}
+.lnkrow.act .lnkname{color:var(--ctaHi)}
+.lnkname{font-size:12px;color:var(--txt);font-weight:600}
+a.lnk{font-family:var(--mono);font-size:11px;color:var(--ctaHi);text-decoration:none;word-break:break-all}
+a.lnk:hover{text-decoration:underline}
+.lnkfile{grid-column:2;font-family:var(--mono);font-size:10px;color:var(--dimmer)}
+
+/* ---------------------------------------------- rename a part in place */
+.asname{
+  font-family:var(--mono);font-size:10.5px;background:transparent;color:var(--txt);
+  border:1px solid transparent;border-radius:3px;padding:2px 4px;min-width:0;width:100%;
+}
+.asname:hover{border-color:var(--line2);background:var(--ink)}
+.asname:focus{outline:none;border-color:var(--cta);background:var(--ink)}
+.asname.named{color:var(--cy)}
+
+/* ================================================================
+   BRICK SEQUENCER
+   ================================================================ */
+#seqbody{display:block;min-height:0;overflow:auto;background:var(--bg2)}
+#seqblocks,#seqframes{display:none}
+body.seqv-blocks #seqblocks{display:block}
+body.seqv-pose #seqframes,body.seqv-table #seqframes{display:block}
+body.seqv-pose #seqtable,body.seqv-pose #seqframebar{display:none}
+body.seqv-table #seqpose{display:none}
+#seqframebar{display:flex;gap:6px;flex-wrap:wrap;padding:6px 8px;border-bottom:1px solid var(--line)}
+
+#seqlib{padding:6px 8px 4px;border-bottom:1px solid var(--line);background:var(--surf)}
+.blklibhead{display:flex;align-items:baseline;gap:10px;padding:2px 0 5px}
+.blklibhead b{font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
+.blklibhint{font-family:var(--mono);font-size:9.5px;color:var(--dimmer)}
+.blkchips{display:flex;gap:5px;flex-wrap:wrap;padding-bottom:5px}
+.blkchip{
+  font-family:var(--mono);font-size:10.5px;color:var(--txt);
+  background:var(--surf2);border:1px solid var(--line2);border-left:3px solid var(--cta);
+  border-radius:4px;padding:5px 9px;cursor:grab;user-select:none;white-space:nowrap;
+}
+.blkchip:hover{border-color:var(--cta);background:var(--hoverBg)}
+.blkchip:active{cursor:grabbing}
+.blkchip.seq{border-left-color:var(--am)}
+/* one colour per part, carried onto the chip, the lane and the brick */
+.blkchip.pc{border-left-color:var(--pc)}
+.blkchip.seq.off{opacity:.55;border-style:dashed}
+.blkchip.seq.act{background:var(--cta);color:var(--onCta);border-color:var(--cta);font-weight:700}
+.blkname{
+  font-family:var(--mono);font-size:10.5px;background:var(--ink);color:var(--cy);
+  border:1px solid var(--line2);border-radius:3px;padding:5px 7px;min-width:180px;
+}
+.blkname:focus{outline:none;border-color:var(--cta)}
+.blksel{font-family:var(--mono);font-size:10.5px;background:var(--ink);color:var(--cy);
+  border:1px solid var(--line2);border-radius:3px;padding:4px 6px}
+.blkghost{
+  position:fixed;z-index:200;pointer-events:none;transform:translate(-50%,-50%);
+  font-family:var(--mono);font-size:10.5px;color:var(--onCta);background:var(--cta);
+  border-radius:4px;padding:5px 9px;box-shadow:0 6px 20px var(--shadow);opacity:.92;
+}
+
+/* the grid */
+.blklane{
+  font-family:var(--mono);font-size:10px;color:var(--dim);padding:6px 8px;
+  border-right:1px solid var(--line);border-bottom:1px dotted var(--track);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.blklane.hdr{color:var(--dimmer);font-size:9px;letter-spacing:.1em;text-transform:uppercase}
+.blklane.seq{color:var(--am)}
+.blklane.pc{box-shadow:inset 4px 0 0 var(--pc)}
+.blkscroll{overflow-x:auto;overflow-y:hidden}
+.blkruler{position:relative;height:18px;border-bottom:1px solid var(--line)}
+.blktick{position:absolute;top:0;bottom:0;border-left:1px solid var(--track)}
+.blktick.s{border-left-color:var(--line2)}
+.blktick span{position:absolute;left:3px;top:2px;font-family:var(--mono);font-size:9px;color:var(--dimmer)}
+.blktrack{
+  position:relative;height:34px;border-bottom:1px dotted var(--track);
+  background:repeating-linear-gradient(90deg,transparent 0,transparent 69px,var(--track) 69px,var(--track) 70px);
+}
+.blktrack.over{background-color:var(--selBg)}
+.blkbrick{
+  position:absolute;top:4px;height:26px;border-radius:4px;cursor:grab;
+  background:var(--ctaD);border:1px solid var(--cta);color:var(--txt);
+  display:flex;align-items:center;gap:6px;padding:0 8px;overflow:hidden;user-select:none;
+}
+.blkbrick.pc{background:var(--pcBg);border-color:var(--pc);color:var(--txt)}
+.blkbrick.seq{background:var(--amDark);border-color:var(--am);color:var(--amHi)}
+.blkbrick.sel{box-shadow:0 0 0 2px var(--ctaHi);z-index:3}
+.blkbrick.drag{cursor:grabbing;opacity:.85;z-index:4}
+.blklbl{font-family:var(--mono);font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.blkdur{font-family:var(--mono);font-size:9px;opacity:.75;margin-left:auto}
+.blkrise,.blkfall{position:absolute;top:0;bottom:0;background:rgba(255,255,255,.14);pointer-events:none}
+.blkrise{left:0}
+.blkfall{right:0}
+.blkgrip{position:absolute;top:0;bottom:0;width:8px;cursor:ew-resize}
+.blkgrip.l{left:0}
+.blkgrip.r{right:0}
+.blkempty{
+  font-family:var(--mono);font-size:10.5px;color:var(--dimmer);line-height:1.7;
+  padding:18px 14px;border:1px dashed var(--line2);border-radius:5px;margin:8px;
+}
+
+/* the inspector */
+.blkinsp{border-top:1px solid var(--line);padding:8px 10px;background:var(--surf)}
+.blkinsphead{display:flex;align-items:baseline;gap:10px;margin-bottom:6px}
+.blkinsphead b{font-size:12.5px;color:var(--txt)}
+.blkinspsub{font-family:var(--mono);font-size:10px;color:var(--dimmer)}
+.blkinsphint{font-family:var(--mono);font-size:10px;color:var(--dimmer);line-height:1.6;margin-top:6px}
+.blkfield{display:grid;grid-template-columns:82px 1fr 52px;gap:8px;align-items:center;padding:3px 0}
+.blkfield label{font-family:var(--mono);font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.05em}
+.blkfield input[type=range]{width:100%;accent-color:var(--cta)}
+.blkval{font-family:var(--mono);font-size:10px;color:var(--cy);text-align:right}
+.blkcol{width:100%;height:22px;padding:0;border:1px solid var(--line2);border-radius:3px;background:var(--ink);cursor:pointer}
+
+/* the view toolbar — scale, zoom and the identification tint */
+.blktools{
+  display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+  padding:6px 10px;border-bottom:1px solid var(--line);background:var(--surf2);
+}
+.blktool{display:flex;align-items:center;gap:7px}
+.blktool label{font-family:var(--mono);font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.06em}
+.blktool input[type=range]{width:132px;accent-color:var(--cta)}
+.blktoolv{font-family:var(--mono);font-size:10px;color:var(--cy);min-width:42px;text-align:right}
+.blkswitch{display:flex;align-items:center;gap:6px;font-family:var(--mono);font-size:10.5px;color:var(--txt);cursor:pointer}
+.blkswitch input{accent-color:var(--cta)}
+.blktoolwho{font-family:var(--mono);font-size:10px;color:var(--dimmer);margin-left:auto}
+.blklib{border-top:1px solid var(--line);padding:6px 8px;background:var(--surf2)}
+
+/* ================================================================
+   v1.14.0 — the wizard rail shows progress and answers (Q8)
+   A hardware chip that HAS an answer carries a ✓ and the chosen
+   option as a dim one-line subtitle; the non-question steps stay a
+   bare label, and the current step keeps its highlight exactly as
+   before. The rail already wraps, so the chips just grow a line.
+   ================================================================ */
+.raildot{
+  display:inline-flex;flex-direction:column;align-items:flex-start;gap:1px;
+  text-align:left;max-width:180px;
+}
+.raillab{display:flex;align-items:baseline;gap:5px;white-space:nowrap}
+.railtick{color:var(--gn);font-weight:700}
+.raildot.act .railtick{color:var(--onAcc)}
+.railans{
+  font-size:8.5px;letter-spacing:.05em;text-transform:none;color:var(--dimmer);
+  max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.raildot.act .railans{color:var(--onAcc);opacity:.8}
+
+/* ================================================================
+   v1.32.0 — model choice, collapsed steps, and the RC panel
+
+   Mike, 2026-08-14: model selection moves to the START of setup with a
+   picture of each model, and the RC transmitter gets a calibrate-and-
+   assign screen. Two ideas in the styling:
+
+     · a MODEL CARD is a picture first. Three across on a wide card, one
+       per row on a narrow one, and the art sits in a fixed-ratio box so
+       the three thumbnails line up whatever their aspect.
+     · NOT-APPLICABLE is dimmed, never removed. `.na` is the one class
+       for it — on a rail chip, on an option grid, on a review row — so
+       "this does not apply to what is on the stage" always looks the
+       same and always stays clickable.
+   ================================================================ */
+
+/* ---------------------------------------------- the model cards */
+.modelgrid{
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));
+  gap:14px;margin:14px 0 10px;
+}
+.modelcard{display:flex;flex-direction:column;gap:2px}
+.modelpic{
+  background:var(--surf2);border:1px solid var(--brdIn);border-radius:5px;
+  padding:10px;margin-bottom:10px;display:flex;align-items:center;justify-content:center;
+}
+.modelcard.act .modelpic{border-color:var(--ctaD);background:var(--panel)}
+svg.modelart{width:100%;height:auto;max-height:170px;display:block}
+/* four roles, one palette — the art files never name a colour themselves */
+.modelart .ma-b,.modelart .ma-l,.modelart .ma-d,.modelart .ma-a{
+  fill:none;stroke:var(--dim);stroke-width:2.2;
+  stroke-linejoin:round;stroke-linecap:round;vector-effect:non-scaling-stroke;
+}
+.modelart .ma-b{stroke:var(--txt);stroke-width:2.6}
+.modelart .ma-d{stroke:var(--dimmer);stroke-width:1.7}
+.modelart .ma-a{stroke:var(--cta);stroke-width:2.2}
+.modelcard.act .modelart .ma-a{fill:var(--cta);fill-opacity:.16}
+.modelcard:hover .modelart .ma-a{stroke:var(--cta)}
+
+/* ------------------------------------- the board picture on a hardware card
+   (v1.43.0) A photo when one has been dropped into src/art/boards/, the
+   drawn stand-in otherwise — same box either way, so a row of cards where
+   only some have photos still lines up. `object-fit:contain` on a fixed
+   height is what stops a 4000-px product shot and a 300-px eBay grab from
+   laying the grid out differently.
+
+   The drawings take their colours HERE, exactly as the model art does: the
+   art files never name a colour, so light and dark both work and a board
+   never has to be redrawn for a theme. */
+.optpic{
+  background:var(--surf2);border:1px solid var(--brdIn);border-radius:5px;
+  padding:8px;margin-bottom:10px;display:flex;align-items:center;justify-content:center;
+  min-height:82px;
+}
+.optcard.act .optpic{border-color:var(--ctaD);background:var(--panel)}
+/* A PHOTO's panel is white, in both themes. Every board photo anyone will
+   drop in that folder is a product shot on a white studio background —
+   Mike's twenty are, Pololu's four are — so the panel matching it turns the
+   photo's own margins into part of the plate instead of a bright rectangle
+   letterboxed in a dark hole. It is also what the thing IS: a picture of a
+   board on a bench, not a piece of the interface. */
+.optpic.photo{background:#fff;border-color:var(--brdIn);padding:6px}
+.optcard.act .optpic.photo{border-color:var(--cta);background:#fff}
+img.optphoto{
+  width:100%;height:132px;object-fit:contain;display:block;border-radius:2px;
+}
+svg.optart{width:100%;height:auto;max-height:104px;display:block}
+.optart .ba-b,.optart .ba-c,.optart .ba-d,.optart .ba-a,.optart .ba-m,
+.optart .ba-p,.optart .ba-h,.optart .ba-w,.optart .ba-n{
+  fill:none;stroke:var(--dim);stroke-width:2;
+  stroke-linejoin:round;stroke-linecap:round;vector-effect:non-scaling-stroke;
+}
+.optart .ba-b{stroke:var(--txt);stroke-width:2.4}      /* the board itself */
+.optart .ba-c{stroke:var(--dimmer);stroke-width:1.8}   /* chips */
+.optart .ba-d{stroke:var(--dimmer);stroke-width:1.4}   /* detail */
+.optart .ba-m{stroke:var(--dim);stroke-width:1.8}      /* metal — sockets, terminals */
+.optart .ba-p{stroke:var(--dim);stroke-width:1.6}      /* pin headers */
+.optart .ba-h{stroke:var(--dimmer);stroke-width:1.2}   /* mounting holes */
+.optart .ba-w{stroke:var(--dim);stroke-width:2.6}      /* wires */
+.optart .ba-a{stroke:var(--cta);stroke-width:2}        /* the accent — what makes it THAT board */
+.optart .ba-n{stroke:var(--dimmer);stroke-width:1.6;stroke-dasharray:4 3}
+.optart .ba-t{
+  fill:var(--dimmer);stroke:none;font-family:var(--mono);font-size:9px;letter-spacing:.04em;
+}
+.optcard:hover .optart .ba-a,.optcard.act .optart .ba-a{stroke:var(--cta)}
+.optcard.act .optart .ba-a{fill:var(--cta);fill-opacity:.14}
+
+/* the board strip on the servo step — the one question answered with
+   dropdowns rather than picture cards (v1.43.0) */
+.bpstrip{display:flex;gap:12px;flex-wrap:wrap;margin-top:10px}
+.bpcell{flex:1 1 200px;min-width:170px;max-width:280px}
+.bpcell .optpic{margin-bottom:6px}
+.bpcap{font-size:11.5px;color:var(--dim);text-align:center}
+
+/* ---------------------------------------------- not used by this model */
+.raildot.na{opacity:.42;border-style:dashed}
+.raildot.na:hover{opacity:.85}
+.raildot.act.na{opacity:1}
+.optgrid.na{opacity:.55}
+.optgrid.na:hover,.optgrid.na:focus-within{opacity:1}
+.note.na{border-color:var(--line2)}
+.bsumrow.na .bsk,.bsumrow.na .bsv{opacity:.5}
+
+/* ---------------------------------------------- RC transmitter panel */
+.rcdev{
+  display:flex;align-items:center;gap:12px;justify-content:space-between;
+  background:var(--surf);border:1px solid var(--line2);border-radius:5px;
+  padding:9px 12px;margin-top:7px;
+}
+.rcdev.act{border-color:var(--cta);background:var(--surf2)}
+.rcdevname b{font-size:12.5px;color:var(--txt);font-weight:600;word-break:break-word}
+.rcdevsub{font-family:var(--mono);font-size:9.5px;color:var(--dimmer);margin-top:2px}
+.rcstatus{
+  font-family:var(--mono);font-size:10.5px;color:var(--cy);
+  padding:7px 0 2px;letter-spacing:.02em;
+}
+
+/* one channel */
+.rcrow{
+  display:grid;grid-template-columns:56px minmax(120px,1fr) minmax(150px,1.4fr) auto auto;
+  gap:8px;align-items:center;padding:4px 0;border-bottom:1px dotted var(--track);
+}
+.rcrow.on{background:linear-gradient(90deg,var(--surf2),transparent 60%)}
+.rcrow.rchdr{
+  border-bottom:1px solid var(--line);
+  font-family:var(--mono);font-size:9px;letter-spacing:.06em;text-transform:uppercase;color:var(--dimmer);
+}
+.rcname{font-family:var(--mono);font-size:11px;color:var(--txt)}
+.rcrow.rchdr .rcname{font-size:9px;color:var(--dimmer)}
+.rcbarcell{min-width:0}
+.rctarget{display:flex;gap:5px;min-width:0}
+.rctarget select{font-family:var(--mono);font-size:9.5px;min-width:0;flex:1}
+.rctarget select.rcmode{flex:0 0 92px}
+.rcrow button.b{padding:3px 8px;font-size:9.5px;white-space:nowrap}
+.rcrev.act{border-color:var(--am);color:var(--am)}
+
+/* the bar itself — grows from the middle, because a calibrated channel is
+   signed and "which way is it pushed" is what you are watching for */
+.rcbar{display:flex;align-items:center;gap:7px;min-width:0}
+.rctrack{
+  position:relative;flex:1;min-width:0;height:9px;border-radius:5px;
+  background:var(--track);border:1px solid var(--line2);overflow:hidden;
+}
+.rcmid{position:absolute;left:50%;top:0;bottom:0;width:1px;background:var(--line);opacity:.9}
+.rcfill{position:absolute;top:0;bottom:0;left:50%;width:0;background:var(--cta);border-radius:4px}
+.rcfill.neg{background:var(--am)}
+.rcbar .rcval{font-family:var(--mono);font-size:10px;color:var(--txt);min-width:36px;text-align:right}
+.rcbar .rcraw{font-family:var(--mono);font-size:9px;color:var(--dimmer);min-width:42px;text-align:right}
+.rcbar.hot .rctrack{border-color:var(--cta)}
+.rcbar.hot .rcval{color:var(--cy)}
+
+@media (max-width:760px){
+  .rcrow{grid-template-columns:52px 1fr;row-gap:4px}
+  .rcrow .rctarget{grid-column:1/-1}
+  .rcrow.rchdr{display:none}
+}
+.rcrow.warn{box-shadow:inset 2px 0 0 var(--am)}
+.rcrow.warn .rcname{color:var(--am)}
+.rcpanel{display:contents}
+
+/* ================================================================
+   v1.34.0 — the merged servo step
+
+   Mike: "we should merge the Body / Dome servos into one - the user
+   then sets whats controlling the Dome / Body and then hows its
+   wired." The two ends sit SIDE BY SIDE, because how they relate is
+   the thing two separate steps could never show — and the option
+   cards inside each column go single-file so the two lists stay
+   readable as a comparison rather than reflowing into each other.
+   ================================================================ */
+
+
+/* the bench walkthrough — numbered, because it is a procedure and the
+   order is the whole of the advice */
+ol.svsteps{
+  margin:12px 0 4px;padding-left:22px;
+  font-family:var(--sans);font-size:var(--fs-body);color:var(--dim);line-height:1.65;
+}
+ol.svsteps li{margin-bottom:8px;padding-left:3px}
+ol.svsteps li::marker{color:var(--cy);font-family:var(--mono);font-size:11px}
+ol.svsteps b{color:var(--txt)}
+ol.svsteps code{
+  font-family:var(--mono);font-size:11px;color:var(--cy);
+  background:var(--surf2);border-radius:3px;padding:0 4px;
+}
+
+/* ================================================================
+   v1.36.0 — the servo step as a form, and the flow diagrams
+
+   Mike: "we should use drop down boxes to simplify the veiw" for the
+   device, the controller and the board sizes — and, for the one
+   question a dropdown cannot carry, "maybe add flow diagrames / flow
+   logic images". So: a two-column label/control form, and a picker
+   made of pictures.
+   ================================================================ */
+.svform{
+  display:grid;grid-template-columns:minmax(0,220px) minmax(0,1fr);
+  gap:9px 16px;align-items:baseline;margin:12px 0 4px;max-width:820px;
+}
+.svform.na{opacity:.55}
+.svform.na:hover,.svform.na:focus-within{opacity:1}
+.svfield{display:contents}
+.svflab b{
+  font-family:var(--mono);font-size:10.5px;letter-spacing:.05em;
+  color:var(--txt);display:block;
+}
+.svfhint{
+  font-family:var(--sans);font-size:var(--fs-body);color:var(--dimmer);
+  display:block;margin-top:2px;line-height:1.45;
+}
+select.svfsel{
+  width:100%;font-family:var(--mono);font-size:11px;
+  padding:5px 8px;
+}
+/* the chosen option's note spans both columns, under the control */
+.svfnote{grid-column:1/-1;margin:-3px 0 6px;padding-left:1px}
+.svfnote.park{color:var(--am)}
+.svform .hint,.svform .note{grid-column:1/-1;margin-top:4px}
+@media (max-width:760px){
+  .svform{grid-template-columns:1fr;gap:4px 0}
+  .svfield{display:block;margin-bottom:10px}
+}
+
+/* ---------------------------------------------- the flow diagrams */
+.flowgrid{
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));
+  gap:12px;margin:12px 0 6px;
+}
+.flowcard{
+  background:var(--surf);border:1px solid var(--line2);border-radius:5px;
+  padding:12px 14px;cursor:pointer;transition:border-color .12s,background .12s;
+}
+.flowcard:hover{border-color:var(--ctaD)}
+.flowcard:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.flowcard.act{border-color:var(--cta);background:var(--surf2);box-shadow:inset 0 0 0 1px var(--ctaD)}
+.flowcard.park{opacity:.72}
+.flowpic{
+  background:var(--panel);border:1px solid var(--brdIn);border-radius:4px;
+  padding:10px 12px;margin:9px 0 8px;overflow-x:auto;
+}
+/* width:AUTO, not 100%. With a viewBox and no width the browser uses the
+   viewBox units as the intrinsic size, so a box is the same size in every
+   card — at 100% a three-node diagram rendered huge next to a five-node one
+   and the set stopped reading as one thing. max-width still shrinks the
+   long ones to fit. */
+svg.flow{width:auto;max-width:100%;height:auto;display:block}
+/* four roles, one palette — flow-art.js never names a colour itself */
+.flow .fl-b{fill:var(--surf2);stroke:var(--line2);stroke-width:1}
+.flow .fl-b.fl-src{fill:var(--cta);stroke:var(--cta);fill-opacity:.16}
+.flow .fl-b.fl-dst{fill:var(--surf);stroke:var(--brdIn)}
+.flow .fl-t{font-family:var(--mono);font-size:10.5px;fill:var(--txt)}
+.flow .fl-t.fl-src{fill:var(--cy)}
+.flow .fl-t.fl-dst{fill:var(--dim)}
+.flow .fl-w{stroke:var(--dim);stroke-width:1.4;fill:none}
+.flow .fl-a{fill:var(--dim)}
+/* an arrangement that does not work yet is drawn as a dashed path */
+.flow.dash .fl-w{stroke-dasharray:4 3;stroke:var(--am)}
+.flow.dash .fl-a{fill:var(--am)}
+.flowcard.act .flow .fl-w{stroke:var(--cta)}
+.flowcard.act .flow .fl-a{fill:var(--cta)}
+.flowcard.act .flow.dash .fl-w{stroke:var(--am)}
+.flowcard.act .flow.dash .fl-a{fill:var(--am)}
+
+/* ================================================================
+   v1.42.0 — assumed vs confirmed, and the rail grouped (1.5b, 1.5c)
+
+   A fresh wizard used to tick every hardware chip because every
+   question already has an answer — the default. The tick now means
+   "visited", not "has a value": an unvisited chip keeps its answer
+   text but wears a hollow ○ instead, muted so the eye still reads ✓
+   chips as the confirmed ones. And the rail itself splits in two —
+   the nine questions, then a small divider naming the six job steps
+   for what they are, without moving any of them.
+   ================================================================ */
+.railtick.unseen{color:var(--dimmer);font-weight:400}
+.raildot.act .railtick.unseen{color:var(--onAcc);opacity:.6}
+.raildiv{
+  flex-basis:100%;margin-top:5px;padding-top:6px;border-top:1px dotted var(--line2);
+}
+.raildivlab{
+  font-family:var(--mono);font-size:8.5px;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--dimmer);
+}
+
+/* ================================================================
+   v1.42.0 — the first-run "what next" card (1.2c)
+
+   Shown once, only after a genuine first-run Finish: the wizard closes
+   into a droid with nothing telling you what to actually do with it.
+   JS-built, bottom-centre over the stage, plain × to close — the same
+   quiet, dismissible plate language as a toast, just roomy enough for
+   three doors instead of one line.
+   ================================================================ */
+.wiznext{
+  position:absolute;left:50%;bottom:74px;transform:translateX(-50%);z-index:45;
+  background:var(--panel);border:1px solid var(--ctaD);border-radius:8px;
+  padding:14px 40px 14px 18px;box-shadow:0 10px 34px var(--shadow);
+  max-width:min(640px,92vw);
+}
+.wiznexthead{font-size:14px;font-weight:600;color:var(--txt);margin-bottom:9px}
+.wiznextx{
+  position:absolute;top:6px;right:8px;background:none;border:none;color:var(--dim);
+  font-size:17px;line-height:1;cursor:pointer;padding:5px;
+}
+.wiznextx:hover{color:var(--txt)}
+.wiznextdoors{display:flex;gap:10px;flex-wrap:wrap}
+.wiznextdoor{
+  flex:1 1 170px;text-align:left;background:var(--surf);border:1px solid var(--line2);
+  border-radius:5px;padding:9px 11px;cursor:pointer;display:flex;flex-direction:column;gap:3px;
+}
+.wiznextdoor:hover{border-color:var(--cta);background:var(--surf2)}
+.wiznextdoor b{font-size:12.5px;color:var(--txt)}
+.wiznextdoor span{font-family:var(--sans);font-size:var(--fs-body);color:var(--dim);line-height:1.4}
