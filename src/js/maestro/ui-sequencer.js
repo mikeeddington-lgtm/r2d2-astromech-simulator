@@ -219,10 +219,16 @@ function buildPose(){
   /* v1.45.0 — chanRest(), not c.home: a channel with homemode Off has no
      number worth obeying, and mid-travel left every pie panel half open. */
   bHome.addEventListener('click',()=>{ MSTR.channels.forEach(c=>{EDIT.live[c.i]=chanRest(c);}); applyLivePose(); buildPose(); });
+  /* v1.46.0 — a channel's OWN min and max, not the numerically lower and
+     higher of the pair. min is the shut end and max the open one whatever
+     their order (chanNorm(), playback.js), so on a reversed channel "All
+     min" used to fling that panel wide open. */
   const bMin=el('button','b','All min');
-  bMin.addEventListener('click',()=>{ MSTR.channels.forEach(c=>{EDIT.live[c.i]=Math.min(c.min,c.max);}); applyLivePose(); buildPose(); });
+  bMin.title='every channel to its min end — shut, on the model';
+  bMin.addEventListener('click',()=>{ MSTR.channels.forEach(c=>{EDIT.live[c.i]=chanEnds(c).shut;}); applyLivePose(); buildPose(); });
   const bMax=el('button','b','All max');
-  bMax.addEventListener('click',()=>{ MSTR.channels.forEach(c=>{EDIT.live[c.i]=Math.max(c.min,c.max);}); applyLivePose(); buildPose(); });
+  bMax.title='every channel to its max end — fully open, on the model';
+  bMax.addEventListener('click',()=>{ MSTR.channels.forEach(c=>{EDIT.live[c.i]=chanEnds(c).open;}); applyLivePose(); buildPose(); });
   tools.appendChild(bHome); tools.appendChild(bMin); tools.appendChild(bMax);
   host.appendChild(tools);
 }
@@ -275,6 +281,14 @@ $('sqPlay').addEventListener('click',()=>{
   if(typeof blkPlayheadSet==='function') blkPlayheadSet(0, false);
   seqStart('edit', seq.frames, 'preview');
   lg('mae','preview: '+seq.name+'  ('+seqTotal(seq)+' ms)');
+  /* v1.46.0 — a grey brick moves nothing, and a preview in which one part
+     simply never moves is a mystery unless somebody says why. Named, at the
+     moment you are watching for it. */
+  const un = (typeof blockUnwiredNote==='function') ? blockUnwiredNote(seq) : '';
+  if(un){
+    if(typeof toast==='function') toast(un+' — nothing moves for them in the preview', 'warn');
+    lg('warn','preview: '+un+' — they move nothing');
+  }
 });
 $('sqStop').addEventListener('click',()=>{
   if(typeof MAESTRO!=='undefined' && MAESTRO.slot) delete MAESTRO.slot.edit;
@@ -288,6 +302,41 @@ $('sqStop').addEventListener('click',()=>{
 $('sqLive').addEventListener('click',()=>{ if(typeof liveToggle === 'function') liveToggle(); });
 if(typeof liveUiSync === 'function') liveUiSync();
 $('sqBuild').addEventListener('click',()=>{ if(typeof bldOpen==='function') bldOpen(); });
+
+/* ------------------------------------------- IMPORT, FROM THE SEQUENCER
+   Mike, v1.46.0: "in the sequencer we should have the import sequence
+   button available".
+
+   It goes on the sequencer's own top bar, next to ⚙ Build — the two file
+   ends of the desk, one bringing choreography in and one sending it to the
+   board — rather than sending you back to the workshop to find it.
+
+   THE BUTTON IS BUILT HERE, IN SCRIPT, and not in html/body.html: the
+   import chooser is being built in the same release and the markup is a
+   file two people would otherwise both be editing. It also means the
+   sequencer owns its own control.
+
+   IT IS NOT A FOURTH COPY OF THE IMPORT LOGIC. There are already three
+   doors into importing and a fourth implementation is how they drift. So it
+   CALLS, defensively: the chooser when the chooser exists, and the job
+   wizard's own import job when it does not. Whichever is present answers;
+   nothing here knows how to read a file. */
+function sqImportOpen(){
+  if(typeof impChooseOpen === 'function'){ impChooseOpen({kind:'choreography', from:'sequencer'}); return 'chooser'; }
+  if(typeof jobwizOpen === 'function'){ jobwizOpen(); jobwizGo('import'); return 'jobwiz'; }
+  if(typeof toast === 'function') toast('no import screen in this build','warn');
+  return '';
+}
+(function sqImportButton(){
+  const bar = $('seqtop'), build = $('sqBuild');
+  if(!bar || !build || $('sqImport')) return;
+  const b = document.createElement('button');
+  b.className = 'b'; b.id = 'sqImport';
+  b.textContent = '⤓ Import sequence';
+  b.title = 'bring in a sequence from a .mstr settings file, a saved routine or a sketch — it lands in the sequence library';
+  b.addEventListener('click', sqImportOpen);
+  bar.insertBefore(b, build);
+})();
 /* the button says what it will actually produce — "Build your Maestro" on a
    PCA9685 build would be a lie, and the thing it lies about (which file you
    end up flashing) is the whole point of pressing it */

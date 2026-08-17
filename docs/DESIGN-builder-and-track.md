@@ -7,8 +7,10 @@
 > grid** · **~8 parts soft cap, 12 hard** · **2-axis ball joints allowed** ·
 > **forward kinematics only** (parent-child attachment, no solver) · **full
 > wiring sheet** (builder joints print like everything else) · track spacing
-> violations **warn but allow** · face parts = **all three, phase 2** (eyes +
-> brows + mouth together — NOT built yet). Remaining: Builder phase 2 (faces)
+> violations **warn but allow** · face parts = **all three, SHIPPED v1.46.0** (eyes +
+> brows + mouth together — built as `panel`/`eye`/`brow`/`mouth` bin parts, with a
+> `grip` beside them and two ready-made models, `MB_PRESETS`). Remaining: nothing
+> on the Builder's original plan bar linkage drawing
 > and phase 3 (chains are already implicit via attachment; the phase-3 section
 > below stays for the linkage-drawing polish), Track Builder phase 2 (multiple
 > layouts & share).

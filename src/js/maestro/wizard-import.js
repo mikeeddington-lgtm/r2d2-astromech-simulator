@@ -60,20 +60,23 @@ function impwizRead(file){
     try{
       const P = mstrParse(String(fr.result), file.name);
       /* the wizard is the guided "import your config" path — but the same
-         sharing rule holds: with a config already loaded, offer to take
-         just the sequences (retargeted onto YOUR servo settings) and skip
-         the wizard entirely, since there is then no config to walk through */
-      if(MSTR.loaded && typeof mstrImportChoice === 'function'){
-        const did = await mstrImportChoice(P);
-        if(did === 'cancel'){ IMPWIZ.err=''; impwizRender(); return; }
-        if(did === 'seq'){
-          impwizClose();
-          toast('Adopted '+P.sequences.length+' sequence(s) from '+file.name+' — playing through YOUR servo settings');
-          return;
-        }
-      }else{
-        mstrApply(P);
+         sharing rule holds: with a config already loaded, what comes out of
+         the file is a CHOICE, not a step.
+
+         v1.46.0 — Mike: "make it clear on the import that they select what
+         they are importing as clear selections not hidden in advance". Until
+         now that choice was mstrImportChoice()'s pair of dialogs: "sequences
+         only" or "everything…", the second of them only reachable by
+         declining the first. So it hands off to the visible three-card
+         chooser instead. mstrImportChoice() stays exactly where it was for
+         the pane's own reader (ui-pane.js readMstrFile) — nothing is taken
+         away — and one overlay is up at a time, so this one closes first. */
+      if(MSTR.loaded && typeof impChooseOpen === 'function'){
+        impwizClose();
+        impChooseOpen({text:String(fr.result), name:file.name, from:'mstr'});
+        return;
       }
+      mstrApply(P);
       CFG.maestroSource = 'imported';
       IMPWIZ.err = '';
       IMPWIZ.pre = JSON.parse(JSON.stringify(MSTR.report || {}));
@@ -658,6 +661,469 @@ function jobwizStepBuild(host){
   adv.appendChild(h);
 }
 
+/* =====================================================================
+   THREE EXPLICIT CHOICES ON THE WAY IN (v1.46.0)
+
+   Mike, today: "on the build import sequences etc — we should make it
+   clear on the import that they select what they are importing as clear
+   selections not hidden in advance — Import Servo Config Only, Import
+   Servo and Choreography or import Choreography only — when selecting
+   Servo prompt if settings have already been imported or created that they
+   will be replaced and offer the option to cancel or save a copy of
+   existing, When importing Choreography give them the option to save
+   existing and replace or add the imports as additions".
+
+   v1.45.0 had all three of those jobs and not one of them was a choice you
+   could see. The primary button did travel only. The two choreography
+   doors were behind the Advanced tick. "Everything" existed solely as the
+   SECOND answer to a dialog that had already opened, so the decision was
+   taken for the builder and then announced. Dropping a servo config on the
+   window replaced every endpoint with no question at all.
+
+   So: three cards, side by side, one click each, in his words. Each says
+   what it will touch AND what it will leave alone, because "import" with
+   no object is the thing that makes people afraid of the button. Which of
+   them a given file can satisfy is read off the file itself (impShape) —
+   a choice it cannot satisfy is greyed with the reason ON it, since
+   "choreography only" quietly missing from a servo config's chooser sends
+   a builder hunting for a door that was never there.
+
+   HIS WORDS IN THE UI, THE CODE'S WORDS IN THE CODE. "Choreography" is
+   the sequence library (MSTR.sequences, the routines); "servo config" is
+   channel travel — names, endpoints, speed/accel. Nothing is renamed
+   underneath.
+
+   ONE READER STILL. servoCfgImportText() (servo-cfg.js) remains the only
+   thing in the app that writes into the channel table, and
+   mstrAdoptSequences() (import.js) the only thing that writes into the
+   library. This module asks questions and then calls them.
+   ===================================================================== */
+
+const IMPCH = { kind:'', from:'', name:'', text:'', shape:null, err:'', busy:false };
+
+const IMP_CHOICES = [
+  {id:'servo', glyph:'⊟', label:'import servo config only',
+   sub:'names, endpoints, speed and acceleration for every channel in the file',
+   touches:'replaces the travel on your channel table',
+   leaves:'your choreography, your loadout, and which panel each channel drives'},
+  {id:'both', glyph:'⊞', label:'import servo config and choreography',
+   sub:'the travel, and the routines built on top of it',
+   touches:'replaces the travel AND brings the file\'s routines into your library',
+   leaves:'which panel each channel drives, and your board and serial settings'},
+  {id:'choreography', glyph:'▦', label:'import choreography only',
+   sub:'the routines alone, re-expressed through YOUR endpoints',
+   touches:'your routine library — added to, or replaced, whichever you pick next',
+   leaves:'every endpoint you measured'}
+];
+
+/* ------------------------------------------------------------- the file
+   WHAT IS IN THE FILE YOU DROPPED — a classifier, not a second reader.
+   The chooser has to know what a file carries BEFORE anything is written,
+   or it is guessing at which choices to offer. So this calls the same
+   three parsers servoCfgImportText() calls, in the same order, off the
+   same sniff, and reports `from` by the same rule; maestro-import.test.js
+   fails if the two ever stop agreeing. It writes nothing anywhere. */
+function impShape(text, fileName){
+  const t = String(text || '').trim();
+  const nm = fileName || 'that file';
+  try{
+    if(!t) throw new Error('that file is empty');
+    if(t.charAt(0) === '<'){
+      if(typeof mstrParse !== 'function') throw new Error('the Maestro reader is not loaded');
+      const doc = mstrParse(t, nm);
+      return {from:'mstr', full:true, servo:(doc.channels||[]).length,
+              choreo:(doc.sequences||[]).length, board:doc.board, P:doc, err:''};
+    }
+    if(typeof pcaHeaderLooksLike === 'function' && pcaHeaderLooksLike(t)){
+      if(typeof pcaHeaderParse !== 'function') throw new Error('the PCA9685 header reader is not loaded');
+      const doc = pcaHeaderParse(t, nm);
+      return {from:'pca', full:true, servo:(doc.channels||[]).length,
+              choreo:(doc.sequences||[]).length, board:doc.board, P:doc, err:''};
+    }
+    let j;
+    try{ j = JSON.parse(t); }
+    catch(e){ throw new Error('that is neither a Maestro .mstr nor a servo config — it should be '+ioFormatsIn()+'.'); }
+    const rows = j.channels ? j.channels
+               : (j.maestro && j.maestro.channels) ? j.maestro.channels : null;
+    if(!rows) throw new Error('that JSON has no channel table in it — a servo config has a '
+      + '"channels" list and a whole-setup backup has one under "maestro". Otherwise: ' + ioFormatsIn() + '.');
+    const seqs = (j.maestro && j.maestro.sequences) ? j.maestro.sequences : (j.sequences || []);
+    /* mstrMatchChannels()/mstrRetargetFrame() want channel objects and a
+       plain frame list, which is all a whole-setup backup or this release's
+       choreography backup carries anyway — so the routines in either can be
+       adopted without the whole-setup reader being involved at all. */
+    const P = {fileName:nm, servoCount:rows.length,
+               channels: rows.map((r,i)=>Object.assign({i:(r.i === undefined ? i : (r.i|0))}, r)),
+               sequences: seqs};
+    return {from:(j.kind === SERVO_CFG_KIND ? 'cfg' : 'setup'), full:false,
+            servo:rows.length, choreo:seqs.length,
+            board:(j.board || (j.maestro && j.maestro.board) || ''), P:P, err:''};
+  }catch(e){
+    return {from:'', full:false, servo:0, choreo:0, board:'', P:null, err:e.message};
+  }
+}
+/* the one line under the drop target: what this file is, in counts */
+function impShapeSentence(sh){
+  if(!sh || sh.err) return '';
+  const what = sh.from === 'mstr' ? 'a pololu maestro settings file'
+             : sh.from === 'pca'  ? 'a PCA9685 header'
+             : sh.from === 'cfg'  ? 'a servo config this app wrote'
+             : 'a whole-setup or choreography backup';
+  return what + ' — travel for ' + sh.servo + ' channel' + (sh.servo === 1 ? '' : 's')
+       + ' and ' + (sh.choreo ? sh.choreo + ' routine' + (sh.choreo === 1 ? '' : 's') : 'no choreography');
+}
+
+/* --------------------------------------------------- can this file do it?
+   A dead end is worse than a refusal: "choreography only" on a file with
+   no routines in it must be visibly unavailable WITH the reason, not
+   silently absent. Answered per choice, so the card carries its own why. */
+function impChoiceState(kind, sh){
+  if(!sh) return {ok:true, why:''};                 // no file yet — the card picks one
+  if(sh.err) return {ok:false, why:sh.err};
+  const loaded = (typeof MSTR !== 'undefined') && !!MSTR.loaded;
+  if(kind === 'servo' || kind === 'both'){
+    if(!sh.servo) return {ok:false, why:'there is no channel table in this file, so there is no travel to import.'};
+  }
+  if(kind === 'choreography' || kind === 'both'){
+    if(!sh.choreo) return {ok:false,
+      why:'this file carries travel only — no routines. There is no choreography in it to import.'};
+  }
+  if(kind === 'choreography' && !loaded) return {ok:false,
+    why:'you have no channel table of your own yet, and a routine has to be re-expressed through your '
+      + 'endpoints before it is safe to play. Use "servo config and choreography" — it does both in one go.'};
+  if(kind === 'both' && !loaded && !sh.full) return {ok:false,
+    why:'you have no channel table of your own yet, and this file is a backup rather than a whole config. '
+      + 'Import the servo config first, then the choreography on top of it.'};
+  return {ok:true, why:''};
+}
+
+/* ------------------------------------------------- is there work to lose?
+   setupSaveWorth() is this project's own definition of "somebody did work
+   here" — a channel ticked on the dial, named, calibrated, or any edit at
+   all this session. Travel alone is too narrow and that mistake cost
+   v1.38.3: Mike had named and ticked four channels, walked out, and was
+   never asked. servoCfgConfigured() is the fallback for a host with no
+   bench loaded. */
+function impServoWorth(){
+  const w = (typeof setupSaveWorth === 'function') ? setupSaveWorth() : null;
+  if(w) return w;
+  const n = (typeof servoCfgConfigured === 'function') ? servoCfgConfigured() : 0;
+  return {used:n, cal:0, named:0, travel:!!n, worth:!!n};
+}
+/* counts he recognises — "12 named channels, 6 of them calibrated" */
+function impServoTally(w){
+  const out = [];
+  if(w.named) out.push(w.named + ' named channel' + (w.named === 1 ? '' : 's'));
+  if(w.cal)   out.push(w.cal + ' of them calibrated on the dial');
+  if(!w.named && w.used) out.push(w.used + ' servo channel' + (w.used === 1 ? '' : 's'));
+  if(!w.cal && w.travel) out.push('travel that is not the factory pair');
+  return out.length ? out.join(', ') : 'a channel table somebody has edited';
+}
+
+/* ------------------------------------------------------- three ways out
+   Mike asked for three answers to the servo question — cancel, save a copy
+   of the existing one first, or replace — and appConfirm() (core/dialog.js)
+   is a TWO-answer dialog by construction: one yes, one no, and `no:''` for
+   the message that has genuinely only one way out. So this is that same
+   overlay with a row of buttons instead of a pair: the same .dlgwrap /
+   .dlgcard / .dlgmsg / .dlgbar furniture, the same "a new question cancels
+   a stale one", the same Esc-and-backdrop-are-cancel, the same containment
+   so a click cannot reach the page underneath. Two choices DELEGATE
+   straight to appConfirm, so nothing that already worked changes shape.
+
+   The FIRST choice is always the one that changes nothing, and it is what
+   Esc resolves to. Every choice is a real button with its own words on it —
+   never a yes/no standing in for three answers. */
+function impAsk(message, opts){
+  const o = opts || {};
+  const choices = (o.choices || []).slice();
+  if(!choices.length) return Promise.resolve('');
+  if(choices.length <= 2){
+    const yes = choices[choices.length - 1];
+    const no  = choices.length === 2 ? choices[0] : null;
+    return appConfirm(message, {title:o.title, danger:o.danger,
+      yes:yes.label, no:no ? no.label : ''})
+      .then(v=> v ? yes.id : (no ? no.id : yes.id));
+  }
+  return new Promise(resolve=>{
+    const old = document.querySelector('.dlgwrap');
+    if(old && old._dlgCancel) old._dlgCancel();
+
+    const wrap = el('div','dlgwrap');
+    const card = el('div','dlgcard ask' + (o.danger ? ' danger' : ''));
+    card.appendChild(el('h4', null, o.title || 'Are you sure?'));
+    card.appendChild(el('div','dlgmsg', message || ''));
+    const bar = el('div','dlgbar');
+    card.appendChild(bar);
+    wrap.appendChild(card);
+
+    const settle = v=>{
+      document.removeEventListener('keydown', onKey, true);
+      wrap.remove();
+      resolve(v);
+    };
+    wrap._dlgCancel = ()=>settle(choices[0].id);
+    const onKey = e=>{
+      if(e.key === 'Escape'){ e.preventDefault(); e.stopPropagation(); settle(choices[0].id); }
+      else if(e.key === 'Enter'){ e.preventDefault(); e.stopPropagation(); settle(choices[choices.length-1].id); }
+    };
+    document.addEventListener('keydown', onKey, true);
+
+    let last = null;
+    choices.forEach((c,i)=>{
+      const cls = i === 0 ? 'b dlgno' : (i === choices.length-1 ? 'b dlgyes' : 'b dlgalt');
+      const b = el('button', cls, c.label);
+      b.dataset.ask = c.id;
+      if(c.title) b.title = c.title;
+      b.addEventListener('click', ()=>settle(c.id));
+      bar.appendChild(b);
+      last = b;
+    });
+
+    ['pointerdown','pointerup','click'].forEach(t=>
+      wrap.addEventListener(t, e=>e.stopPropagation()));
+    wrap.addEventListener('click', e=>{ if(e.target === wrap) settle(choices[0].id); });
+
+    document.body.appendChild(wrap);
+    if(last) last.focus();
+  });
+}
+
+/* ------------------------------------------------------- the two prompts */
+function impAskServo(sh){
+  const w = impServoWorth();
+  return impAsk(
+    IMPCH.name + ' brings travel for ' + sh.servo + ' channel' + (sh.servo === 1 ? '' : 's') + '.\n\n'
+    + 'You already have ' + impServoTally(w) + ' here. Importing REPLACES every one of those numbers — '
+    + 'names, endpoints, speed and acceleration. Which panel each channel drives is not touched, and '
+    + 'neither is your choreography.',
+    {title:'Replace the servo config you have?', danger:true, choices:[
+      {id:'cancel',  label:'Cancel', title:'change nothing at all'},
+      {id:'save',    label:'save a copy first, then import',
+       title:'writes your current servo config out as a timestamped .json, then imports — and if the write fails, the import does not go ahead'},
+      {id:'replace', label:'replace', title:'import over the top; what is here now is gone'}
+    ]});
+}
+function impAskChoreo(sh){
+  const have = (typeof MSTR !== 'undefined' && MSTR.sequences) ? MSTR.sequences.length : 0;
+  return impAsk(
+    IMPCH.name + ' carries ' + sh.choreo + ' routine' + (sh.choreo === 1 ? '' : 's') + ', and you already have '
+    + have + ' in your library.\n\n'
+    + 'Add them keeps everything you have and appends the imports; a name that clashes is renamed, never '
+    + 'overwritten. Save and replace writes your library out to a file first, and then the imports ARE '
+    + 'your library. Either way the moves are re-expressed through your own endpoints.',
+    {title:'Your choreography, or theirs as well?', choices:[
+      {id:'cancel', label:'Cancel', title:'change nothing at all'},
+      {id:'save',   label:'save existing, then replace',
+       title:'writes your routine library out as a timestamped .json, then the imports become the library'},
+      {id:'merge',  label:'add the imports as additions',
+       title:'keep every routine you have and append theirs — clashes are renamed, and the receipt says how'}
+    ]});
+}
+
+/* ---------------------------------------------------------- the capacity
+   Mike: if the merge would not fit, "say so before doing it rather than
+   truncating". The numbers are lint.js's own — 126 subroutines on a
+   Maestro, 128 addressable slots on the co-processor — because a library
+   bigger than that contains routines the board can never be given. */
+function impSeqCapacity(){
+  const pca = (typeof boardIsPca === 'function') && (typeof MSTR !== 'undefined') && boardIsPca(MSTR.board);
+  return pca ? 128 : 126;
+}
+
+/* ------------------------------------------------------- "save a copy"
+   Mike's answer today when asked what saving means: a download. So both
+   copies go out through the writers everything else uses, stamped by
+   fileStamp(), and BOTH of them are gates: no file, no import. A silent
+   failure here is the one that loses the afternoon. */
+function impChooseSave(which){
+  try{
+    const name = which === 'choreo'
+      ? ((typeof seqLibExport   === 'function') ? seqLibExport()   : null)
+      : ((typeof servoCfgExport === 'function') ? servoCfgExport() : null);
+    if(!name) throw new Error('nothing was written');
+    if(typeof lg === 'function') lg('sys','import: saved a copy first — '+name);
+    return name;
+  }catch(e){
+    if(typeof lg === 'function') lg('warn','import aborted — the copy could not be written: '+e.message);
+    if(typeof appConfirm === 'function')
+      appConfirm('The copy could not be written: ' + e.message + '\n\nNothing has been imported, so what you '
+        + 'have is exactly as it was. Try the export on its own, then come back.',
+        {title:'Not imported — the copy failed', yes:'OK', no:''});
+    else if(typeof toast === 'function') toast('Import cancelled — the copy could not be written', 'err');
+    return '';
+  }
+}
+
+/* ------------------------------------------------------------- doing it */
+async function impChooseRun(){
+  const sh = IMPCH.shape, kind = IMPCH.kind;
+  if(!sh || !kind || IMPCH.busy) return '';
+  const st = impChoiceState(kind, sh);
+  if(!st.ok){ jobwizRender(); if(typeof toast === 'function') toast(st.why, 'warn'); return 'blocked'; }
+
+  const doServo  = (kind === 'servo' || kind === 'both');
+  const doChoreo = (kind === 'choreography' || kind === 'both');
+  const haveSeq  = (typeof MSTR !== 'undefined' && MSTR.sequences) ? MSTR.sequences.length : 0;
+
+  IMPCH.busy = true;
+  try{
+    /* BOTH questions before ANYTHING is written. Cancel cannot mean cancel
+       if half the import has already landed. */
+    let servoWay = 'replace', choreoWay = 'replace';
+    if(doServo && impServoWorth().worth){
+      servoWay = await impAskServo(sh);
+      if(servoWay === 'cancel'){ impChooseCancelled(); return 'cancel'; }
+    }
+    if(doChoreo && haveSeq){
+      choreoWay = await impAskChoreo(sh);
+      if(choreoWay === 'cancel'){ impChooseCancelled(); return 'cancel'; }
+    }
+    /* the one answer arithmetic can refuse */
+    if(choreoWay === 'merge'){
+      const cap = impSeqCapacity();
+      if(haveSeq + sh.choreo > cap){
+        if(typeof appConfirm === 'function')
+          await appConfirm('Your library has ' + haveSeq + ' routine(s) and ' + IMPCH.name + ' brings '
+            + sh.choreo + ' more. ' + (haveSeq + sh.choreo) + ' is past the ' + cap + ' this board can ever '
+            + 'address, so some of them could never be put on it.\n\nNothing has been imported. Delete some '
+            + 'routines first, or choose "save existing, then replace".',
+            {title:'That merge will not fit', yes:'OK', no:''});
+        if(typeof lg === 'function')
+          lg('warn','choreography merge refused — '+(haveSeq+sh.choreo)+' routines is past the board\'s '+cap);
+        return 'toobig';
+      }
+    }
+    /* the copies FIRST, and a failed write stops the import dead */
+    if(servoWay  === 'save' && !impChooseSave('servo'))  return 'savefailed';
+    if(choreoWay === 'save' && !impChooseSave('choreo')) return 'savefailed';
+
+    const said = [];
+    /* NOTHING OF YOUR OWN YET, and a whole config in the file: then the file
+       IS your config — there is no calibration to protect and no library to
+       merge with — so "servo config and choreography" is the wholesale first
+       import v1.45.0 already did, board and serial settings included. */
+    if(kind === 'both' && !MSTR.loaded && sh.full){
+      mstrApply(sh.P);
+      if(typeof CFG !== 'undefined') CFG.maestroSource = 'imported';
+      said.push('travel for ' + MSTR.servoCount + ' channel(s) and ' + MSTR.sequences.length + ' routine(s)');
+    }else{
+      if(doServo){
+        /* the one reader — it works the family out from the content, and it
+           reports every field that could not cross a family boundary */
+        const r = servoCfgImportText(IMPCH.text, IMPCH.name);
+        const lost = (r.dropped && r.dropped.length)
+          ? ' (not carried across: ' + r.dropped.map(d=>d.field).join(', ') + ')' : '';
+        said.push('travel for ' + r.n + ' channel' + (r.n === 1 ? '' : 's')
+          + (r.skipped ? ', ' + r.skipped + ' past the end of this board' : '') + lost);
+        if(typeof CFG !== 'undefined') CFG.maestroSource = 'imported';
+      }
+      if(doChoreo){
+        if(choreoWay !== 'merge'){
+          /* replace: the library goes, and the file's own order IS its
+             subroutine order, so the loadout is rebuilt from what arrived —
+             the same rule mstrApply() follows for a whole file */
+          MSTR.sequences = [];
+        }
+        const r = mstrAdoptSequences(sh.P);
+        if(choreoWay !== 'merge'){ loadoutReset(); if(typeof reindexSubs === 'function') reindexSubs(); }
+        const ren = r.renamed || [];
+        said.push(r.added.length + ' routine' + (r.added.length === 1 ? '' : 's')
+          + (choreoWay === 'merge'
+              ? ' added to the ' + haveSeq + ' you had'
+                + (ren.length ? ' — ' + ren.length + ' name clash(es) renamed, ' + ren.map(x=>'“'+x.from+'” → “'+x.to+'”').join(', ')
+                              : ' — no name clashes')
+              : ' — your ' + haveSeq + ' previous routine(s) replaced'));
+      }
+    }
+    if(typeof rebuildMaestroUI === 'function') rebuildMaestroUI();
+    if(typeof lg === 'function') lg('mae','imported from '+IMPCH.name+': '+said.join('; '));
+    if(typeof toast === 'function') toast('Imported ' + said.join(' · ') + ' from ' + IMPCH.name);
+    jobwizClose();
+    return 'done';
+  }catch(e){
+    if(typeof lg === 'function') lg('warn','import failed: '+e.message);
+    IMPCH.err = e.message;
+    jobwizRender();
+    if(typeof toast === 'function') toast('Could not import '+IMPCH.name+': '+e.message, 'err');
+    return 'error';
+  }finally{
+    IMPCH.busy = false;
+  }
+}
+function impChooseCancelled(){
+  if(typeof lg === 'function') lg('sys','import cancelled at the chooser — nothing was touched');
+  if(typeof toast === 'function') toast('Import cancelled — nothing was touched');
+  jobwizRender();
+}
+
+/* ------------------------------------------------------------- the doors */
+function impChooseLoad(text, name){
+  IMPCH.name  = name || 'that file';
+  IMPCH.text  = String(text || '');
+  IMPCH.shape = impShape(IMPCH.text, IMPCH.name);
+  IMPCH.err   = IMPCH.shape.err || '';
+  if(typeof lg === 'function')
+    lg('sys','import chooser: '+IMPCH.name+' is '+(IMPCH.err ? 'unreadable — '+IMPCH.err : impShapeSentence(IMPCH.shape)));
+  return IMPCH.shape;
+}
+function impChooseFile(file){
+  const fr = new FileReader();
+  fr.onload = ()=>{
+    impChooseLoad(String(fr.result), file.name);
+    jobwizRender();
+    /* a choice already picked (a card clicked before the file, or
+       opts.kind from another door) goes straight through */
+    if(!IMPCH.err && IMPCH.kind && impChoiceState(IMPCH.kind, IMPCH.shape).ok) impChooseRun();
+  };
+  fr.onerror = ()=>{ IMPCH.shape = null; IMPCH.err = 'could not read that file'; jobwizRender(); };
+  fr.readAsText(file);
+}
+function impChoosePick(){
+  const fi = document.createElement('input');
+  fi.type = 'file';
+  fi.accept = (typeof servoCfgAccept === 'function') ? servoCfgAccept() : '';
+  fi.style.display = 'none';
+  fi.addEventListener('change', ()=>{
+    const f = fi.files && fi.files[0];
+    fi.remove();
+    if(f) impChooseFile(f);
+  });
+  document.body.appendChild(fi);
+  fi.click();
+}
+/* one click on a card: pick the file if there isn't one, otherwise go */
+function impChoose(kind){
+  IMPCH.kind = kind;
+  if(!IMPCH.shape || IMPCH.err){ jobwizRender(); impChoosePick(); return; }
+  const st = impChoiceState(kind, IMPCH.shape);
+  if(!st.ok){ jobwizRender(); if(typeof toast === 'function') toast(st.why, 'warn'); return; }
+  impChooseRun();
+}
+
+/* =====================================================================
+   THE PUBLIC DOOR — impChooseOpen({kind, from, file, text, name})
+
+   `kind` preselects one of the three; it stays visible and changeable,
+   because a preselection that cannot be seen is the thing this release is
+   removing. `from` is only ever used to word the copy. The sequencer's
+   "⤓ Import sequence" button calls this with {kind:'choreography',
+   from:'sequencer'} and falls back to jobwizOpen(); jobwizGo('import')
+   when this module is not in the build.
+   ===================================================================== */
+function impChooseOpen(opts){
+  const o = opts || {};
+  IMPCH.kind  = (o.kind === 'servo' || o.kind === 'both' || o.kind === 'choreography') ? o.kind : '';
+  IMPCH.from  = o.from || '';
+  IMPCH.name  = ''; IMPCH.text = ''; IMPCH.shape = null; IMPCH.err = ''; IMPCH.busy = false;
+  if(o.text !== undefined && o.text !== null) impChooseLoad(o.text, o.name);
+  jobwizOpen('import');
+  if(o.file) impChooseFile(o.file);
+  else if(IMPCH.shape && !IMPCH.err && IMPCH.kind
+          && impChoiceState(IMPCH.kind, IMPCH.shape).ok) impChooseRun();
+  return true;
+}
+
 /* --------------------------------------------------------- import */
 function jobwizStepImport(host){
   const n = el('div','note cy prose');
@@ -665,16 +1131,67 @@ function jobwizStepImport(host){
   host.appendChild(n);
 
   const p = el('p','iwp');
-  p.innerHTML = 'Most of the time the file you want is a <b>servo config</b> — the travel for every channel, '
-    + 'and nothing else. It replaces your endpoints and leaves your sequences and your panel wiring alone. '
-    + 'One reader takes all four formats and works out which it is from the content, so a file renamed by '
-    + 'whoever mailed it to you still lands in the right place.';
+  p.innerHTML = 'Two decisions, both yours and both visible: <b>which file</b>, and <b>what out of it</b>. '
+    + 'Nothing is written until the second one is answered — and if what you already have is worth keeping, '
+    + 'you are told what is about to be replaced and offered a copy to keep first.'
+    + (IMPCH.from === 'sequencer'
+        ? ' The routines land in the sequencer library, where you came from.' : '');
   host.appendChild(p);
 
-  const bar = jobwizBar(host);
-  jobwizBtn(bar, 'choose a config file…',
-    'names, min, centre, max, speed — whichever of the four formats it arrived in',
-    ()=>{ if(typeof servoCfgPick === 'function') servoCfgPick(()=>jobwizGo('import')); }, true);
+  /* ---- the file ---- */
+  const sh = IMPCH.shape;
+  const drop = el('div','iwdrop impdrop');
+  drop.innerHTML = sh && !IMPCH.err
+    ? '<b>' + xmlEsc(IMPCH.name) + '</b><span>' + xmlEsc(impShapeSentence(sh)) + ' — click to choose a different file</span>'
+    : '<b>Drop a config file here</b><span>or click to choose one — ' + xmlEsc(ioFormatsIn()) + '</span>';
+  drop.addEventListener('click', impChoosePick);
+  drop.addEventListener('dragover', e=>{ e.preventDefault(); e.stopPropagation(); drop.classList.add('on'); });
+  drop.addEventListener('dragleave', ()=>drop.classList.remove('on'));
+  drop.addEventListener('drop', e=>{
+    e.preventDefault(); e.stopPropagation(); drop.classList.remove('on');
+    const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if(f) impChooseFile(f);
+  });
+  host.appendChild(drop);
+
+  if(IMPCH.err){
+    const bad = el('div','note rd prose');
+    bad.innerHTML = '<b>Could not read ' + xmlEsc(IMPCH.name) + '.</b> ' + xmlEsc(IMPCH.err);
+    host.appendChild(bad);
+  }
+
+  /* ---- the three choices ---- */
+  const h = el('div','iwh','What are you importing?');
+  host.appendChild(h);
+  const grid = el('div','jwgrid');
+  IMP_CHOICES.forEach(c=>{
+    const st = impChoiceState(c.id, sh);
+    const card = el('div','optcard impch' + (IMPCH.kind === c.id ? ' act' : '') + (st.ok ? '' : ' blocked'));
+    card.dataset.imp = c.id;
+    card.tabIndex = st.ok ? 0 : -1;
+    const hd = el('div','opthead');
+    hd.appendChild(el('span','jwglyph', c.glyph));
+    hd.appendChild(el('b', null, c.label));
+    card.appendChild(hd);
+    card.appendChild(el('div','optsub', c.sub));
+    const t = el('div','impwhat');
+    t.innerHTML = '<b>touches</b> ' + xmlEsc(c.touches) + '<br><b>leaves alone</b> ' + xmlEsc(c.leaves);
+    card.appendChild(t);
+    if(!st.ok){
+      /* UNAVAILABLE, WITH THE REASON ON IT. A choice that is merely missing
+         reads as a bug in the app; a choice that says why it cannot be
+         taken is an answer. */
+      const why = el('div','impwhy', 'not for this file — ' + st.why);
+      card.appendChild(why);
+      card.title = st.why;
+    }else{
+      const go = ()=>impChoose(c.id);
+      card.addEventListener('click', go);
+      card.addEventListener('keydown', e=>{ if(e.key === 'Enter' || e.key === ' '){ e.preventDefault(); go(); } });
+    }
+    grid.appendChild(card);
+  });
+  host.appendChild(grid);
 
   const g = el('div','hint prose');
   g.innerHTML = xmlEsc(SERVO_CFG_ACCEPT_NOTE);
@@ -683,7 +1200,8 @@ function jobwizStepImport(host){
   const story = (typeof servoCfgStory === 'function') ? servoCfgStory() : '';
   if(story){
     const s = el('div','note gn prose');
-    s.innerHTML = '<b>There is already a config here:</b> ' + xmlEsc(story) + '.';
+    s.innerHTML = '<b>There is already a config here:</b> ' + xmlEsc(story)
+      + '. Importing servo config will say what it is about to replace, and offer you a copy of it first.';
     host.appendChild(s);
   }
 

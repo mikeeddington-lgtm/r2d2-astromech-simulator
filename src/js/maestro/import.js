@@ -148,6 +148,11 @@ function mstrParse(text, fileName){
       range: parseInt(c.getAttribute('range')||1905,10),
       speed: parseInt(c.getAttribute('speed')||0,10),
       acceleration: parseInt(c.getAttribute('acceleration')||0,10),
+      /* v1.46.0 — `invert` is RETIRED as a setting (chanEnds/chanAdoptInvert,
+         playback.js): min is the shut end and max the open one, directed
+         rather than sorted. It stays here as a defined-falsy field only so a
+         channel object has the same shape wherever it was made (starters.js,
+         hw-host.js) — a .mstr has no column for it and never had. */
       act: guessPart(name), invert:false
     });
   }
@@ -359,6 +364,12 @@ function mstrAdoptSequences(P){
   const cat = 'Imported · ' + (P.fileName || 'file').replace(/\.mstr$/i, '');
   let dropped = 0;
   const added = [];
+  /* v1.46.0 — Mike, of the choreography merge: "add the imports as
+     additions" and, on collisions, say "how any clash was named". The dot
+     suffix below has always prevented the overwrite; what was missing was
+     the receipt. So the renames are collected and handed back, not merely
+     applied, and the chooser says them out loud. */
+  const renamed = [];
   P.sequences.forEach(sq=>{
     if(!sq.frames || !sq.frames.length) return;
     const frames = sq.frames.map(f=>{
@@ -367,6 +378,7 @@ function mstrAdoptSequences(P){
     });
     let name = sq.name;
     while(MSTR.sequences.some(s=>s.name === name)) name = name + '·';
+    if(name !== sq.name) renamed.push({from:sq.name, to:name});
     MSTR.sequences.push({name, frames, cat});          // plain frame list — never blocks
     added.push(name);
   });
@@ -376,7 +388,10 @@ function mstrAdoptSequences(P){
   lg('mae','  channels matched: '+how.act+' by part, '+how.name+' by name, '+how.index+' by number'
      + (unmatched.length ? ' · dropped source channel(s) '+unmatched.join(', ')+' (no match on your droid)' : ''));
   if(dropped) lg('mae','  per-frame speed/accel rows discarded — your channel settings govern the motion');
-  return {added, how, unmatched, cat};
+  if(renamed.length)
+    lg('mae','  '+renamed.length+' name clash(es), renamed rather than overwritten: '
+      + renamed.map(r=>r.from+' → '+r.to).join(', '));
+  return {added, renamed, how, unmatched, cat};
 }
 
 /* =====================================================================
@@ -478,7 +493,7 @@ function pcaHeaderParse(text, fileName){
       releaseMs: servo ? +row[8] : 0,
       ease: String(row[9] || 'NONE').toLowerCase(),
       act: (typeof guessPart === 'function') ? guessPart(named ? meta.name : '') : '',
-      invert: false
+      invert: false          // v1.46.0 — retired; see mstrParse above
     });
   }
   if(!channels.length) throw new Error('the MaestroPCA channel table is empty');
@@ -532,7 +547,7 @@ function pcaHeaderParse(text, fileName){
     {field:'homemode', n:offHome,
      why:'the header keeps a home TARGET only, so Off and Ignore both arrive as home 0 and cannot be told apart. ' + offHome + ' channel(s) read back as Off.'},
     {field:'invert', n:servoCount,
-     why:'inverted travel is a simulator display setting with no column in the header. Every channel arrives un-inverted; check any panel that opens the wrong way.'},
+     why:'inverted travel was a simulator display setting and is retired in v1.46.0 — min is the shut end and max the open one, whatever their order. A panel that opens the wrong way is min and max the wrong way round; swap them.'},
     {field:'serial settings', n:0,
      why:'baud rate, device number, CRC and timeout are Maestro board settings. A .mstr exported from this config gets this app\'s defaults, not the original board\'s.'},
     {field:'frame speed/acceleration', n:0,
@@ -603,7 +618,7 @@ function pcaExportDrops(channels, sequences){
     {field:'mode', n:nonServo,
      why:nonServo + ' channel(s) are Input or Output. A PCA9685 pin cannot read anything, so they keep their row (frame targets index by channel number) with pin 255 = unused, and their travel is written as zero.'},
     {field:'invert', n:inverted,
-     why:'inverted travel is a simulator display setting. ' + inverted + ' channel(s) carry it and the header does not — flip the linkage or the endpoints instead.'},
+     why:'inverted travel is retired in v1.46.0. ' + inverted + ' channel(s) carry the old flag; it is adopted into their min/max pair on load and dropped here, which is the same movement.'},
     {field:'frame speed/acceleration', n:saFrames,
      why:saFrames + ' frame(s) carry their own speed/acceleration rows. A MaestroPCA frame is a duration and a target per channel, so the channel table\'s speed and acceleration govern the motion instead.'},
     {field:'the Maestro script', n:0,

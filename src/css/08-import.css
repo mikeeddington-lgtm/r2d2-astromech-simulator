@@ -363,3 +363,48 @@
 .advio > summary::before{content:'▸ '; color:var(--ctaHi)}
 .advio[open] > summary::before{content:'▾ '}
 .advio > summary:hover{color:var(--txt)}
+
+/* =====================================================================
+   v1.46.0 — the three explicit import choices (maestro/wizard-import.js).
+
+   Mike: "make it clear on the import that they select what they are
+   importing as clear selections not hidden in advance". So the cards reuse
+   .optcard / .jwgrid / .jwglyph above — same language as the four-job
+   chooser and the build wizard — and everything new here is in service of
+   the two things a card has to say out loud: what it touches, and why it
+   cannot be picked.
+   ===================================================================== */
+.impdrop{margin:0 0 14px}                 /* the same .iwdrop, just tighter under the intro */
+.impch{cursor:pointer}
+/* WHAT IT TOUCHES, WHAT IT LEAVES ALONE. Two rails rather than a
+   paragraph: the reassurance is the half people skim for, so it is a line
+   of its own with its own label, not a clause at the end of a sentence. */
+.impch .impwhat{
+  margin-top:7px; padding-top:7px; border-top:1px solid var(--line);
+  font-size:11.5px; line-height:1.5; color:var(--dim);
+}
+.impch .impwhat b{
+  font-family:var(--mono); font-size:9.5px; letter-spacing:.08em;
+  text-transform:uppercase; color:var(--dimmer); margin-right:5px;
+}
+/* UNAVAILABLE, WITH THE REASON ON IT — .optcard.blocked (07-startup.css)
+   already dims and turns the hover red; what it has no room for is why.
+   Amber rather than red: the file cannot do this, which is a fact about
+   the file, not a mistake the builder made. */
+.impch.blocked{cursor:not-allowed}
+.impch.blocked .impwhy{
+  margin-top:7px; padding-top:7px; border-top:1px solid var(--line);
+  font-size:11.5px; line-height:1.5; color:var(--am);
+}
+.impch.blocked:hover{border-color:var(--am)}
+
+/* THREE ANSWERS IN ONE DIALOG (impAsk). appConfirm's card is sized for a
+   yes and a no; three buttons with real words on them need the room, and
+   they wrap rather than squeeze on a narrow window. The middle answer —
+   "save a copy first, then import" — is the recommended one and reads as
+   a proper button, not as a footnote between Cancel and the red one. */
+.dlgcard.ask{width:min(560px,100%)}
+.dlgcard.ask .dlgbar{flex-wrap:wrap}
+.dlgbar .dlgalt{border-color:var(--ctaD); color:var(--ctaHi); font-weight:600}
+.dlgbar .dlgalt:hover{border-color:var(--cta); background:var(--selBg)}
+.dlgbar .dlgalt:focus-visible{outline:2px solid var(--focus); outline-offset:2px}

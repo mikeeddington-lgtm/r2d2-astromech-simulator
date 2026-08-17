@@ -438,6 +438,140 @@ const LIVE = fs.readFileSync(path.resolve(__dirname,'fixtures-live-dome.mstr'),'
      /^cfg\/\d+/.test(probe['.json']||'') && /^pca\/\d+/.test(probe['.h']||''),
      JSON.stringify(probe));
 
+  /* =================================================================
+     v1.46.0 — Mike: "on the build import sequences etc — we should make
+     it clear on the import that they select what they are importing as
+     clear selections not hidden in advance — Import Servo Config Only,
+     Import Servo and Choreography or import Choreography only".
+
+     Three cards, visible, one click each, each saying what it touches
+     and what it leaves alone — and a choice the dropped file cannot
+     satisfy greyed WITH the reason rather than quietly missing.
+     ================================================================= */
+  console.log('\n════ v1.46.0 — the import chooser: three visible selections ════');
+  const three = await ev(()=>{
+    if(typeof impChooseOpen !== 'function') return {missing:true};
+    impChooseOpen({from:'test'});
+    const host = document.getElementById('jobWiz');
+    const cards = Array.from(host.querySelectorAll('.impch'));
+    const out = {
+      job: JOBWIZ.job,
+      ids: cards.map(c=>c.dataset.imp),
+      labels: cards.map(c=>c.querySelector('b').textContent),
+      touches: cards.every(c=>/touches/i.test(c.textContent) && /leaves alone/i.test(c.textContent)),
+      text: host.textContent
+    };
+    jobwizClose();
+    return out;
+  });
+  ok('the import job leads with the three choices Mike named, in his words',
+     three.job==='import' && three.ids.length===3
+     && three.ids.indexOf('servo')>=0 && three.ids.indexOf('both')>=0 && three.ids.indexOf('choreography')>=0,
+     (three.ids||[]).join(', '));
+  ok('...spelled out as "servo config" and "choreography", not "channels" and "sequences"',
+     (three.labels||[]).join(' | ')==='import servo config only | import servo config and choreography | import choreography only',
+     (three.labels||[]).join(' | '));
+  ok('...and every card says what it touches AND what it leaves alone', three.touches===true);
+  ok('the one canonical formats sentence is still on this pane',
+     (three.text||'').indexOf('imports: ')>=0 && /servos\.h/.test(three.text||''));
+
+  const pre = await ev(()=>{
+    /* the sequencer's ⤓ Import sequence button calls exactly this */
+    impChooseOpen({kind:'choreography', from:'sequencer'});
+    const host = document.getElementById('jobWiz');
+    const cards = Array.from(host.querySelectorAll('.impch'));
+    const out = {
+      kind: IMPCH.kind, from: IMPCH.from,
+      picked: cards.filter(c=>c.classList.contains('act')).map(c=>c.dataset.imp),
+      allVisible: cards.length===3,
+      othersClickable: cards.filter(c=>!c.classList.contains('blocked')).length
+    };
+    jobwizClose();
+    return out;
+  });
+  ok('opts.kind preselects the matching choice — and all three stay visible and changeable',
+     pre.kind==='choreography' && pre.from==='sequencer'
+     && pre.picked.length===1 && pre.picked[0]==='choreography'
+     && pre.allVisible && pre.othersClickable===3,
+     JSON.stringify(pre));
+
+  console.log('\n════ v1.46.0 — the chooser reads the file, and the reader agrees ════');
+  const shapes = await ev(()=>{
+    setBoard('mini24'); makeStarter('dome','mini24'); reindexSubs();
+    const samples = {
+      '.mstr': buildMstrText(),
+      '.json': JSON.stringify(servoCfgExportObj()),
+      '.h':    pcaGenFromLoadout(),
+      'choreo.json': JSON.stringify(seqLibExportObj())
+    };
+    const out = {};
+    Object.keys(samples).forEach(k=>{
+      const sh = impShape(samples[k], 'probe-'+k);
+      /* the CLASSIFIER and the READER have to agree about which family a
+         file is, or the chooser offers doors the reader will not open */
+      let readFrom = '';
+      try{ readFrom = servoCfgImportText(samples[k], 'probe-'+k).from; }catch(e){ readFrom = 'threw'; }
+      out[k] = {from:sh.from, readFrom, servo:sh.servo, choreo:sh.choreo, err:sh.err};
+    });
+    out.junk = impShape('hello, not a config at all', 'x.txt');
+    return out;
+  });
+  ok('the chooser and the one reader name the same family for every format',
+     ['.mstr','.json','.h','choreo.json'].every(k=>shapes[k].from===shapes[k].readFrom),
+     Object.keys(shapes).filter(k=>k!=='junk').map(k=>k+':'+shapes[k].from+'/'+shapes[k].readFrom).join(' '));
+  ok('a .mstr and a PCA9685 header are seen to carry BOTH travel and choreography',
+     shapes['.mstr'].servo>0 && shapes['.mstr'].choreo>0 && shapes['.h'].servo>0 && shapes['.h'].choreo>0,
+     JSON.stringify([shapes['.mstr'].servo,shapes['.mstr'].choreo,shapes['.h'].servo,shapes['.h'].choreo]));
+  ok('a servo config is seen to carry travel and NO choreography',
+     shapes['.json'].servo>0 && shapes['.json'].choreo===0);
+  ok('this release\'s choreography backup carries both, so it can be read back',
+     shapes['choreo.json'].servo>0 && shapes['choreo.json'].choreo>0,
+     JSON.stringify([shapes['choreo.json'].servo,shapes['choreo.json'].choreo]));
+  ok('an unreadable file says what it should have been, and names the formats',
+     !!shapes.junk.err && /servo config/.test(shapes.junk.err) && /\.mstr/.test(shapes.junk.err),
+     (shapes.junk.err||'').slice(0,80));
+
+  console.log('\n════ v1.46.0 — a choice the file cannot satisfy is unavailable WITH the reason ════');
+  const dead = await ev(()=>{
+    setBoard('mini24'); makeStarter('dome','mini24'); reindexSubs();
+    const cfg = JSON.stringify(servoCfgExportObj());     // travel only, no routines
+    impChooseOpen({text:cfg, name:'friend-servos.json', from:'test'});
+    const cards = Array.from(document.getElementById('jobWiz').querySelectorAll('.impch'));
+    const by = {};
+    cards.forEach(c=>{ by[c.dataset.imp] = {
+      blocked: c.classList.contains('blocked'),
+      why: (c.querySelector('.impwhy')||{textContent:''}).textContent,
+      clickable: !c.classList.contains('blocked')
+    }; });
+    jobwizClose();
+    return by;
+  });
+  ok('a servo config offers "servo config only" and nothing else',
+     dead.servo.clickable===true && dead.both.blocked===true && dead.choreography.blocked===true,
+     JSON.stringify(Object.keys(dead).map(k=>k+':'+(dead[k].blocked?'blocked':'open'))));
+  ok('...and both unavailable cards say WHY on the card, not merely nothing',
+     /no routines/.test(dead.choreography.why) && /no routines/.test(dead.both.why),
+     dead.choreography.why);
+
+  const noTable = await ev(()=>{
+    setBoard('mini24'); makeStarter('dome','mini24'); reindexSubs();
+    const mstr = buildMstrText();
+    const was = MSTR.loaded;
+    MSTR.loaded = false;                                  // nothing of your own yet
+    impChooseOpen({text:mstr, name:'friend.mstr', from:'test'});
+    const cards = Array.from(document.getElementById('jobWiz').querySelectorAll('.impch'));
+    const by = {};
+    cards.forEach(c=>{ by[c.dataset.imp] = {blocked:c.classList.contains('blocked'),
+      why:(c.querySelector('.impwhy')||{textContent:''}).textContent}; });
+    jobwizClose();
+    MSTR.loaded = was;
+    return by;
+  });
+  ok('with no channel table of your own, "choreography only" is a dead end and says so',
+     noTable.choreography.blocked===true && /endpoints/.test(noTable.choreography.why)
+     && noTable.servo.blocked===false && noTable.both.blocked===false,
+     noTable.choreography.why.slice(0,90));
+
   ok('no uncaught page errors', errs.length===0, errs.join(' | '));
   await browser.close();
   console.log('\n'+pass+' passed, '+fail+' failed');

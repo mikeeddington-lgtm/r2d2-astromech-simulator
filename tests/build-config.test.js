@@ -43,8 +43,33 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
   ok('the rail has one dot per step (plus the 1.5c jobs divider) and marks the current one', await ev(()=>
     $('stprail').querySelectorAll('.raildot').length===wizSteps().length &&
     wizRailChip(0).classList.contains('act')));
-  ok('the defaults are self-consistent — a new user sees no conflicts', await ev(()=>
-    firmwareBlockers(buildGet().firmware, buildGet()).length===0));
+  /* v1.46.0 — the defaults are self-consistent EXCEPT for one pair, on
+     purpose. Mike asked for two expanders behind a co-processor and a DY-SV5W
+     as the shipped answers, was shown that padawan360 mod2026 can drive
+     neither, and chose to keep mod2026 as the default sketch anyway. So this
+     asserts the exception is exactly the two objections he accepted — nothing
+     has quietly drifted into a third — and that the escape hatch is one call,
+     because the firmware is not pinned on a build nobody has answered. */
+  ok('the defaults carry exactly the two conflicts Mike chose, and no others', await ev(()=>{
+    const b = buildGet();
+    const why = firmwareBlockers(b.firmware, b).map(x=>x.why).join(' | ');
+    return b.firmware==='mod2026' && !b.firmwarePinned &&
+           /co-processor/.test(why) && /DY-SV5W/.test(why) &&
+           firmwareBlockers(b.firmware, b).length===2;
+  }));
+  ok('...and one click hands the sketch to the setup and clears them', await ev(()=>{
+    const id = buildUnpinFirmware();
+    const clean = firmwareBlockers(buildGet().firmware, buildGet()).length===0;
+    /* put the shipped default back for every assertion after this one */
+    PREFS.build = buildDefault(); buildApply();
+    return id==='maestro25' && clean;
+  }));
+  ok('the shipped answers are the ones he asked for', await ev(()=>{
+    const d = buildDefault();
+    return d.servoTopo==='p1x2' && d.sound==='dysv5w' &&
+           servoTopos('pca')[0].id==='p1x2' && BUILD_OPTIONS.sound[0].id==='dysv5w' &&
+           d.domeServo==='mpca32' && d.bodyServo==='mpca32';
+  }));
 
   /* ================================================================
      v1.42.0 — assumed vs confirmed (1.5b): a genuine first run has SEEN
@@ -1115,8 +1140,10 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
     servoTopoDef('m2c').flow[0].join(' > ')==='Padawan > Maestro 1 > Maestro 2 > Servos' &&
     servoTopoDef('m2s').flow.length===2 &&
     servoTopoDef('m2s').flow[1].join(' > ')==='Padawan > Maestro 2 > Servos'));
-  ok('...and his four PCA ones, plus the no-controller case', await ev(()=>
-    servoTopos('pca').map(t=>t.id).join()==='p0,p1,p1x2,p2s,p1s' &&
+  /* v1.46.0 — p1x2 leads: "This should be the default option as in first and
+     selected in the list". The array order IS the card order. */
+  ok('...and his four PCA ones, two expanders first, plus the no-controller case', await ev(()=>
+    servoTopos('pca').map(t=>t.id).join()==='p1x2,p0,p1,p2s,p1s' &&
     servoTopoDef('p1').flow[0].join(' > ')==='Padawan > Controller > PCA9685 > Servos' &&
     servoTopoDef('p1x2').flow[0].join(' > ')==='Padawan > Controller > PCA9685 1 > PCA9685 2 > Servos' &&
     servoTopoDef('p2s').flow.length===2 && servoTopoDef('p1s').flow.length===2));

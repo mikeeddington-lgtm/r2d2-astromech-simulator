@@ -83,7 +83,18 @@ function jsonDropRoute(file){
   const fr = new FileReader();
   fr.onload = ()=>{
     const text = String(fr.result);
-    if(typeof servoCfgLooksLikeCfg === 'function' && servoCfgLooksLikeCfg(text)){
+    const ours = (typeof servoCfgLooksLikeCfg === 'function' && servoCfgLooksLikeCfg(text))
+              || (typeof seqLibLooksLike === 'function' && seqLibLooksLike(text));
+    if(ours){
+      /* v1.46.0 — Mike: "make it clear on the import that they select what
+         they are importing as clear selections not hidden in advance".
+         Dropping one of our own files used to replace every endpoint on the
+         spot, with a toast afterwards saying so: the most hidden import in
+         the app, and the one most likely to land on an afternoon of
+         calibration. It goes to the visible chooser now, which asks what to
+         take out of it and — if there is a config here worth keeping — what
+         to do with the one being replaced. */
+      if(typeof impChooseOpen === 'function'){ impChooseOpen({text:text, name:file.name, from:'drop'}); return; }
       try{
         const r = servoCfgImportText(text, file.name);
         if(typeof toast === 'function')
@@ -113,6 +124,11 @@ function pcaHeaderDropRoute(file){
         toast(file.name + ' is not a MaestroPCA header — no MpcaChannelDef table in it', 'err');
       return;
     }
+    /* v1.46.0 — this used to import the travel first and only THEN ask about
+       the sequences ("adopt them" / "travel only"), which is the shape Mike
+       objected to: half the decision was already taken. The header carries
+       both, so it is the file the three-card chooser exists for. */
+    if(typeof impChooseOpen === 'function'){ impChooseOpen({text:text, name:file.name, from:'drop'}); return; }
     try{
       const r = servoCfgImportText(text, file.name);
       if(typeof rebuildMaestroUI === 'function') rebuildMaestroUI();

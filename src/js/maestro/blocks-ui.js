@@ -146,6 +146,7 @@ function buildBlocks(){
 
   host.appendChild(blkToolbar());
   host.appendChild(blkTimeline(seq));
+  blkUnwiredBanner(host, seq);
   host.appendChild(blkActionLib(seq));
   blkInspectorRender(seq);
   blkScrollToSel();
@@ -367,9 +368,14 @@ function blkTimeline(seq){
   /* one row per lane */
   lanes.forEach(lane=>{
     const row = el('div','tlrow');
-    const name = el('div','blklane'+(lane.kind==='seq'?' seq':' pc'), lane.label);
+    /* the lane name goes grey with its bricks (v1.46.0) — a wired lane and
+       an unwired one reading the same would be the whole point missed */
+    const laneUnwired = lane.kind !== 'seq' && !blockChan(lane.id);
+    const name = el('div','blklane'+(lane.kind==='seq'?' seq':' pc')
+      + (laneUnwired?' unwired':''), lane.label);
     if(lane.kind !== 'seq') name.style.setProperty('--pc', blkColor(lane.id));
-    name.title = lane.kind==='seq' ? 'whole saved sequences, dropped in as one brick' : lane.id;
+    name.title = lane.kind==='seq' ? 'whole saved sequences, dropped in as one brick'
+               : (laneUnwired ? lane.id + ' — no servo channel yet' : lane.id);
     row.appendChild(name);
     const track = el('div','blktrack');
     track.dataset.lane = lane.id;
@@ -405,7 +411,13 @@ function blkTimeline(seq){
 }
 
 function blkBrick(seq, b){
-  const d = el('div','blkbrick'+(b.kind==='seq'?' seq':' pc')+(blkSelIds().indexOf(b.id)>=0?' sel':''));
+  /* v1.46.0 — `.unwired` is the grey/dashed state for a brick whose part has
+     no servo channel yet. It is set here, in the ONE place a brick becomes
+     DOM, so "grey wherever bricks are drawn" cannot be true in the timeline
+     and false somewhere else. */
+  const wired = blockWired(b);
+  const d = el('div','blkbrick'+(b.kind==='seq'?' seq':' pc')
+    + (wired?'':' unwired') + (blkSelIds().indexOf(b.id)>=0?' sel':''));
   if(b.kind !== 'seq'){
     const hex = blkColor(b.ref);
     d.style.setProperty('--pc', hex);
@@ -416,7 +428,13 @@ function blkBrick(seq, b){
   d.dataset.id = b.id;
   const label = (b.kind==='seq') ? b.ref : (blkLabel(b.ref));
   d.appendChild(el('span','blklbl', label));
-  d.appendChild(el('span','blkdur', (b.dur/1000).toFixed(1)+'s'));
+  d.appendChild(el('span','blkdur', wired ? (b.dur/1000).toFixed(1)+'s' : 'not wired'));
+  if(!wired){
+    d.dataset.unwired = '1';
+    d.title = label + ' has no servo channel yet, so this brick moves nothing and is left out of the '
+            + 'compiled frames. Give the panel a channel and it starts working — the brick keeps its '
+            + 'timing in the meantime.';
+  }
   /* the ramps, drawn — you can see the open and close speeds */
   if(b.kind !== 'seq'){
     const er = blockEffRamps(b);
@@ -565,23 +583,32 @@ function blkActionLib(seq){
   host.appendChild(head);
 
   const row = el('div','blkchips');
+  /* ONE drop path for every part chip (v1.46.0). A wired chip and a grey
+     one differ in how the brick LOOKS and in whether it compiles — not in
+     whether the drag works — so they must not be two handlers that could
+     drift apart. */
+  const chipDrop = (chip, act, label)=>{
+    chip.addEventListener('pointerdown', ev=>blkChipDrag(ev, chip, (at, dropped)=>{
+      if(!dropped){                                    // a click drops it at the end
+        at = blockEnd(seq);
+      }
+      blockHistPush(seq);
+      blockAdd(seq, 'act', act, at);
+      const b = blockList(seq)[blockList(seq).length-1];
+      BLK.sel = b.id;
+      buildSequencer();
+      blkFocusApply(true);
+      lg('mae','added '+label+' at '+(at/1000).toFixed(2)+'s'
+        + (blockWired(b) ? '' : ' — no channel yet, so it stays grey and compiles to nothing'));
+    }));
+  };
   blockActions().forEach(a=>{
     const c = el('div','blkchip pc', a.label);
     c.style.setProperty('--pc', blkColor(a.act));
     c.title = a.act+' · '+a.sub+'\nthis colour is this part, everywhere in the sequencer'
             + '\ndrag me onto the timeline';
     c.dataset.act = a.act;
-    c.addEventListener('pointerdown', ev=>blkChipDrag(ev, c, (at, dropped)=>{
-      if(!dropped){                                    // a click drops it at the end
-        at = blockEnd(seq);
-      }
-      blockHistPush(seq);
-      blockAdd(seq, 'act', a.act, at);
-      BLK.sel = blockList(seq)[blockList(seq).length-1].id;
-      buildSequencer();
-      blkFocusApply(true);
-      lg('mae','added '+a.label+' at '+(at/1000).toFixed(2)+'s');
-    }));
+    chipDrop(c, a.act, a.label);
     row.appendChild(c);
   });
 
@@ -599,26 +626,27 @@ function blkActionLib(seq){
      visual language `.blkchip.seq.off` already uses for a sequence that is
      not on the board.
 
-     WHAT A DRAG DOES: it REFUSES, with the reason and an offer to go and
-     map it. The alternative — map-then-use — would have to invent a channel
-     number on the user's behalf, and the channel a panel is on is a wiring
-     fact about a physical droid, not a detail the sequencer may guess. It
-     is also what the Pose view next door already does: an unmapped channel
-     there gets "map it to move it" instead of a dead slider (ui-sequencer.js
-     seqPoseChans/buildPose). One rule, both views. */
+     WHAT A DRAG DOES (v1.46.0). It LANDS. Mike: "The user should be able to
+     drag into the sequencer non mapped items but keep them grey - they may
+     not have the servo setup in the real model yet but want to build a
+     sequence". v1.45.0 refused it and offered to go and map it, which is the
+     wrong answer to "I am writing the choreography first": a routine is a
+     plan, and a plan may name a panel whose servo is still in its bag.
+
+     Nothing is guessed on the user's behalf — the brick carries no channel
+     number, stays grey wherever it is drawn, and is skipped by the compiler
+     BY NAME (blockUnwiredNote, blocks.js). The moment that panel is given a
+     channel the brick starts working with no further ceremony. */
   const movers = (typeof BLKH.movers === 'function') ? BLKH.movers() : [];
   const off = movers.filter(m=>!m.on);
   off.forEach(m=>{
     const c = el('div','blkchip off unconf', m.label);
     c.dataset.act = m.act;
-    c.title = m.label + ' has no servo channel yet — nothing to drive, so there is no brick.'
+    c.title = m.label + ' has no servo channel yet — drag it in anyway and the brick stays grey '
+            + 'until you map it; it moves nothing and compiles to nothing until then.'
             + (m.lit ? '\nprinted droid lists this one as ' + m.lit + ' rather than a servo; plenty of builds differ.' : '')
-            + (m.cad ? '\nCAD: ' + m.cad : '')
-            + '\nclick to map it to a channel';
-    /* pointerdown, not click: the wired chips start their drag on pointerdown
-       (blkChipDrag), so answering on the same event is what makes "you cannot
-       drag this one" read as an answer rather than as a dead control. */
-    c.addEventListener('pointerdown', ev=>{ ev.preventDefault(); ev.stopPropagation(); blkUnconfOffer(m); });
+            + (m.cad ? '\nCAD: ' + m.cad : '');
+    chipDrop(c, m.act, m.label);
     row.appendChild(c);
   });
   host.appendChild(row);
@@ -629,7 +657,8 @@ function blkActionLib(seq){
     b.addEventListener('click',()=>blkMapPanelsOpen());
     note.appendChild(document.createTextNode(
       off.length + ' moving panel' + (off.length===1?'':'s') + ' on this droid ' +
-      (off.length===1?'has':'have') + ' no servo channel yet — grey, and not draggable.'));
+      (off.length===1?'has':'have') + ' no servo channel yet — grey. '
+      + 'You can still drag ' + (off.length===1?'it':'them') + ' in and build the routine now.'));
     note.appendChild(b);
     host.appendChild(note);
   }
@@ -662,6 +691,28 @@ function blkActionLib(seq){
   return host;
 }
 
+/* ------------------------------------------------- the unwired warning
+   v1.46.0. A grey brick moves nothing on play and contributes nothing to
+   the compiled frames, and both of those are silent events — so the routine
+   says which bricks they are, by name, right under the timeline they are
+   sitting in. blockUnwiredNote() (blocks.js) owns the wording; this is only
+   where it is shown, plus the way out of it. */
+function blkUnwiredBanner(host, seq){
+  const note = blockUnwiredNote(seq);
+  if(!note) return;
+  const n = el('div','note blkunwired');
+  n.appendChild(el('b',null, note));
+  n.appendChild(document.createTextNode(
+    ' They keep their place and their timing, and are left out of the frames this compiles to '
+    + '— nothing on the board or in the model moves for them until the panel has a channel.'));
+  const bar = el('div','conbar');
+  const b = el('button','b','map them…');
+  b.addEventListener('click',()=>blkMapPanelsOpen());
+  bar.appendChild(b);
+  n.appendChild(bar);
+  host.appendChild(n);
+}
+
 /* Where a panel GETS a channel. The bench's Channels step is the one table
    with a part column per row and a Test button beside it, so that is the
    door — the same one ui-pane.js's servo-config button opens. The build
@@ -674,9 +725,11 @@ function blkMapPanelsOpen(){
   }
   return false;
 }
-/* One line, then a way out of the dead end — never a bare refusal. */
+/* One line, then a way out — never a bare refusal. v1.46.0: nothing REFUSES
+   any more (a grey brick is allowed to exist), so this is now reached from
+   the brick's own inspector, by someone who has decided to go and wire it. */
 async function blkUnconfOffer(m){
-  const why = m.label + ' has no servo channel yet, so a brick for it would drive nothing.'
+  const why = m.label + ' has no servo channel yet, so its bricks stay grey and move nothing.'
             + (m.lit ? '\n\nPrinted Droid lists this one as ' + m.lit + ' rather than a servo — plenty of builds differ.' : '');
   if(typeof appConfirm !== 'function'){ if(typeof toast === 'function') toast(why,'warn'); return; }
   const go = await appConfirm(why, {title:'not wired yet', yes:'map it now…', no:'not now'});
@@ -799,6 +852,21 @@ function blkInspector(seq){
   head.appendChild(el('b',null,label));
   head.appendChild(el('span','blkinspsub', 'starts at '+(b.t0/1000).toFixed(2)+'s'));
   host.appendChild(head);
+
+  /* v1.46.0 — a grey brick says so where you are already looking when you
+     click it, and offers the one thing that fixes it. Its timing fields
+     below stay live: retiming a brick you have not wired yet is exactly the
+     work Mike asked to be possible. */
+  if(!blockWired(b)){
+    const w = el('div','blkimp blkunwiredfield');
+    w.textContent = 'not wired to a channel yet — this brick moves nothing and is left out of the compiled frames.';
+    host.appendChild(w);
+    const bar0 = el('div','conbar');
+    const mb = el('button','b','map it now…');
+    mb.addEventListener('click',()=>blkUnconfOffer({label:blkLabel(b.ref), lit:(BLKH.litNote?BLKH.litNote(b.ref):'')}));
+    bar0.appendChild(mb);
+    host.appendChild(bar0);
+  }
 
   /* undo: every mutation rebuilds this inspector (each 'change' handler ends
      in buildSequencer()), so the state at BUILD time is the state just

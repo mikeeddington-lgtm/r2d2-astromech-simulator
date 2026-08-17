@@ -206,11 +206,18 @@ const FIX = f => fs.readFileSync(path.join(__dirname, 'fixtures-sketches', f), '
     const b = JSON.parse(JSON.stringify(buildGet()));
     /* 'mod2026' IS the PCA9685-direct answer for both servo questions
        (hardware.js buildUsesMaestro) — no Maestro anywhere in this build */
-    b.domeServo = 'mod2026'; b.bodyServo = 'mod2026';
+    b.domeServo = 'mod2026'; b.bodyServo = 'mod2026'; b.servoTopo = 'p0';
     const rec = firmwareRecommend(b);
+    /* v1.46.0 — this section is about the SERVO objection, and the shipped
+       default sound board changed to a DY-SV5W (Mike's call), which an
+       imported PCA sketch may also object to. So "clears" means no servo
+       objection, not zero objections — otherwise an unrelated default makes
+       this read as a suitability regression. */
+    const servoWhy = id => firmwareBlockers(id, b)
+      .map(x=>x.why).filter(w=>/servo|Maestro|PCA9685|expander|I2C/i.test(w));
     return {
-      maesBlocked: maes ? firmwareBlockers(maes, b).length > 0 : null,
-      pcaClear:    pca  ? firmwareBlockers(pca,  b).length === 0 : null,
+      maesBlocked: maes ? servoWhy(maes).length > 0 : null,
+      pcaClear:    pca  ? servoWhy(pca).length === 0 : null,
       recIsPort:   !/^sketch:/.test(rec.id),
       recId: rec.id
     };

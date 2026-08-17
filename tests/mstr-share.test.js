@@ -198,6 +198,230 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
      ['neutral','range','homemode','invert'].every(f=>(rep.dropped||[]).indexOf(f)>=0),
      (rep.dropped||[]).join(', '));
 
+  /* =================================================================
+     v1.46.0 — Mike: "when selecting Servo prompt if settings have
+     already been imported or created that they will be replaced and
+     offer the option to cancel or save a copy of existing, When
+     importing Choreography give them the option to save existing and
+     replace or add the imports as additions".
+
+     "Save a copy" is a DOWNLOAD (his answer today), stamped by
+     fileStamp() like every other writer, and it is a gate: no file, no
+     import. Every assertion below is about what happens to the work
+     already on the bench, which is the only thing these two prompts
+     exist to protect.
+     ================================================================= */
+  console.log('\n════ v1.46.0 — the two prompts: cancel, save a copy, replace, or add ════');
+  await ev(()=>{
+    /* every download in this section is captured, never written */
+    window.__dl = [];
+    window.__aclick = HTMLAnchorElement.prototype.click;
+    HTMLAnchorElement.prototype.click = function(){ window.__dl.push(this.download); };
+  });
+  const setup = () => ev(()=>{
+    setBoard('mini24'); makeStarter('dome','mini24'); MSTR.loaded = true;
+    loadoutReset(); reindexSubs();
+    /* six channels round the dial, the rest named by the starter: that is
+       "somebody did work here" by setupSaveWorth()'s definition */
+    MSTR.channels.forEach((c,i)=>{ if(i < 6 && /^servo/i.test(c.mode)) c.calibrated = true; });
+    if(typeof SETUP !== 'undefined'){ SETUP.changedAt = 0; SETUP.exportedAt = 0; }
+    window.__dl.length = 0;
+    /* THEIR file: travel that is not mine, plus two routines — one of which
+       deliberately collides with a routine I already have */
+    const clash = MSTR.sequences[0].name;
+    const ch = n=>'<Channel name="'+n+'" mode="Servo" min="4111" max="7888" homemode="Goto" home="4111"'
+      + ' speed="42" acceleration="4" neutral="4111" range="1905" />';
+    const names = MSTR.channels.slice(0,3).map(c=>c.name);
+    window.__CLASH  = clash;
+    window.__THEIRS = '<UscSettings version="1"><SerialMode>UART_FIXED_BAUD_RATE</SerialMode>'
+      + '<Channels MiniMaestroServoPeriod="80000" ServoMultiplier="1">'
+      + names.map(ch).join('')
+      + '</Channels><Sequences>'
+      + '<Sequence name="'+clash+'"><Frame name="f0" duration="500">7888 4111 5000</Frame></Sequence>'
+      + '<Sequence name="Their salute"><Frame name="f0" duration="400">4111 7888 6000</Frame></Sequence>'
+      + '</Sequences><Script ScriptDone="true"></Script></UscSettings>';
+    /* and a servo config: travel only, no choreography in it at all */
+    window.__CFG = (function(){
+      const o = JSON.parse(JSON.stringify(servoCfgExportObj()));
+      o.channels.forEach(c=>{ if(/^servo/i.test(c.mode||'')){ c.min = 4111; c.max = 7888; c.speed = 42; } });
+      return JSON.stringify(o);
+    })();
+    return {clash:clash, seqs:MSTR.sequences.length,
+            travel:JSON.stringify(MSTR.channels.map(c=>[c.min,c.max,c.speed])),
+            names:JSON.stringify(MSTR.sequences.map(s=>s.name)),
+            worth:impServoWorth()};
+  });
+  const start = (kind, key, name) => page.evaluate(a=>{
+    window.__r = null;
+    impChooseOpen({from:'test'});
+    impChooseLoad(window[a.key], a.name);
+    IMPCH.kind = a.kind;
+    jobwizRender();
+    impChooseRun().then(v=>{ window.__r = v; });
+  }, {kind, key, name});
+  const askUp   = id => page.waitForFunction('!!document.querySelector(\'.dlgcard [data-ask="'+id+'"]\')', {timeout:9000});
+  const ask     = id => page.click('.dlgcard [data-ask="'+id+'"]');
+  const settled = async ()=>{ await page.waitForFunction('window.__r !== null', {timeout:20000}); return ev(()=>window.__r); };
+  const state   = () => ev(()=>({
+    dl: window.__dl.slice(),
+    travel: JSON.stringify(MSTR.channels.map(c=>[c.min,c.max,c.speed])),
+    names: JSON.stringify(MSTR.sequences.map(s=>s.name)),
+    seqNames: MSTR.sequences.map(s=>s.name),
+    min0: MSTR.channels[0].min, speed0: MSTR.channels[0].speed,
+    loadout: loadoutNames().length,
+    log: LOG.slice(-14).map(e=>e.s).join(' | ')
+  }));
+
+  const S = await setup();
+  ok('a starter table with names and six ticked channels IS work worth keeping',
+     S.worth.worth === true && S.worth.named > 0 && S.worth.cal === 6, JSON.stringify(S.worth));
+
+  await start('servo','__CFG','friend-servos.json');
+  await askUp('cancel');
+  const sp = await ev(()=>{
+    const d = document.querySelector('.dlgcard');
+    return {ask: Array.from(d.querySelectorAll('[data-ask]')).map(b=>b.dataset.ask),
+            labels: Array.from(d.querySelectorAll('[data-ask]')).map(b=>b.textContent),
+            msg: d.querySelector('.dlgmsg').textContent,
+            danger: d.classList.contains('danger')};
+  });
+  ok('the servo prompt offers three ways out — cancel, save a copy first, replace',
+     sp.ask.join(',') === 'cancel,save,replace' && sp.danger === true, sp.labels.join(' | '));
+  ok('...and says plainly what is about to be replaced, in counts he recognises',
+     /named channel/.test(sp.msg) && /calibrated/.test(sp.msg) && /REPLACES/.test(sp.msg),
+     sp.msg.replace(/\n/g,' ').slice(0,140));
+  await ask('cancel');
+  ok('cancel really cancels — nothing imported, nothing written', await settled() === 'cancel');
+  const c1 = await state();
+  ok('...and the channel table is byte-identical', c1.travel === S.travel);
+  ok('...and no file was written either', c1.dl.length === 0, JSON.stringify(c1.dl));
+
+  await start('servo','__CFG','friend-servos.json');
+  await askUp('save');
+  await ask('save');
+  ok('"save a copy first, then import" then imports', await settled() === 'done');
+  const c2 = await state();
+  ok('...having written a timestamped servo config on the way past',
+     c2.dl.length === 1 && /^R2-servos-\d{4}-\d{2}-\d{2}-\d{4}\.json$/.test(c2.dl[0]), c2.dl.join(' '));
+  ok('...and the travel really is theirs now', c2.min0 === 4111 && c2.speed0 === 42,
+     c2.min0 + ' / ' + c2.speed0);
+  ok('"servo config only" left the choreography exactly as it was', c2.names === S.names);
+
+  await setup();
+  await ev(()=>{ window.__realCOU = URL.createObjectURL;
+                 URL.createObjectURL = ()=>{ throw new Error('the disk is full'); }; });
+  await start('servo','__CFG','friend-servos.json');
+  await askUp('save');
+  await ask('save');
+  ok('a copy that cannot be written ABORTS the import', await settled() === 'savefailed');
+  const c3 = await state();
+  ok('...and the travel is untouched, so nothing was half-done', c3.travel === S.travel);
+  ok('...and it says so rather than failing quietly',
+     /could not be written/.test((await ev(()=>{
+       const d = document.querySelector('.dlgcard');
+       return d ? d.textContent : '';
+     }))), 'dialog');
+  await page.click('.dlgcard .dlgyes');
+  await ev(()=>{ URL.createObjectURL = window.__realCOU; });
+
+  console.log('\n════ v1.46.0 — choreography: add as additions, or save and replace ════');
+  await setup();
+  await start('choreography','__THEIRS','their-droid.mstr');
+  await askUp('merge');
+  const cp = await ev(()=>{
+    const d = document.querySelector('.dlgcard');
+    return {ask: Array.from(d.querySelectorAll('[data-ask]')).map(b=>b.dataset.ask),
+            labels: Array.from(d.querySelectorAll('[data-ask]')).map(b=>b.textContent),
+            msg: d.querySelector('.dlgmsg').textContent};
+  });
+  ok('the choreography prompt offers save-and-replace, add-as-additions, and cancel',
+     cp.ask.join(',') === 'cancel,save,merge', cp.labels.join(' | '));
+  ok('...and promises that a clash is renamed rather than overwritten',
+     /renamed, never/.test(cp.msg), cp.msg.replace(/\n/g,' ').slice(0,140));
+  await ask('merge');
+  ok('adding as additions imports', await settled() === 'done');
+  const c4 = await state();
+  ok('the merge ADDS — every routine I had is still in the library',
+     JSON.parse(S.names).every(n=>c4.seqNames.indexOf(n) >= 0)
+     && c4.seqNames.length === S.seqs + 2,
+     c4.seqNames.length + ' of ' + (S.seqs + 2));
+  ok('...a name clash is renamed, never overwritten', c4.seqNames.indexOf(S.clash + '·') >= 0,
+     c4.seqNames.slice(-3).join(', '));
+  ok('...and how it was named is said out loud, not merely counted',
+     /renamed rather than overwritten/.test(c4.log) && c4.log.indexOf(S.clash + ' → ' + S.clash + '·') >= 0,
+     c4.log.slice(-140));
+  ok('"choreography only" left every endpoint I measured alone', c4.travel === S.travel);
+
+  await setup();
+  await start('choreography','__THEIRS','their-droid.mstr');
+  await askUp('save');
+  await ask('save');
+  ok('"save existing, then replace" imports', await settled() === 'done');
+  const c5 = await state();
+  ok('...having written a timestamped choreography file first',
+     c5.dl.length === 1 && /^R2-choreography-\d{4}-\d{2}-\d{2}-\d{4}\.json$/.test(c5.dl[0]), c5.dl.join(' '));
+  ok('...and the replace path really replaces — the imports ARE the library now',
+     c5.seqNames.length === 2 && c5.seqNames.indexOf('Their salute') >= 0
+     && c5.seqNames.indexOf(S.clash) >= 0, c5.seqNames.join(', '));
+  ok('...with the loadout rebuilt from what arrived, so the board matches the library',
+     c5.loadout === 2, String(c5.loadout));
+
+  await setup();
+  const pad = await ev(()=>{
+    const base = MSTR.sequences[0];
+    while(MSTR.sequences.length < 126)
+      MSTR.sequences.push({name:'Pad ' + MSTR.sequences.length, frames:base.frames});
+    return MSTR.sequences.length;
+  });
+  await start('choreography','__THEIRS','their-droid.mstr');
+  await askUp('merge');
+  await ask('merge');
+  await page.waitForFunction('document.querySelector(".dlgcard h4") && /will not fit/i.test(document.querySelector(".dlgcard h4").textContent)', {timeout:9000});
+  const big = await ev(()=>{
+    const d = document.querySelector('.dlgcard');
+    return {msg:d.querySelector('.dlgmsg').textContent, oneWay:!d.querySelector('.dlgno')};
+  });
+  await page.click('.dlgcard .dlgyes');
+  ok('a merge past what the board can address is refused BEFORE it happens',
+     await settled() === 'toobig');
+  ok('...and it says the limit out loud, with one way out',
+     /126/.test(big.msg) && big.oneWay === true, big.msg.replace(/\n/g,' ').slice(0,140));
+  ok('...and nothing was truncated — the library is exactly as it was',
+     await ev(()=>MSTR.sequences.length) === pad, String(pad));
+
+  console.log('\n════ v1.46.0 — servo config AND choreography asks about each of them ════');
+  await setup();
+  await start('both','__THEIRS','their-droid.mstr');
+  await askUp('replace');
+  await ask('replace');
+  await askUp('merge');
+  await ask('merge');
+  ok('both halves land', await settled() === 'done');
+  const c6 = await state();
+  ok('...the travel is theirs AND their routines are on the end of mine',
+     c6.min0 === 4111 && c6.seqNames.length === S.seqs + 2, c6.min0 + ' / ' + c6.seqNames.length);
+
+  const virgin = await ev(async ()=>{
+    setBoard('mini24'); makeStarter('dome','mini24'); MSTR.loaded = true;
+    /* an untouched table: no names of its own, nothing round the dial,
+       factory travel, no edits. Nagging about a file nobody has changed is
+       how people learn to click through dialogs without reading them. */
+    MSTR.channels.forEach((c,i)=>{ c.name = 'Channel ' + i; c.calibrated = false;
+                                   c.min = DEFAULT_MIN; c.max = DEFAULT_MAX; });
+    if(typeof SETUP !== 'undefined') SETUP.changedAt = 0;
+    const w = impServoWorth();
+    impChooseOpen({from:'test'});
+    impChooseLoad(window.__CFG, 'friend-servos.json');
+    IMPCH.kind = 'servo';
+    const r = await impChooseRun();
+    return {worth:w.worth, r:r, dlg:!!document.querySelector('.dlgcard'), min:MSTR.channels[0].min};
+  });
+  ok('the servo prompt appears ONLY when there is work worth keeping',
+     virgin.worth === false && virgin.r === 'done' && virgin.dlg === false && virgin.min === 4111,
+     JSON.stringify(virgin));
+
+  await ev(()=>{ HTMLAnchorElement.prototype.click = window.__aclick; });
+
   console.log('\n════ no page errors ════');
   ok('nothing threw', errs.length===0, errs.join(' | '));
 

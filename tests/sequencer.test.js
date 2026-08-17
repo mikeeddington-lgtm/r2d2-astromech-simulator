@@ -776,6 +776,114 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
      explodeRoutine.exp.bricks[0].mode===undefined && explodeRoutine.exp.bricks[0].fall > 100,
      JSON.stringify(explodeRoutine.exp.bricks[0]));
 
+  /* =================================================================
+     v1.46.0 — THE SIM'S OWN TRAVEL MODEL. Mike: "For the sequencer it
+     should always assume that the initial setting on the low of a servo is
+     Closed and whatever its set to is the max open on the model - the
+     settings for min and max on a real servo are only really for the real
+     model and not for the sim - this way we avoid a poor physical setup
+     ruining the sims look and functionality - they may have had to use a
+     weird offset or something"
+
+     So: min shuts, max opens, for a reversed pair, a 200 µs span, a wild
+     offset and a legacy invert:true channel alike — and the real board
+     still gets the authored µs, because a bad linkage is fixed on the
+     bench, never by quietly writing a different pulse.
+     ================================================================= */
+  console.log('\n════ v1.46.0 — the model shuts at min and opens at max, whatever the numbers ════');
+  /* Merging two agents' work in this release put an UNGUARDED
+     chanAdoptInvert() behind servo-cfg's importer, which swapped the ends of
+     every channel in an imported file — a straight round-trip of our own
+     export came back reversed. The guard belongs in the function, not in each
+     caller, and these two assertions are what hold it there. */
+  ok('adopting the retired flag is a no-op on a channel that never had it', await ev(()=>{
+    const c  = {i:0, name:'Pie 1', min:4400, max:7600, invert:false};
+    const c2 = {i:1, name:'Pie 2', min:4400, max:7600};      // no field at all
+    const did = chanAdoptInvert(c), did2 = chanAdoptInvert(c2);
+    return did===false && did2===false &&
+           c.min===4400 && c.max===7600 && c2.min===4400 && c2.max===7600;
+  }));
+  ok('...and it swaps exactly once on a channel that did', await ev(()=>{
+    const c = {i:0, name:'Pie 1', min:4400, max:7600, invert:true};
+    const first = chanAdoptInvert(c), second = chanAdoptInvert(c);
+    return first===true && second===false &&
+           c.min===7600 && c.max===4400 && c.invert===false;
+  }));
+  const tv = await ev(()=>{
+    const mk = o => Object.assign({i:0, name:'probe', mode:'Servo', act:'pie0',
+      min:4000, max:8000, home:6000, homemode:'Off', neutral:6000,
+      speed:0, acceleration:0, invert:false}, o);
+    const cases = {
+      /* the bench's own way of saying "this linkage runs backwards": the
+         two ends the other way round, no flag (hw-table.js) */
+      reversed:  mk({min:8000, max:4000}),
+      /* 200 µs of real travel — a tight linkage, or a nervous setup */
+      tinySpan:  mk({min:5900, max:6700}),
+      /* a weird offset: the whole throw sits nowhere near neutral */
+      bigOffset: mk({min:8800, max:10400}),
+      /* only our own .json exports can carry the retired flag */
+      legacy:    mk({min:4000, max:8000, invert:true})
+    };
+    /* liveWrite() must hand the board the authored µs and nothing else */
+    const sent = [];
+    const realDrive = HW.drive, realOn = window.liveOn, wasOn = LIVE.on;
+    HW.drive = (i,q)=>sent.push(q);
+    window.liveOn = ()=>true;
+    LIVE.on = true;
+
+    const out = {};
+    Object.keys(cases).forEach(k=>{
+      const c = cases[k];
+      const ends = chanEnds(c);              // adopts a legacy flag, if any
+      sent.length = 0;
+      liveWrite(c, c.max);
+      out[k] = {
+        min:c.min, max:c.max, invert:c.invert,
+        shut: chanNorm(c, c.min),
+        open: chanNorm(c, c.max),
+        mid:  chanNorm(c, Math.round((c.min + c.max)/2)),
+        past: chanNorm(c, c.max + (c.max - c.min)),      // clamped, not wrapped
+        rest: chanRest(c), restNorm: chanNorm(c, chanRest(c)),
+        ends: [ends.shut, ends.open],
+        sentRaw: sent.length===1 && sent[0]===c.max
+      };
+    });
+    /* end to end: a frame's µs reaches the wire untouched while the model
+       reads it against the settled rule */
+    const real = MSTR.channels.find(x=>x.act && /^servo/i.test(x.mode));
+    const keep = {min:real.min, max:real.max};
+    real.min = 8000; real.max = 4000;          // reversed, the bench's way
+    sent.length = 0;
+    const t = []; t[real.i] = 8000;            // its SHUT end
+    applyFrameTargets(t);
+    out.frameShut = {norm: ACT_T[real.act], sent: sent.slice()};
+    sent.length = 0;
+    const t2 = []; t2[real.i] = 4000;          // its OPEN end
+    applyFrameTargets(t2);
+    out.frameOpen = {norm: ACT_T[real.act], sent: sent.slice()};
+    real.min = keep.min; real.max = keep.max;
+
+    LIVE.on = wasOn; window.liveOn = realOn; HW.drive = realDrive;
+    return out;
+  });
+  ['reversed','tinySpan','bigOffset','legacy'].forEach(k=>{
+    const r = tv[k];
+    ok('a '+k+' channel shuts at min and opens fully at max on the model  ('+r.min+' → '+r.max+')',
+       r.shut===0 && r.open===1 && Math.abs(r.mid-0.5)<0.02, JSON.stringify(r));
+    ok('...its travel still clamps past the open end, and it rests SHUT',
+       r.past===1 && r.rest===r.min && r.restNorm===0, JSON.stringify(r));
+    ok('...and the board is handed the authored µs, unchanged', r.sentRaw, JSON.stringify(r));
+  });
+  /* the documented answer for a legacy flag: adopted into the pair, not
+     ignored — the pulse the flag used to call "fully open" still is */
+  ok('a legacy invert:true channel is ADOPTED into the pair, not ignored — the ends are swapped and the flag cleared',
+     tv.legacy.ends[0]===8000 && tv.legacy.ends[1]===4000 && tv.legacy.invert===false,
+     JSON.stringify(tv.legacy));
+  ok('the model reads a frame against min→max while the wire gets the raw µs',
+     tv.frameShut.norm===0 && tv.frameShut.sent.join()==='8000' &&
+     tv.frameOpen.norm===1 && tv.frameOpen.sent.join()==='4000',
+     JSON.stringify([tv.frameShut, tv.frameOpen]));
+
   console.log('\n════ no page errors ════');
   ok('nothing threw', errs.length===0, errs.join(' | '));
 

@@ -174,7 +174,13 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
   ok('picking a port moves the mapping to that channel', moved.now===9 && moved.before!==9, JSON.stringify(moved));
   ok('the old channel is released — one channel per part', await ev(()=>
     MSTR.channels.filter(c=>c.act==='doorL').length===1));
-  await ev(()=>{ loadProfile('mod2026'); });
+  /* v1.46.0 — mod2026 owns a FIXED pin map, and it only has one when the
+     expanders hang off the droid's own I2C pins. That arrangement stopped
+     being the shipped default this release (Mike put two expanders behind a
+     co-processor there), so the fixture has to ask for it rather than inherit
+     it — otherwise this asserts the sketch's map against a build the sketch
+     cannot drive, and reads as a regression in the readout. */
+  await ev(()=>{ buildSet('servoTopo','p0'); buildSet('domeServo','mod2026'); loadProfile('mod2026'); });
   await page.waitForTimeout(400);
   await page.evaluate(n=>selectPart(n), doorName);
   ok('mod2026 shows its fixed port instead', await ev(()=>{
@@ -206,6 +212,10 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
     $('startupBody').querySelectorAll('.wdwrap svg').length===1 &&
     typeof buildBoardsSect==='undefined' && typeof chPicker==='undefined'));
   ok('hwPins still reports a board at each end, and knows which one is live', await ev(()=>{
+    /* v1.46.0 — the two 16-channel PCA9685s at 0x40/0x41 are what mod2026
+       drives directly; the shipped default is now a 32-channel co-processor,
+       so this names the build it is describing. */
+    buildSet('servoTopo','p0'); buildSet('domeServo','mod2026');
     const d = hwPins('dome'), b = hwPins('body');
     return d.pins.length===16 && b.pins.length===16 &&
            /PCA9685 0x41/.test(d.title) && /PCA9685 0x40/.test(b.title) && b.live===true;
@@ -266,6 +276,7 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
            ps.filter(p=>p.act===act).length===1;
   }, [thirdCh, freeCh, srcAct]));
   ok('a mod2026 channel is reported as fixed — the sketch owns that map', await ev(()=>{
+    buildSet('servoTopo','p0'); buildSet('domeServo','mod2026');   // v1.46.0: not the default any more
     const p = hwPins('body').pins.find(x=>x.act);
     const use = chFindUse(p.act, 'dome', 0);
     return !!use && use.loc==='body' && use.fixed===true && chAssign('body', p.pin, '')===false;

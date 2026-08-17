@@ -170,6 +170,82 @@ function loadoutRename(oldName, newName){
   if(i >= 0) MSTR.loadout[i] = newName;
 }
 
+/* =====================================================================
+   THE CHOREOGRAPHY BACKUP (v1.46.0)
+
+   Mike, today, on the import chooser: "When importing Choreography give
+   them the option to save existing and replace" — and, asked what "save"
+   means: a download. So the sequence library needs a file of its own. It
+   had none: `exportMstr()` writes the library inside a Pololu settings
+   file (no good to a PCA builder, and it drags the channel table along),
+   and `setupExport()` writes the whole droid.
+
+   IT IS NOT A NEW FORMAT. The routines and the channel table they were
+   choreographed against go under `maestro`, which is the shape
+   servoCfgImportText() already reads (from:'setup') and impShape()
+   already understands — so this file goes back in through the one reader
+   and through the chooser like any other. A backup the app cannot read
+   back would be a worse trap than no backup at all.
+
+   The channel table rides along because a frame target is a number tuned
+   against particular endpoints: without them the routines in this file
+   cannot be re-expressed onto anybody's droid, including yours after the
+   next recalibration.
+   ===================================================================== */
+const SEQ_LIB_KIND = 'r2sim.choreography';
+const SEQ_LIB_VER  = 1;
+function seqLibExportObj(){
+  const chans = (typeof MSTR !== 'undefined' && MSTR.channels) ? MSTR.channels : [];
+  const seqs  = (typeof MSTR !== 'undefined' && MSTR.sequences) ? MSTR.sequences : [];
+  return {
+    kind: SEQ_LIB_KIND,
+    version: SEQ_LIB_VER,
+    app: (typeof APP_VERSION !== 'undefined') ? APP_VERSION : '',
+    board: (typeof MSTR !== 'undefined') ? MSTR.board : '',
+    count: seqs.length,
+    maestro: {
+      board: (typeof MSTR !== 'undefined') ? MSTR.board : '',
+      /* `act` is carried here and NOWHERE else it could do harm: the reader
+         never copies it into a channel (servo-cfg.js says why), but the
+         retargeter matches on it first, so a routine saved today lands on
+         the right panel when it is read back onto a re-wired board. */
+      channels: chans.map((c,i)=>Object.assign({i:i},
+        (typeof servoCfgFrom === 'function') ? servoCfgFrom(c || {}) : {},
+        {act:(c && c.act) || ''})),
+      sequences: JSON.parse(JSON.stringify(seqs)),
+      loadout: (typeof loadoutNames === 'function') ? loadoutNames() : []
+    }
+  };
+}
+/* Returns the filename it wrote, and THROWS if it could not write one.
+   "save existing, then replace" only means something if a failed write
+   stops the replace — impChooseSave() in wizard-import.js relies on both. */
+function seqLibExport(){
+  const obj  = seqLibExportObj();
+  const text = JSON.stringify(obj, null, 1);
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], {type:'application/json'}));
+  /* the same stamp every other writer in the app uses (fileStamp(),
+     core/util.js) — local time to the minute, so two saves in one
+     afternoon are told apart by their names rather than by "(1)" */
+  a.download = 'R2-choreography-' + fileStamp() + '.json';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 4000);
+  if(typeof lg === 'function')
+    lg('sys','choreography exported: '+a.download+' — '+obj.count+' routine(s), the library and the endpoints behind it');
+  if(typeof toast === 'function')
+    toast('Exported '+a.download+' — '+obj.count+' routine'+(obj.count===1?'':'s')+', with the endpoints they were built on');
+  return a.download;
+}
+/* is this text one of OUR choreography backups? Same question, same shape
+   as servoCfgLooksLikeCfg() — the drop handler asks before it sends a
+   .json anywhere, because the extension cannot tell these apart. */
+function seqLibLooksLike(text){
+  const t = String(text || '');
+  if(t.indexOf(SEQ_LIB_KIND) >= 0) return true;
+  try{ const j = JSON.parse(t); return !!(j && j.kind === SEQ_LIB_KIND); }catch(e){ return false; }
+}
+
 function enabledChannels(){
   return MSTR.channels.filter(c=>/^servo/i.test(c.mode)).map(c=>c.i);
 }

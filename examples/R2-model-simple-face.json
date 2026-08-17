@@ -1,0 +1,134 @@
+{
+ "format": "r2sim-model",
+ "v": 2,
+ "parts": [
+  {
+   "id": "p1",
+   "type": "panel",
+   "name": "Face panel",
+   "pos": {
+    "x": 0,
+    "y": 0,
+    "z": 0
+   },
+   "rot": {
+    "x": 0,
+    "y": 0,
+    "z": 0
+   },
+   "parent": "base",
+   "socket": "",
+   "channels": []
+  },
+  {
+   "id": "p2",
+   "type": "eye",
+   "name": "Left eye",
+   "pos": {
+    "x": 0,
+    "y": 0,
+    "z": 0
+   },
+   "rot": {
+    "x": 0,
+    "y": 0,
+    "z": 0
+   },
+   "parent": "p1",
+   "socket": "eyeL",
+   "channels": [
+    "bldJ1",
+    "bldJ1t"
+   ],
+   "jointN": 1
+  },
+  {
+   "id": "p3",
+   "type": "eye",
+   "name": "Right eye",
+   "pos": {
+    "x": 0,
+    "y": 0,
+    "z": 0
+   },
+   "rot": {
+    "x": 0,
+    "y": 0,
+    "z": 0
+   },
+   "parent": "p1",
+   "socket": "eyeR",
+   "channels": [
+    "bldJ2",
+    "bldJ2t"
+   ],
+   "jointN": 2
+  },
+  {
+   "id": "p4",
+   "type": "brow",
+   "name": "Left brow",
+   "pos": {
+    "x": 0,
+    "y": 0,
+    "z": 0
+   },
+   "rot": {
+    "x": 0,
+    "y": 0,
+    "z": 0
+   },
+   "parent": "p1",
+   "socket": "browL",
+   "axis": "z",
+   "channels": [
+    "bldJ3"
+   ],
+   "jointN": 3
+  },
+  {
+   "id": "p5",
+   "type": "brow",
+   "name": "Right brow",
+   "pos": {
+    "x": 0,
+    "y": 0,
+    "z": 0
+   },
+   "rot": {
+    "x": 180,
+    "y": 0,
+    "z": 0
+   },
+   "parent": "p1",
+   "socket": "browR",
+   "axis": "z",
+   "channels": [
+    "bldJ4"
+   ],
+   "jointN": 4
+  },
+  {
+   "id": "p6",
+   "type": "mouth",
+   "name": "Mouth",
+   "pos": {
+    "x": 0,
+    "y": 0,
+    "z": 0
+   },
+   "rot": {
+    "x": 0,
+    "y": 0,
+    "z": 0
+   },
+   "parent": "p1",
+   "socket": "mouth",
+   "axis": "x",
+   "channels": [
+    "bldJ5"
+   ],
+   "jointN": 5
+  }
+ ]
+}

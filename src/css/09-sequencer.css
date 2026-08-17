@@ -153,6 +153,34 @@ body.seqmode #seqblocks .blklib{flex:0 0 auto;max-height:200px;overflow:auto}
   max-height:230px;overflow:auto;white-space:pre;
 }
 
+/* ============================================ NOT WIRED YET (v1.46.0)
+   Mike: "The user should be able to drag into the sequencer non mapped
+   items but keep them grey - they may not have the servo setup in the real
+   model yet but want to build a sequence."
+
+   Same visual language the library chip already uses for an unconfigured
+   panel (.blkchip.off.unconf, 08-import.css) and a sequence that is not on
+   the board (.blkchip.seq.off, 07-startup.css): dimmed, dashed, and grey
+   rather than a part colour — there is no part colour, because there is no
+   channel to derive one from. These override .blkbrick.pc / .blklane.pc,
+   which is why they live here: 09 loads after 07.
+   ================================================================ */
+.blkbrick.unwired{
+  background:none; border-style:dashed; border-color:var(--dimmer);
+  color:var(--dim); opacity:.62;
+}
+.blkbrick.unwired .blkdur{color:var(--dimmer);font-style:italic}
+/* the ramp wedges are a promise about movement this brick cannot keep */
+.blkbrick.unwired .blkrise,.blkbrick.unwired .blkfall{display:none}
+.blkbrick.unwired.sel{opacity:.85}
+.blklane.unwired{border-left-color:var(--dimmer);color:var(--dim);font-style:italic}
+/* the grey chips are draggable now, so they must not say otherwise */
+.blkchip.off.unconf{cursor:grab}
+.blkchip.off.unconf:active{cursor:grabbing}
+/* the named warning under the timeline */
+.note.blkunwired{border-left:3px solid var(--dimmer)}
+.blkunwiredfield{padding:2px 0 4px}
+
 /* ---------------------------------------------------- live drive (v1.39.0)
    The sequencer's ⚡ button, armed. AMBER, not the blue --cta: the project
    rule is "--am warnings", and something moving in the room because of a

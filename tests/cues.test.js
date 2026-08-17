@@ -117,6 +117,28 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
   ok('holding a group cue opens every member at once', perform.n>1 && perform.openAll, JSON.stringify(perform));
   ok('letting go sends the whole group home', perform.homeAll);
 
+  /* v1.46.0 — a cue on a REVERSED channel. Mike: min is Closed and max is
+     fully open ON THE MODEL, whatever the two numbers are. chanNorm() used
+     to sort the pair, so a panel whose linkage runs backwards (min > max,
+     the bench's own convention — hw-table.js) stood wide open on screen
+     while the real one was shut, and a cue that "opened" it shut it. */
+  ok('a cue on a reversed channel opens the panel on the model, not shuts it', await ev(()=>{
+    const a = cueCatalog().find(c=>c.kind==='act');
+    const c = blockChan(a.ref);
+    const keep = {min:c.min, max:c.max, home:c.home};
+    c.min = 8000; c.max = 4000; c.home = 8000;        // shut high, open low
+    cueSet('B', a);
+    CUE.latch.B = false;
+    const step = (v, ms)=>{ INPUT.virtual.btn.B = v; pollInput(); for(let t=0;t<ms;t+=25) puppetTick(25); };
+    step(1, 200);
+    const open = ACT_T[a.ref];
+    step(0, 200);
+    const shut = ACT_T[a.ref];
+    cueClear('B');
+    c.min = keep.min; c.max = keep.max; c.home = keep.home;
+    return open > 0.95 && shut < 0.05;
+  }));
+
   ok('an analog control on a cue gives partial travel', await ev(()=>{
     const act = cueCatalog().find(c=>c.kind==='act');
     cueSet('L2', act);

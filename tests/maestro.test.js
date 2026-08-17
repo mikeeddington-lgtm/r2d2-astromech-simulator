@@ -161,14 +161,17 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
   ok('a captured frame survives export → re-import with its duration and target',
      edit.n1===edit.n0+1 && edit.dur===640 && edit.val===7777, JSON.stringify(edit));
 
+  /* v1.46.0 — the `invert` leg of this assertion is gone. `invert` is retired
+     (chanEnds/chanAdoptInvert, maestro/playback.js): a channel that reads
+     backwards is min and max the other way round, which is a property of the
+     pair and not a flag beside it. What chanNorm owes the caller either way is
+     the mapping below. */
   const norm = await ev(()=>{
-    const c={i:0,min:4000,max:8000,invert:false};
-    const a=chanNorm(c,4000), b=chanNorm(c,6000), d=chanNorm(c,8000), e=chanNorm(c,9999);
-    c.invert=true; const f=chanNorm(c,4000);
-    return [a,b,d,e,f];
+    const c={i:0,min:4000,max:8000};
+    return [chanNorm(c,4000), chanNorm(c,6000), chanNorm(c,8000), chanNorm(c,9999)];
   });
   ok('quarter-us → travel maps min→0, mid→0.5, max→1 and clamps',
-     norm[0]===0 && Math.abs(norm[1]-0.5)<1e-9 && norm[2]===1 && norm[3]===1 && norm[4]===1, JSON.stringify(norm));
+     norm[0]===0 && Math.abs(norm[1]-0.5)<1e-9 && norm[2]===1 && norm[3]===1, JSON.stringify(norm));
 
   console.log('\n════ import robustness ════');
   const bad = await ev(()=>{
@@ -330,6 +333,77 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
     if(typeof setupClose==='function') setupClose();
     return key === 'channels';
   }));
+
+  /* =================================================================
+     v1.46.0 — `invert` is retired. On the model min is shut and max is
+     fully open, directed rather than sorted, so "this linkage runs the
+     other way" is the two ends swapped — which is what the bench's own
+     REV tick already did. The channel table's tick now does the same
+     thing rather than setting a flag beside the pair.
+     ================================================================= */
+  console.log('\n════ v1.46.0 — the channel table reverses a linkage by swapping its ends ════');
+  const rev = await ev(()=>{
+    makeStarter('dome'); CFG.maestroSource='imported'; rebuildMaestroUI();
+    const row = $('maeHost').querySelector('.chrow') || $('maeHost');
+    const cb = Array.from($('maeHost').querySelectorAll('input[type=checkbox]'))
+      .find(x=>/revers/i.test(x.title||''));
+    if(!cb) return {missing:true, titles:Array.from($('maeHost').querySelectorAll('input[type=checkbox]')).map(x=>x.title)};
+    const c = MSTR.channels[0];
+    const before = [c.min, c.max];
+    cb.checked = true; cb.dispatchEvent(new Event('change'));
+    const after = [c.min, c.max];
+    cb.checked = false; cb.dispatchEvent(new Event('change'));
+    return {before, after, back:[c.min,c.max], title:cb.title,
+            says:/invert/i.test(cb.title||'')};
+  });
+  ok('the tick is a REVERSE tick, and its words say what it does to the two ends',
+     !rev.missing && /swaps/.test(rev.title||'') && rev.says===false,
+     rev.missing ? JSON.stringify(rev.titles) : rev.title);
+  ok('...and ticking it swaps min and max rather than setting a flag',
+     !rev.missing && rev.after[0]===rev.before[1] && rev.after[1]===rev.before[0]
+     && rev.back[0]===rev.before[0] && rev.back[1]===rev.before[1],
+     JSON.stringify([rev.before, rev.after, rev.back]));
+  ok('nothing in the import path still calls inverted travel a live setting', await ev(()=>{
+    const drops = pcaExportDrops(MSTR.channels, loadoutSeqs());
+    const d = drops.find(x=>x.field==='invert');
+    return !!d && /retired in v1\.46\.0/.test(d.why);
+  }));
+
+  /* =================================================================
+     v1.46.0 — the choreography backup. Mike, asked what "save existing"
+     means on the import chooser: a download. The sequence library had no
+     file of its own — exportMstr() buries it in a Pololu settings file
+     and setupExport() writes the whole droid — so this is it, stamped
+     like everything else and readable back through the ONE reader.
+     ================================================================= */
+  console.log('\n════ v1.46.0 — the choreography library has a file of its own ════');
+  const cho = await ev(()=>{
+    makeStarter('dome','mini24'); CFG.maestroSource='imported'; reindexSubs();
+    const seen = [];
+    const real = HTMLAnchorElement.prototype.click;
+    HTMLAnchorElement.prototype.click = function(){ seen.push(this.download); };
+    let name = '';
+    try{ name = seqLibExport(); }catch(e){ seen.push('threw: '+e.message); }
+    HTMLAnchorElement.prototype.click = real;
+    const text = JSON.stringify(seqLibExportObj());
+    const sh = (typeof impShape === 'function') ? impShape(text, 'R2-choreography.json') : null;
+    return {seen, name, stamp:fileStamp(), sniff:seqLibLooksLike(text),
+            notCfg:(typeof servoCfgLooksLikeCfg==='function') ? servoCfgLooksLikeCfg(text) : null,
+            routines:JSON.parse(text).count, mine:MSTR.sequences.length,
+            shape: sh ? {from:sh.from, servo:sh.servo, choreo:sh.choreo} : null,
+            readable:(function(){ try{ return servoCfgImportText(text,'R2-choreography.json').from; }
+                                  catch(e){ return 'threw: '+e.message; } })()};
+  });
+  ok('it is written as a timestamped .json, to the minute like every other writer',
+     /^R2-choreography-\d{4}-\d{2}-\d{2}-\d{4}\.json$/.test(cho.seen[0]||'')
+     && (cho.seen[0]||'').indexOf(cho.stamp)>0 && cho.name===cho.seen[0], cho.seen[0]);
+  ok('it carries the whole library', cho.routines===cho.mine && cho.routines>0,
+     cho.routines+' of '+cho.mine);
+  ok('it is sniffed as ours and NOT confused with a servo config',
+     cho.sniff===true && cho.notCfg===false);
+  ok('the one reader reads it back, and the chooser sees both halves in it',
+     cho.readable==='setup' && cho.shape && cho.shape.servo>0 && cho.shape.choreo>0,
+     cho.readable+' · '+JSON.stringify(cho.shape));
 
   // leave it in a sane state
   await ev(()=>{ makeStarter(); CFG.maestroSource='imported'; rebuildMaestroUI(); });

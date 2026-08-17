@@ -68,7 +68,11 @@ const MSTR = {
      Pololu board is plugged in", and boardIsPca() is how you ask. */
   board:'mini24',
   servoCount:24,
-  channels:[],        // {i,name,mode,min,max,home,homemode,neutral,range,speed,acceleration,act,invert}
+  /* {i,name,mode,min,max,home,homemode,neutral,range,speed,acceleration,act}
+     — plus `invert`, RETIRED in v1.46.0. min is the shut end and max the open
+     one, whatever their order; a legacy file's flag is adopted into that pair
+     once and cleared. See chanNorm() in maestro/playback.js. */
+  channels:[],
   sequences:[],       // {name, frames:[{name,duration,targets:[]}]}  — the LIBRARY
   loadout:null,       // ordered sequence names that go on the BOARD (null = all)
   subs:[],            // {index,name,kind:'sequence'|'frame'|'other',seqIndex,pushOrder}
@@ -118,9 +122,11 @@ function chanRest(c){
   if(/^goto$/i.test(c.homemode || '') && c.home !== undefined && c.home !== null) return c.home;
   const r = actRestNorm(c.act);
   if(r === null) return (c.home !== undefined && c.home !== null) ? c.home : (c.neutral || DEFAULT_NEUTRAL);
-  const lo = Math.min(c.min, c.max), hi = Math.max(c.min, c.max);
-  const t = c.invert ? 1 - r : r;
-  return Math.round(lo + t * (hi - lo));
+  /* v1.46.0 — chanDenorm(), not a sorted pair: min is the SHUT end and max
+     the open one whatever their numeric order, so "a door rests at 0" now
+     parks a reversed channel at its own shut end rather than at whichever
+     number happened to be lower. One rule, see chanNorm() in playback.js. */
+  return chanDenorm(c, r);
 }
 
 function qus(v){ return (v/4).toFixed(0)+' us'; }

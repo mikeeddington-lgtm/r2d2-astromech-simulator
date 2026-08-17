@@ -32,7 +32,15 @@
 
 /* the fields a servo config is made of. Anything else in the file is
    ignored on the way in and absent on the way out. */
-const SERVO_CFG_FIELDS = ['name','min','max','home','homemode','neutral','range','speed','acceleration','mode','invert'];
+const SERVO_CFG_FIELDS = ['name','min','max','home','homemode','neutral','range','speed','acceleration','mode'];
+/* v1.46.0 — `invert` is retired (chanEnds/chanAdoptInvert, playback.js): min
+   is the shut end and max the open one, directed rather than sorted. It is
+   still READ, because every servo config this app wrote before v1.46.0 has
+   the column and a channel that carried `invert:true` has its two ends the
+   other way round; servoCfgApply() adopts it into the min/max pair. It is no
+   longer WRITTEN, because writing it would put a setting that no longer
+   exists into a file somebody keeps for years. */
+const SERVO_CFG_READ_FIELDS = SERVO_CFG_FIELDS.concat(['invert']);
 const SERVO_CFG_KIND   = 'r2sim.servo-config';
 const SERVO_CFG_VER    = 1;
 
@@ -170,7 +178,15 @@ function servoCfgApply(rows, opts){
     if(i < 0 || i >= (typeof HW !== 'undefined' && HW.count ? HW.count() : 24)){ skipped++; return; }
     const c = (typeof HW !== 'undefined' && HW.ensure) ? HW.ensure(i) : MSTR.channels[i];
     if(!c){ skipped++; return; }
-    SERVO_CFG_FIELDS.forEach(k=>{ if(r[k] !== undefined) c[k] = r[k]; });
+    SERVO_CFG_READ_FIELDS.forEach(k=>{ if(r[k] !== undefined) c[k] = r[k]; });
+    /* v1.46.0 — a pre-v1.46 file may say `invert:true`, which meant "this
+       channel's travel reads backwards". That is now expressed by min and max
+       being the other way round, so the flag is adopted into the pair and
+       cleared. chanAdoptInvert() lives in playback.js with chanEnds(); it is
+       guarded because this module has to keep working in a tree that does not
+       carry it yet, and the swap here is exactly what it does. */
+    if(typeof chanAdoptInvert === 'function') chanAdoptInvert(c);
+    else if(c.invert){ const t = c.min; c.min = c.max; c.max = t; c.invert = false; }
     /* `act` is this droid's wiring, not the file's — see the header */
     n++;
   });
@@ -240,8 +256,34 @@ function servoCfgAccept(){
 }
 function servoCfgImportFile(file, done){
   const fr = new FileReader();
-  fr.onload = ()=>{
+  fr.onload = async ()=>{
     try{
+      /* v1.46.0 — Mike: "when selecting Servo prompt if settings have already
+         been imported or created that they will be replaced and offer the
+         option to cancel or save a copy of existing".
+
+         The prompt belongs HERE, at the door, not only in the new chooser:
+         this function is what every servo-config picker in the app goes
+         through — #btnCfgImport on the Maestro pane, the bench's Channels
+         step, the job wizard — and each of them replaced an afternoon of
+         calibration without asking. impAskServo()/impChooseSave() live in
+         maestro/wizard-import.js with the rest of the v1.46.0 chooser and are
+         guarded, so a host that does not load it keeps the old behaviour
+         rather than losing the import. */
+      if(typeof impAskServo === 'function' && typeof impServoWorth === 'function'
+         && impServoWorth().worth){
+        const sh = (typeof impShape === 'function') ? impShape(String(fr.result), file.name) : null;
+        if(sh && !sh.err){
+          if(typeof IMPCH !== 'undefined') IMPCH.name = file.name;
+          const way = await impAskServo(sh);
+          if(way === 'cancel'){
+            if(typeof lg === 'function') lg('sys','servo config import cancelled — nothing was touched');
+            if(typeof toast === 'function') toast('Import cancelled — your servo config is untouched');
+            return;
+          }
+          if(way === 'save' && typeof impChooseSave === 'function' && !impChooseSave('servo')) return;
+        }
+      }
       const r = servoCfgImportText(String(fr.result), file.name);
       const from = r.from === 'mstr' ? 'a Maestro settings file'
                  : r.from === 'pca'  ? 'a PCA9685 servos.h / sequences.h'

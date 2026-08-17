@@ -265,9 +265,19 @@ const BUILD_OPTIONS = {
 function buildDefault(){
   return {
     done:false, step:0,
-    controller:'xbox360', domeMotor:'syren10', domeServo:'mod2026',
-    domeLights:'astropixels', bodyDrive:'sabertooth', bodyServo:'mod2026',
-    sound:'mdyx5300', arduino:'megaadk', firmware:'mod2026',
+    controller:'xbox360', domeMotor:'syren10', domeServo:'mpca32',
+    domeLights:'astropixels', bodyDrive:'sabertooth', bodyServo:'mpca32',
+    /* v1.46.0 — Mike: "the DY-SV5W should be the first and default option",
+       and the two-expander arrangement below is his default too. He was asked
+       what that does to the sketch and chose to KEEP padawan360 mod2026 as the
+       default answer, knowing the pair does not agree: mod2026 writes its own
+       I2C pulses so it cannot reach expanders behind a co-processor, and it
+       opens an MD-YX5300 rather than a DY-SV5W. So a brand-new build shows
+       those two objections on the firmware card and on the review, and
+       `firmwarePinned` is false, so ONE click on "let the setup choose" lands
+       Maestro 2025 (PWM) and clears both. This is deliberate and it is his
+       call — do not "fix" the inconsistency by quietly changing the sketch. */
+    sound:'dysv5w', arduino:'megaadk', firmware:'mod2026',
     /* v1.34.0 — the merged servo question's two extra answers. `servoSplit`
        is 'one' when a single controller runs the whole droid; `servoLink` is
        how two of them reach the host. Both are ignored when they cannot
@@ -277,7 +287,13 @@ function buildDefault(){
     /* v1.36.0 — the SHAPE, and the two board sizes it needs. servoSplit and
        servoLink are derived from these now (buildNormaliseServos); they are
        kept as answers because everything downstream already speaks them. */
-    servoDevice:'pca', servoTopo:'p0',
+    /* v1.46.0 — Mike: "This should be the default option as in first and
+       selected in the list". `p1x2` is first among the PCA arrangements below
+       and it is the shipped answer, which is why domeServo/bodyServo above are
+       `mpca32`: buildNormaliseServos() derives them from this shape, and a
+       default that disagrees with its own derivation would be a build nobody
+       chose. */
+    servoDevice:'pca', servoTopo:'p1x2',
     servoSize1:'mini24', servoSize2:'mini12',
     /* v1.35.0 — set the moment YOU choose a firmware. The question moved to
        step 3, ahead of the hardware it has to match, so a later hardware
@@ -451,7 +467,15 @@ const SERVO_TOPOS = [
    boards:2, links:2, link:'separate',
    flow:[['Padawan','Maestro 1','Servos'],['Padawan','Maestro 2','Servos']],
    note:'Each board on its own serial port from the droid — unambiguous, and the arrangement you would want. Not working yet: the sketch opens exactly one Maestro port, and all four of the Mega\'s UARTs are already spoken for.'},
-  /* ------------------------------------------------------------- PCA9685 */
+  /* ------------------------------------------------------------- PCA9685
+     v1.46.0 — Mike: "This should be the default option as in first and
+     selected in the list". Two expanders behind one co-processor leads the
+     PCA arrangements now; the order of this array IS the order of the cards
+     on the setup's Servo hardware step, and buildDefault() names p1x2. */
+  {id:'p1x2', device:'pca', label:'One controller, two expanders', sim:'full',
+   boards:1, links:1, pca:2, link:'chain',
+   flow:[['Padawan','Controller','PCA9685 1','PCA9685 2','Servos']],
+   note:'32 channels. The second expander shares the first\'s I2C wires with its address jumper soldered, so it is still one controller and one link from the droid.'},
   {id:'p0', device:'pca', label:'Straight off the droid\'s board', sim:'full',
    boards:0, links:1, pca:2, direct:true, link:'chain',
    flow:[['Padawan','PCA9685 ×2','Servos']],
@@ -460,10 +484,6 @@ const SERVO_TOPOS = [
    boards:1, links:1, pca:1, link:'chain',
    flow:[['Padawan','Controller','PCA9685','Servos']],
    note:'16 channels behind one small board. The controller answers the droid exactly as a Maestro would, so no code on the droid changes.'},
-  {id:'p1x2', device:'pca', label:'One controller, two expanders', sim:'full',
-   boards:1, links:1, pca:2, link:'chain',
-   flow:[['Padawan','Controller','PCA9685 1','PCA9685 2','Servos']],
-   note:'32 channels. The second expander shares the first\'s I2C wires with its address jumper soldered, so it is still one controller and one link from the droid.'},
   {id:'p2s', device:'pca', label:'Two controllers, one link each', sim:'park',
    boards:2, links:2, pca:1, link:'separate',
    flow:[['Padawan','Controller 1','PCA9685 1','Servos'],['Padawan','Controller 2','PCA9685 2','Servos']],

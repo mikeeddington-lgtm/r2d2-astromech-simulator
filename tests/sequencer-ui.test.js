@@ -1192,8 +1192,12 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
      something (BLKH.actions()'s !c.act rule), so a panel you had not
      wired yet was simply absent — indistinguishable from a panel your
      droid does not have. Every mover on the model is listed now; the
-     ones with no servo channel are dimmed and dashed and refuse the
-     drag with a reason, exactly as the Pose view refuses a slider.
+     ones with no servo channel are dimmed and dashed.
+
+     v1.46.0 changed what a DRAG does — see the block below. The chip's
+     appearance, its tooltip, the count under the list and the "only wired
+     parts in a Ready-made group" rule are all still v1.45.0's, and are
+     still asserted here.
      ================================================================= */
   console.log('\n════ v1.45.0 — every moving panel is in the library, unconfigured ones in grey ════');
   const gy = await ev(()=>{
@@ -1235,26 +1239,134 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
   ok('the count is stated under the list, not left to be noticed', gy.note);
   ok('the first .blkchip.pc is still a wired, draggable part', gy.firstPcIsWired);
 
-  const gyDrag = await ev(()=>{
+  /* =================================================================
+     v1.46.0 — Mike: "The user should be able to drag into the sequencer
+     non mapped items but keep them grey - they may not have the servo
+     setup in the real model yet but want to build a sequence"
+
+     v1.45.0 REFUSED the drop and offered to go and map it. That was the
+     wrong answer to "I am writing the choreography before I have wired
+     the droid", so the drop lands now. What must stay true is the pair of
+     promises that keep a grey brick honest: it looks unmistakably unwired
+     wherever it is drawn, and it is left out of the compiled frames BY
+     NAME rather than silently — a frame row that drives nothing is still
+     forbidden. The whole life of one: drag → drop → grey → persists →
+     compile skips it and says which → map it → it compiles.
+     ================================================================= */
+  console.log('\n════ v1.46.0 — an unmapped part can be dragged in, and stays grey ════');
+  const uw = await ev(()=>{
     const seq = MSTR.sequences[EDIT.seq];
+    /* one wired brick, so we have a baseline frame list to compare against */
+    blockList(seq).slice().forEach(b=>blockRemove(seq, b.id));
+    const wiredAct = blockActions()[0].act;
+    blockAdd(seq, 'act', wiredAct, 0, {dur:1000});
+    blockSync(seq);
+    const framesWiredOnly = JSON.stringify(seq.frames);
+    buildSequencer();
+
+    /* DRAG the grey chip onto the timeline — a real gesture, ghost and all */
+    const chip  = document.querySelector('#seqblocks .blkchip.unconf[data-act="pie0"]');
+    const track = document.querySelector('#seqblocks .blktrack');
+    const cr = chip.getBoundingClientRect(), tr = track.getBoundingClientRect();
     const before = blockList(seq).length;
-    const chip = document.querySelector('#seqblocks .blkchip.unconf');
-    const r = chip.getBoundingClientRect();
-    chip.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,clientX:r.x+4,clientY:r.y+4,pointerId:11}));
-    window.dispatchEvent(new PointerEvent('pointerup',{bubbles:true,clientX:r.x+4,clientY:r.y+4,pointerId:11}));
-    return {before, after:blockList(seq).length};
+    const at = {clientX:tr.x + 40, clientY:tr.y + tr.height/2, pointerId:11, bubbles:true};
+    chip.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,clientX:cr.x+4,clientY:cr.y+4,pointerId:11}));
+    window.dispatchEvent(new PointerEvent('pointermove', at));
+    window.dispatchEvent(new PointerEvent('pointerup', at));
+
+    const list = blockList(seq);
+    const brick = list[list.length-1];
+    const dropped = list.length === before+1 && brick && brick.kind==='act' && brick.ref==='pie0';
+
+    /* park it PAST the wired brick's end, which is where an unwired brick
+       could stretch the frame list if the compiler still counted it */
+    if(brick){ brick.t0 = 2000; brick.dur = 1200; }
+    blockSync(seq);
+    buildSequencer();
+
+    const node = document.querySelector('#seqblocks .blkbrick[data-id="'+(brick?brick.id:-1)+'"]');
+    /* getComputedStyle hands back a LIVE declaration, and this test rebuilds
+       the pane below — so the look is read into plain values HERE */
+    const cs   = node ? getComputedStyle(node) : null;
+    const look = {unwiredClass: !!(node && node.classList.contains('unwired')),
+                  dashed: cs ? cs.borderTopStyle==='dashed' : false,
+                  dim: cs ? parseFloat(cs.opacity) < 1 : false,
+                  says: node ? node.textContent : '',
+                  title: node ? node.title : ''};
+    const lane = document.querySelector('#seqblocks .blklane.unwired');
+
+    /* persistence: through the store the sequencer actually saves to */
+    servoStoreFlush();
+    const raw = JSON.parse(localStorage.getItem('r2sim.servo.v1') || '{}');
+    const savedSeq = (raw.sequences||[]).find(s=>s.name===seq.name);
+    const savedBrick = savedSeq && (savedSeq.blocks||[]).find(b=>b.ref==='pie0');
+    /* and back again — the model reloaded from that JSON still draws it grey */
+    MSTR.sequences[EDIT.seq] = JSON.parse(JSON.stringify(savedSeq));
+    blockSync(MSTR.sequences[EDIT.seq]);
+    buildSequencer();
+    const seq2 = MSTR.sequences[EDIT.seq];
+    const reBrick = blockList(seq2).find(b=>b.ref==='pie0');
+    const reNode = reBrick ? document.querySelector('#seqblocks .blkbrick[data-id="'+reBrick.id+'"]') : null;
+
+    return Object.assign(look, {
+      dropped,
+      laneGrey: !!lane,
+      framesUnchanged: JSON.stringify(seq.frames) === framesWiredOnly,
+      note: blockUnwiredNote(seq),
+      banner: (document.querySelector('#seqblocks .blkunwired')||{}).textContent || '',
+      unwiredList: blockUnwired(seq).map(u=>u.ref),
+      persisted: !!savedBrick,
+      reloadedGrey: !!(reNode && reNode.classList.contains('unwired')),
+      reloadedFrames: JSON.stringify(seq2.frames) === framesWiredOnly,
+      framesWiredOnly
+    });
   });
-  ok('dragging a grey chip does not create a brick that drives nothing',
-     gyDrag.before === gyDrag.after, gyDrag.before+' → '+gyDrag.after);
-  await page.waitForTimeout(120);
-  const gyOffer = await ev(()=>{
-    const d = document.querySelector('.dlgwrap');
-    const t = d ? d.textContent : '';
-    if(d){ const no = d.querySelector('.dlgno') || d.querySelector('button'); if(no) no.click(); }
-    return t;
-  });
-  ok('...it offers to go and map it instead', /map/i.test(gyOffer) && /no servo channel/i.test(gyOffer),
-     gyOffer.slice(0,100));
+  ok('the drop LANDS — a part with no channel becomes a real brick', uw.dropped);
+  ok('...drawn in the grey/dashed unconfigured style, and it says why on the brick',
+     uw.unwiredClass && uw.dashed && uw.dim && /not wired/i.test(uw.says) && /no servo channel yet/i.test(uw.title),
+     uw.says+' | '+uw.title.slice(0,60));
+  ok('...its lane name goes grey with it', uw.laneGrey);
+  ok('...and it survives save and reload like any other brick',
+     uw.persisted && uw.reloadedGrey, 'persisted='+uw.persisted+' grey after reload='+uw.reloadedGrey);
+  ok('the compiler emits NOT ONE extra frame for it — byte-for-byte the routine without it',
+     uw.framesUnchanged && uw.reloadedFrames, uw.framesWiredOnly.length+' chars');
+  ok('...and it is skipped BY NAME, not silently',
+     /^1 brick is not wired to a channel yet: /.test(uw.note) && uw.unwiredList.join()==='pie0',
+     uw.note);
+  ok('...said under the timeline where the brick is', uw.note && uw.banner.indexOf(uw.note)>=0, uw.banner.slice(0,90));
+  /* the plural wording Mike wrote out: "2 bricks are not wired to a channel
+     yet: Pie 4, Panel 9" — one line, both names */
+  ok('two of them are counted and both named', await ev(()=>{
+    const seq = MSTR.sequences[EDIT.seq];
+    const other = BLKH.movers().filter(m=>!m.on).map(m=>m.act).find(a=>a!=='pie0');
+    blockAdd(seq, 'act', other, 4000, {dur:600});
+    blockSync(seq);
+    const n = blockUnwiredNote(seq);
+    const two = /^2 bricks are not wired to a channel yet: .+, .+$/.test(n);
+    blockRemove(seq, blockList(seq)[blockList(seq).length-1].id);
+    blockSync(seq); buildSequencer();
+    return two;
+  }));
+  ok('preview says so too, rather than one part mysteriously never moving', await ev(()=>{
+    document.querySelectorAll('#toasts .toastp').forEach(p=>p.remove());
+    $('sqPlay').click();
+    return Array.from(document.querySelectorAll('#toasts .toastp'))
+      .some(p=>/not wired to a channel yet/i.test(p.textContent));
+  }));
+  ok('the brick starts working the moment that panel is given a channel', await ev(()=>{
+    $('sqStop').click();
+    const seq = MSTR.sequences[EDIT.seq];
+    const brick = blockList(seq).find(b=>b.ref==='pie0');
+    if(!brick) return false;                 // report a FAIL, never crash the suite
+    const free = MSTR.channels.find(c=>c && /^servo/i.test(c.mode) && !c.act);
+    free.act = 'pie0';                       // wire it, exactly as the channel map would
+    blockSync(seq);
+    buildSequencer();
+    const node = document.querySelector('#seqblocks .blkbrick[data-id="'+brick.id+'"]');
+    const drivesIt = seq.frames.some(f=>f.targets[free.i] === blockOpen(free));
+    return blockUnwiredNote(seq)==='' && drivesIt
+        && !!node && !node.classList.contains('unwired');
+  }));
 
   ok('Ready-made groups still contain only wired parts, so a shape cannot emit a dead brick', await ev(()=>{
     const wired = blockActions().map(a=>a.act);
@@ -1279,6 +1391,59 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
     return withPart.bricks.length > 0 && without.bricks.length === 0 && without.leftover > 0
         && typeof blkExplodeLeftoverNote === 'function';
   }));
+
+  /* =================================================================
+     v1.46.0 — Mike: "in the sequencer we should have the import sequence
+     button available"
+
+     It must be ON the sequencer's own bar (not another trip back to the
+     workshop) and it must not be a fourth copy of the import logic: the
+     import chooser is being built in this same release, so the button
+     calls whichever door is present — the chooser first, the job wizard's
+     import job as the fallback. BOTH branches are asserted, because today
+     the fallback is what ships and tomorrow the chooser is.
+     ================================================================= */
+  console.log('\n════ v1.46.0 — the import button, on the sequencer ════');
+  ok('it is on the sequencer transport bar, in plain words, beside Build', await ev(()=>{
+    setStripMode('seq');
+    const b = $('sqImport');
+    if(!b) return false;
+    const bar = $('seqtop');
+    return b.parentElement===bar && /import sequence/i.test(b.textContent)
+        && Array.prototype.indexOf.call(bar.children, b) < Array.prototype.indexOf.call(bar.children, $('sqBuild'));
+  }));
+  ok('...and it is reachable — on screen, enabled, at the sequencer desk', await ev(()=>{
+    if(!$('sqImport')) return false;
+    const r = $('sqImport').getBoundingClientRect();
+    const bar = $('seqtop').getBoundingClientRect();
+    return !$('sqImport').disabled && r.width>0 && r.height>0
+        && r.top >= bar.top-1 && r.bottom <= bar.bottom+1;
+  }));
+  ok('with no chooser in the build it falls back to the job wizard\'s import job', await ev(()=>{
+    if(!$('sqImport')) return false;
+    const keepChoose = window.impChooseOpen;
+    window.impChooseOpen = undefined;          // the world as it ships today
+    const seen = [];
+    const keepOpen = window.jobwizOpen, keepGo = window.jobwizGo;
+    window.jobwizOpen = ()=>seen.push('open');
+    window.jobwizGo = j=>seen.push('go:'+j);
+    $('sqImport').click();
+    window.jobwizOpen = keepOpen; window.jobwizGo = keepGo; window.impChooseOpen = keepChoose;
+    return seen.join(' ')==='open go:import';
+  }));
+  ok('...and the moment the chooser exists, THAT is what it opens — one door, not four', await ev(()=>{
+    if(!$('sqImport')) return false;
+    const keep = window.impChooseOpen;
+    let got = null;
+    window.impChooseOpen = o=>{ got = o; };
+    const wizSeen = [];
+    const keepOpen = window.jobwizOpen;
+    window.jobwizOpen = ()=>wizSeen.push('open');
+    $('sqImport').click();
+    window.impChooseOpen = keep; window.jobwizOpen = keepOpen;
+    return !!got && got.kind==='choreography' && got.from==='sequencer' && wizSeen.length===0;
+  }));
+  await ev(()=>{ const d=document.querySelector('.jwrap,.iwrap,.dlgwrap'); if(d) d.remove(); });
 
   console.log('\n════ no page errors ════');
   ok('nothing threw', errs.length===0, errs.join(' | '));

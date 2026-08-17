@@ -267,7 +267,11 @@ function musicBuildSequence(targetKey, pattern, everyN, maxBeats){
 
   const beats = MUSIC.beats.filter((b,i)=>i%Math.max(1,everyN)===0).slice(0, maxBeats||64);
   if(beats.length<2) return {error:'fewer than two beats to work with'};
-  const openOf = c => c.invert ? Math.min(c.min,c.max) : Math.max(c.min,c.max);
+  /* v1.46.0 — one rule: max IS the open end (chanNorm(), playback.js). This
+     line used to sort the pair and then consult the retired `invert` flag,
+     so a beat routine on a reversed channel drove that panel to its shut
+     end and called it open. */
+  const openOf = c => chanEnds(c).open;
   const base = new Array(MSTR.servoCount).fill(0);
   MSTR.channels.forEach(c=>{ if(/^servo/i.test(c.mode)) base[c.i]=c.home; });
 

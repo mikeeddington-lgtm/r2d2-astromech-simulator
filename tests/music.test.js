@@ -103,6 +103,24 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
     groupDelete(g.id);
     return r && /nothing in that target/.test(r.error||'');
   }));
+  /* v1.46.0 — Mike: "the initial setting on the low of a servo is Closed and
+     whatever its set to is the max open on the model". A beat routine's OPEN
+     pose is the channel's max END, not the numerically higher of the pair, so
+     a reversed linkage (min > max, the bench's own way of saying "backwards"
+     — hw-table.js) is driven to its own open end and the model reads it as
+     open. It used to be driven to the number that sorted highest, i.e. shut. */
+  ok('a beat routine opens a REVERSED channel at its max end, and the model reads that as open', await ev(()=>{
+    const c = MSTR.channels.find(x=>/^pie/.test(x.act||''));
+    const keep = {min:c.min, max:c.max};
+    c.min = 8000; c.max = 4000;                      // reversed: shut high, open low
+    const r = musicBuildSequence('pies','alternate',1,6);
+    const drove = !r.error && r.seq.frames.some(f=>f.targets[c.i] === c.max);
+    const reads = !r.error && r.seq.frames.some(f=>f.targets[c.i] && chanNorm(c, f.targets[c.i]) === 1);
+    const never = !r.error && !r.seq.frames.some(f=>f.targets[c.i] === keep.max);
+    MSTR.sequences.pop();
+    c.min = keep.min; c.max = keep.max;
+    return drove && reads && never;
+  }));
 
   console.log('\n════ synced playback ════');
   const sync = await ev(()=>{

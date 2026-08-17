@@ -96,6 +96,66 @@ function blockGroups(){ return BLKH.groups(); }
 
 /* ------------------------------------------------------------ channels */
 function blockChan(act){ return BLKH.chanFor(act); }
+
+/* ================ A BRICK THAT IS NOT WIRED TO A CHANNEL YET (v1.46.0)
+   Mike: "The user should be able to drag into the sequencer non mapped items
+   but keep them grey - they may not have the servo setup in the real model
+   yet but want to build a sequence"
+
+   v1.45.0 put every moving panel in the library and REFUSED the drag on the
+   unwired ones. Refusing is the wrong answer to "I am building the routine
+   before I have wired the droid": choreography is a plan, and a plan may
+   name a panel whose servo is still in its bag.
+
+   So the drop lands and the brick is real — it just has no channel behind
+   it, which is a fact about the DROID, not about the brick. Two rules keep
+   that honest:
+     · IT IS GREY EVERYWHERE IT IS DRAWN, and the reason is on the brick
+       (blocks-ui.js .unwired). A brick that moves nothing must never look
+       like one that does.
+     · IT IS SKIPPED AT COMPILE TIME, BY NAME. blockValueAt() already
+       returned null with no channel, so no frame ever carried a target for
+       it — but blockBoundaries() still opened frame boundaries around it,
+       and blockEnd() still stretched the frame list to cover it. Both now
+       ignore it, so a routine compiles byte-for-byte the same as it would
+       without the brick at all: no frame row that drives nothing, nothing
+       new in the .mstr or in sequences.h. blockUnwiredNote() is what says
+       so out loud, and the moment that panel is given a channel the brick
+       starts compiling with no further ceremony.
+
+   Host-agnostic on purpose (BLKH is the seam, and PCA Studio has its own
+   host): "is there a channel" is asked through blockChan() exactly as the
+   compiler already asks it. In Studio every ref IS a channel, so all of
+   this is inert there. */
+function blockWired(b){
+  if(!b) return false;
+  if(b.kind === 'seq') return true;      // a dropped-in sequence carries its own targets
+  return !!blockChan(b.ref);
+}
+/* the bricks with no channel behind them, in timeline order */
+function blockUnwired(seq){
+  return blockList(seq).filter(b=>!blockWired(b))
+    .map(b=>({id:b.id, ref:b.ref, label:blkLabel(b.ref) || b.ref}));
+}
+/* the warning, named — "2 bricks are not wired to a channel yet: Pie 4,
+   Panel 9". Named, because "some bricks were skipped" sends you hunting
+   through a timeline for which. Empty string when there is nothing to say,
+   so a caller can use it as its own condition. */
+function blockUnwiredNote(seq){
+  const un = blockUnwired(seq);
+  if(!un.length) return '';
+  const names = [];
+  un.forEach(u=>{ if(names.indexOf(u.label) < 0) names.push(u.label); });
+  return un.length + ' brick' + (un.length === 1 ? ' is' : 's are')
+       + ' not wired to a channel yet: ' + names.join(', ');
+}
+/* the routine's end AS IT COMPILES. blockEnd() is the EDITING length — it
+   has to include an unwired brick or the timeline would not have room to
+   draw it and a dropped chip would land on top of it — but the frame list
+   must stop where the last DRIVEN brick stops. */
+function blockEndCompiled(seq){
+  return blockList(seq).reduce((m,b)=>blockWired(b) ? Math.max(m, b.t0 + b.dur) : m, 0);
+}
 /* closed is the home pose; open is whichever endpoint is further from it */
 function blockClosed(c){ return c.home || c.neutral || BLKH.neutral(); }
 function blockOpen(c){
@@ -240,6 +300,10 @@ function blockBoundaries(seq){
       (ref ? ref.frames : []).forEach(f=>{ t += f.duration; if(t < end) set.add(t); });
       set.add(end);
     }else{
+      /* v1.46.0 — an unwired brick opens no frame boundaries. It compiles
+         to nothing (blockValueAt returns null with no channel), so a
+         boundary here would be a frame row that drives nothing. */
+      if(!blockWired(b)) return;
       const r  = blockEffRamps(b);
       const mode = blockMode(b);
       set.add(b.t0);
@@ -332,7 +396,7 @@ function blockCompile(seq){
   chans.forEach(c=>{ base[c.i] = blockClosed(c); });
 
   const bounds = blockBoundaries(seq);
-  const total = blockEnd(seq);
+  const total = blockEndCompiled(seq);      // v1.46.0 — an unwired brick must not stretch the frame list
   if(!bounds.length || total <= 0){
     /* an empty routine still has to emit ONE frame, or the subroutine
        numbering stops lining up with the sketch */
@@ -475,11 +539,15 @@ const BLK_EXPLODE_EPS  = 0.05;   // "leaves ~0" — the same floor blockAdd's ow
 const BLK_EXPLODE_NEAR = 0.02;   // "~max" — how close a ramp's peak breakpoint has to land
 /* a raw target's value, 0..1, against THIS channel's own closed→open
    throw — the exact span blockValueAt's amp is measured against. NOT
-   chanNorm (playback.js): that normalises against the raw min/max and
-   folds in `invert`, which is a DISPLAY-only concern for ACT_T — a
+   chanNorm (playback.js): that answers a different question, "where is
+   this on the MODEL", against the channel's whole min→max travel, and a
    brick's amp feeds straight back into blockValueAt's raw-target maths,
-   which never inverts and is not necessarily the channel's whole span
-   (home is not always an endpoint). */
+   which is measured from `home` and is not necessarily that whole span.
+   (v1.46.0: this used to say chanNorm "folds in invert, a DISPLAY-only
+   concern". There is no invert any more — min is the shut end and max the
+   open one, whatever their order. Nothing here needs to change for that,
+   and nothing here may call chanNorm: this file is shared with PCA Studio,
+   which does not load playback.js.) */
 function blockChanFrac(c, v){
   const closed = blockClosed(c), open = blockOpen(c);
   if(open === closed) return 0;

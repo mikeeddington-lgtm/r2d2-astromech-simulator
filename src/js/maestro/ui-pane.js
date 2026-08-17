@@ -502,8 +502,11 @@ function buildChannelMap(host){
     });
     r.appendChild(sel);
 
-    const cb=document.createElement('input'); cb.type='checkbox'; cb.checked=c.invert; cb.title='invert travel';
-    cb.addEventListener('change',()=>{ c.invert=cb.checked; if(c.act) ACT_T[c.act]=chanNorm(c, EDIT.live[c.i]); });
+    /* v1.46.0 — `invert` is retired (chanNorm, playback.js). Reversing a
+       linkage IS min and max the other way round, which is what the bench's
+       own REV tick does, so this one does the same thing. */
+    const cb=document.createElement('input'); cb.type='checkbox'; cb.checked=c.min>c.max; cb.title='reverse — the linkage runs the other way; swaps this channel’s two ends';
+    cb.addEventListener('change',()=>{ const t=c.min; c.min=c.max; c.max=t; if(c.act) ACT_T[c.act]=chanNorm(c, EDIT.live[c.i]); });
     r.appendChild(cb);
 
     const sl=document.createElement('input');
