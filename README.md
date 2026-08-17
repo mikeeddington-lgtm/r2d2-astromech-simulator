@@ -6,6 +6,11 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/mikeeddington-lgtm/r2d2-astromech-simulator/releases/latest/download/R2D2-Simulator.html"><strong>⬇ Download the ready-to-run simulator</strong></a><br>
+  <sub>One HTML file · no installation · no build tools · opens in Chrome or Edge</sub>
+</p>
+
+<p align="center">
   <img src="docs/shots/drive.png" alt="The simulator driving the MK4 model, with the Padawan sketch's own control map alongside" width="100%">
 </p>
 
@@ -58,11 +63,11 @@ account, no internet. Open the HTML and it works.
 
 ## Running it
 
-**You need one file.** Download `R2D2-Simulator.html` from the
-[latest release](../../releases/latest) and open it in **Chrome or Edge**. That
-is the whole installation — one self-contained ≈7.7 MB file with three.js, the
-3D model and every module inlined. Copy it to a memory stick, take it to the
-workshop laptop, and it still works.
+**You need one file.** [Download `R2D2-Simulator.html`](https://github.com/mikeeddington-lgtm/r2d2-astromech-simulator/releases/latest/download/R2D2-Simulator.html)
+and open it in **Chrome or Edge**. That is the whole installation — one
+self-contained ≈7.7 MB file with three.js, the 3D model and every module
+inlined. Copy it to a memory stick, take it to the workshop laptop, and it
+still works.
 
 Chrome or Edge specifically, and only for the hardware half: **Web Serial** —
 the thing that lets the bench drive a real board over USB — does not exist in
