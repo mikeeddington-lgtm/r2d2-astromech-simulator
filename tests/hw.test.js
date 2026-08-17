@@ -5,7 +5,7 @@
    assertions are the sim's half of that contract — that the seam reaches
    MSTR, that the bench engine is real, and that driving a channel moves the
    engine, the model and (when there is one) the wire, in that order. */
-const { chromium } = require('playwright');
+const { launchBrowser } = require('./harness');
 const path = require('path');
 /* the picture is the one thing no assertion here reads, and on a GPU-less
    box it costs ~800 ms an assertion — see HANDOVER §Traps. R2_DRAW=1 puts it
@@ -15,9 +15,7 @@ let pass=0, fail=0;
 const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n+(x?'   '+x:'')); };
 
 (async () => {
-  const browser = await chromium.launch({
-    args: ['--use-gl=swiftshader','--enable-unsafe-swiftshader','--no-sandbox','--disable-dev-shm-usage']
-  });
+  const browser = await launchBrowser();
   const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
   const errs=[]; page.on('pageerror',e=>errs.push(e.message));
   await page.goto('file://'+path.resolve(__dirname, '..', process.env.R2_TARGET || 'R2D2-Simulator.html')+R2_Q);

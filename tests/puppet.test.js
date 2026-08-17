@@ -6,7 +6,7 @@
    feel, the sketch gate (drive/sounds see a silent pad), hold vs latch
    buttons, the 3-2-1 recorder capturing real puppeteering into a
    frame-list sequence in the library, replay, and the sequencer handshake. */
-const { chromium } = require('playwright');
+const { launchBrowser } = require('./harness');
 const path = require('path');
 /* the picture is the one thing no assertion here reads, and on a GPU-less
    box it costs ~800 ms an assertion — see HANDOVER §Traps. R2_DRAW=1 puts it
@@ -16,9 +16,7 @@ let pass=0, fail=0;
 const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n+(x?'   '+x:'')); };
 
 (async () => {
-  const browser = await chromium.launch({
-    args: ['--use-gl=swiftshader','--enable-unsafe-swiftshader','--no-sandbox','--disable-dev-shm-usage']
-  });
+  const browser = await launchBrowser();
   const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
   const errs=[]; page.on('pageerror',e=>errs.push(e.message));
   page.on('dialog', async d=>await d.accept());

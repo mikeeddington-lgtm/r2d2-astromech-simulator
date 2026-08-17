@@ -8,6 +8,13 @@
 #   git tag v1.44.0 && git push origin v1.44.0
 name: release
 
+# ---------------------------------------------------------------------
+# ACTION VERSIONS: pinned to majors that run on the **node24** runtime.
+# GitHub deprecated node20 for actions, and every run raised a warning
+# until this bump (2026-08-17). If those warnings come back, the runtime
+# has moved on again — bump the majors, do not silence the warning.
+# ---------------------------------------------------------------------
+
 on:
   push:
     tags: ['v*']
@@ -20,9 +27,9 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: npm
@@ -39,7 +46,7 @@ jobs:
         run: ./test.sh
 
       - name: Attach the simulator to the release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: |
             R2D2-Simulator.html

@@ -5,6 +5,13 @@
 # moving the wrong way, so they run on everything.
 name: tests
 
+# ---------------------------------------------------------------------
+# ACTION VERSIONS: pinned to majors that run on the **node24** runtime.
+# GitHub deprecated node20 for actions, and every run raised a warning
+# until this bump (2026-08-17). If those warnings come back, the runtime
+# has moved on again — bump the majors, do not silence the warning.
+# ---------------------------------------------------------------------
+
 on:
   push:
     branches: ['**']
@@ -15,9 +22,9 @@ jobs:
   suites:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: npm
@@ -38,7 +45,7 @@ jobs:
 
       - name: Keep the built file for inspection
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: R2D2-Simulator
           path: R2D2-Simulator.html

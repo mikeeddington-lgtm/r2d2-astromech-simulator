@@ -1000,6 +1000,29 @@ procedure; the short version:
 
 ## 10. Change log
 
+### 2026-08-17 — v1.44.1: the first two jobs of the public era
+
+Small, and both the same shape: something that was fine on one machine and
+wrong the moment the project had more than one.
+
+**One browser launch, not thirty-one.** `tests/harness.js` owns the Chromium
+flags now; every suite and both browser tools call `launchBrowser()`, and the
+eight that play sound call `launchBrowser({audio:true})`. This is the fix
+whose absence cost thirty-two file edits the day before: every one of those
+files carried its own copy of an `executablePath` pointing at a path that
+existed in exactly one container, so the whole estate ran nowhere else. The
+harness's header says that, and says that a browser it cannot find is
+answered by `npx playwright install chromium` and never by a path in a file.
+1600 assertions plus Studio's 86, green on both builds, before and after.
+
+**The workflows run on node24.** `actions/checkout@v6`,
+`actions/setup-node@v6`, `actions/upload-artifact@v6` and
+`softprops/action-gh-release@v3`. GitHub deprecated the node20 action runtime
+and every run had been raising a warning since the repo went public. Both
+files carry a note saying that if the warnings come back the runtime has moved
+again, and the majors get bumped rather than the warning silenced.
+
+
 ### 2026-08-17 — v1.44.0: ready to be handed to strangers
 
 The project goes public. Mike has MrBaddeley's permission to publish the

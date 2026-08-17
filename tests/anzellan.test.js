@@ -12,7 +12,7 @@
      · the bipolar channels' HOME. A face is not a door: pan/tilt/nod and the
        eyes rest at 0.5, not 0. Seed them at 0 and the head boots up staring
        at the floor with its neck fully over. */
-const { chromium } = require('playwright');
+const { launchBrowser } = require('./harness');
 const path = require('path');
 /* the picture is the one thing no assertion here reads, and on a GPU-less
    box it costs ~800 ms an assertion — see HANDOVER §Traps. R2_DRAW=1 puts it
@@ -23,9 +23,7 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
 const near=(a,b,t)=>Math.abs(a-b)<=t;
 
 (async () => {
-  const browser = await chromium.launch({
-    args: ['--use-gl=swiftshader','--enable-unsafe-swiftshader','--no-sandbox','--disable-dev-shm-usage']
-  });
+  const browser = await launchBrowser();
   const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });
   const errs=[]; page.on('pageerror',e=>errs.push(e.message));
   page.on('dialog', async d=>await d.accept());

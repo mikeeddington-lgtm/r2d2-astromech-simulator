@@ -3,7 +3,7 @@
    Bench's Advanced switch, tab-hop, the retired-view migration, the setup
    .json round-trip of ws/adv, and the Stage-4 Esc pickups (impWiz/bldWiz).
    Ground truth: src/js/config/workspaces.js + the views.js shims. */
-const { chromium } = require('playwright');
+const { launchBrowser } = require('./harness');
 const path = require('path');
 /* the picture is the one thing no assertion here reads, and on a GPU-less
    box it costs ~800 ms an assertion — see HANDOVER §Traps. R2_DRAW=1 puts it
@@ -16,10 +16,7 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
 const REFUSAL = 'this build has no servo board yet — answer the servo questions in Setup first';
 
 (async () => {
-  const browser = await chromium.launch({
-    args: ['--use-gl=swiftshader','--enable-unsafe-swiftshader','--no-sandbox','--disable-dev-shm-usage',
-           '--autoplay-policy=no-user-gesture-required','--mute-audio']
-  });
+  const browser = await launchBrowser({audio:true});
   const page = await browser.newPage({ viewport: { width: 1500, height: 950 } });
   const errs=[]; page.on('pageerror',e=>errs.push(e.message));
   await page.goto('file://'+path.resolve(__dirname, '..', process.env.R2_TARGET || 'R2D2-Simulator.html')+R2_Q);

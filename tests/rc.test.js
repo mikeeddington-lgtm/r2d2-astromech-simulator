@@ -13,7 +13,7 @@
      · ch3 is a throttle that rests at the BOTTOM of its travel
      · ch4 is a two-position switch reported as an axis
    If the maths survives that, it survives a bench. */
-const { chromium } = require('playwright');
+const { launchBrowser } = require('./harness');
 const path = require('path');
 const R2_Q = process.env.R2_DRAW ? '' : '?norender';
 let pass=0, fail=0;
@@ -21,9 +21,7 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
 const near=(a,b,e)=>Math.abs(a-b) <= (e===undefined?0.01:e);
 
 (async () => {
-  const browser = await chromium.launch({
-    args: ['--use-gl=swiftshader','--enable-unsafe-swiftshader','--no-sandbox','--disable-dev-shm-usage']
-  });
+  const browser = await launchBrowser();
   const page = await browser.newPage({ viewport: { width: 1500, height: 950 } });
   const errs=[]; page.on('pageerror',e=>errs.push(e.message));
   page.on('dialog', async d=>{ await d.accept(); });

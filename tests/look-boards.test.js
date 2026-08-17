@@ -1,5 +1,5 @@
 /* theme + paint + startup + Maestro board variants + channel mapping */
-const { chromium } = require('playwright');
+const { launchBrowser } = require('./harness');
 const path = require('path');
 /* This suite runs with the picture OFF like every other one. Set
    R2_UPDATE_SHOTS=1 to switch it back on for the two documentation screenshots
@@ -13,9 +13,7 @@ const CAD_MATS_MIN = 11;
 const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n+(x?'   '+x:'')); };
 
 (async () => {
-  const browser = await chromium.launch({
-    args: ['--use-gl=swiftshader','--enable-unsafe-swiftshader','--no-sandbox','--disable-dev-shm-usage']
-  });
+  const browser = await launchBrowser();
   const page = await browser.newPage({ viewport: { width: 1500, height: 950 } });
   const errs=[]; page.on('pageerror',e=>errs.push(e.message));
   await page.goto('file://'+path.resolve(__dirname, '..', process.env.R2_TARGET || 'R2D2-Simulator.html')+R2_Q);

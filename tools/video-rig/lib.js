@@ -1,13 +1,10 @@
 /* shared capture plumbing */
-const { chromium } = require('playwright');
+const { launchBrowser } = require('../../tests/harness');
 const path = require('path');
 const fs = require('fs');
 
 async function boot(viewport = { width: 1920, height: 1080 }) {
-  const browser = await chromium.launch({
-    args: ['--use-gl=swiftshader', '--enable-unsafe-swiftshader', '--no-sandbox', '--disable-dev-shm-usage',
-      '--autoplay-policy=no-user-gesture-required', '--mute-audio', '--hide-scrollbars']
-  });
+  const browser = await launchBrowser({audio:true, args:['--hide-scrollbars']});
   const page = await browser.newPage({ viewport });
   page.on('pageerror', e => console.log('PAGEERR:', e.message));
   await page.goto('file://' + path.resolve(__dirname, 'R2D2-Simulator.html'));

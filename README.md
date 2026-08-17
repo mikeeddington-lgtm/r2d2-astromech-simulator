@@ -154,7 +154,13 @@ its own top-level code unless that module loads first.
 The sim itself needs nothing installed. The tests drive a headless Chromium, so
 they need `npm install` once (Playwright is the only dependency).
 
-The suites deliberately do not set Playwright's `executablePath`; Playwright
+Every suite launches its browser through **`tests/harness.js`** — one place
+that owns the Chromium flags, which is why a suite reads `await
+launchBrowser()` rather than a block of options. A suite that plays sound asks
+for it (`launchBrowser({audio:true})`); anything that belongs to *all* of them
+belongs in the harness.
+
+The harness deliberately does not set Playwright's `executablePath`; Playwright
 uses the Chromium installed for the current machine. If Chromium cannot be
 found, run `npx playwright install chromium` rather than hardcoding a local
 browser path.

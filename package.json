@@ -1,6 +1,6 @@
 {
   "name": "r2d2-astromech-simulator",
-  "version": "1.44.0",
+  "version": "1.44.1",
   "private": false,
   "description": "Browser simulator for an R2-D2 astromech build \u2014 real Padawan360 firmware sketches against a model of the hardware",
   "scripts": {

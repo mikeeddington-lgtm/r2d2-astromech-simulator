@@ -1,4 +1,4 @@
-const { chromium } = require('playwright');
+const { launchBrowser } = require('./harness');
 const path = require('path');
 /* the picture is the one thing no assertion here reads, and on a GPU-less
    box it costs ~800 ms an assertion — see HANDOVER §Traps. R2_DRAW=1 puts it
@@ -27,9 +27,7 @@ function refMix(stickX, stickY, maxDriveSpeed, C, st){
 }
 
 (async () => {
-  const browser = await chromium.launch({
-    args: ['--use-gl=swiftshader','--enable-unsafe-swiftshader','--no-sandbox','--disable-dev-shm-usage']
-  });
+  const browser = await launchBrowser();
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
   const errs=[]; page.on('pageerror',e=>errs.push(e.message));
   await page.goto('file://'+path.resolve(__dirname, '..', process.env.R2_TARGET || 'R2D2-Simulator.html')+R2_Q);

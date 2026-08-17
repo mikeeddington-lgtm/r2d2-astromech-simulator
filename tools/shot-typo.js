@@ -1,13 +1,11 @@
 /* M1 typography verification screenshots — NOT part of the suite.
    Boots like the tests (buildSet → wizFinish → closeStartup), then captures
    the Maestro, Config (advanced), Controls and Learn tabs in dark and light. */
-const { chromium } = require('playwright');
+const { launchBrowser } = require('../tests/harness');
 const path = require('path');
 
 (async () => {
-  const browser = await chromium.launch({
-    args: ['--use-gl=swiftshader','--enable-unsafe-swiftshader','--no-sandbox','--disable-dev-shm-usage']
-  });
+  const browser = await launchBrowser();
   const page = await browser.newPage({ viewport: { width: 1500, height: 950 } });
   page.on('pageerror',e=>console.log('PAGEERROR', e.message));
   await page.goto('file://'+path.resolve(__dirname, '..', process.env.R2_TARGET || 'R2D2-Simulator.html'));

@@ -1,6 +1,6 @@
 /* header chrome (v1.14.0): the 1280px laptop clip, the app menu, status
    chips that no longer dress like buttons, and the --cta primary colour */
-const { chromium } = require('playwright');
+const { launchBrowser } = require('./harness');
 const path = require('path');
 /* the picture is the one thing no assertion here reads, and on a GPU-less
    box it costs ~800 ms an assertion — see HANDOVER §Traps. R2_DRAW=1 puts it
@@ -10,10 +10,7 @@ let pass=0, fail=0;
 const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n+(x?'   '+x:'')); };
 
 (async () => {
-  const browser = await chromium.launch({
-    args: ['--use-gl=swiftshader','--enable-unsafe-swiftshader','--no-sandbox','--disable-dev-shm-usage',
-           '--autoplay-policy=no-user-gesture-required','--mute-audio']
-  });
+  const browser = await launchBrowser({audio:true});
   /* the whole point: a 1280×780 laptop, the size the clip was reported at */
   const page = await browser.newPage({ viewport: { width: 1280, height: 780 } });
   const errs=[]; page.on('pageerror',e=>errs.push(e.message));

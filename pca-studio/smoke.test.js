@@ -1,6 +1,6 @@
 /* PCA Studio smoke test — standalone, NOT part of the sim's test.sh.
    Run when you touch the app:  node pca-studio/smoke.test.js */
-const { chromium } = require('playwright');
+const { launchBrowser } = require('../tests/harness');
 const path = require('path');
 const fs = require('fs');
 let pass=0, fail=0;
@@ -8,9 +8,7 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
 const LIVE = fs.readFileSync(path.resolve(__dirname,'..','examples','R2-dome-padawan.mstr'),'utf8');
 
 (async () => {
-  const browser = await chromium.launch({
-    args: ['--use-gl=swiftshader','--enable-unsafe-swiftshader','--no-sandbox','--disable-dev-shm-usage']
-  });
+  const browser = await launchBrowser();
   const page = await browser.newPage({ viewport: { width: 1500, height: 900 } });
   const errs=[]; page.on('pageerror',e=>errs.push(e.message));
   await page.goto('file://'+path.resolve(__dirname,'PCA-Studio.html'));

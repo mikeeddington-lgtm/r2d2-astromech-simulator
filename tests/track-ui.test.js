@@ -1,6 +1,6 @@
 /* practice track, music status, port picker, boards viz + channel picker,
    version tag, reset button, UI scale, stage theme */
-const { chromium } = require('playwright');
+const { launchBrowser } = require('./harness');
 const path = require('path');
 /* the picture is the one thing no assertion here reads, and on a GPU-less
    box it costs ~800 ms an assertion — see HANDOVER §Traps. R2_DRAW=1 puts it
@@ -10,10 +10,7 @@ let pass=0, fail=0;
 const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n+(x?'   '+x:'')); };
 
 (async () => {
-  const browser = await chromium.launch({
-    args: ['--use-gl=swiftshader','--enable-unsafe-swiftshader','--no-sandbox','--disable-dev-shm-usage',
-           '--autoplay-policy=no-user-gesture-required','--mute-audio']
-  });
+  const browser = await launchBrowser({audio:true});
   const page = await browser.newPage({ viewport: { width: 1500, height: 950 } });
   const errs=[]; page.on('pageerror',e=>errs.push(e.message));
   await page.goto('file://'+path.resolve(__dirname, '..', process.env.R2_TARGET || 'R2D2-Simulator.html')+R2_Q);
