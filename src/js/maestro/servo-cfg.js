@@ -135,7 +135,13 @@ function servoCfgExport(){
   const text = JSON.stringify(servoCfgExportObj(), null, 1);
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([text], {type:'application/json'}));
-  a.download = 'R2-servos-' + (new Date().toISOString().slice(0,10)) + '.json';
+  /* v1.45.0 — Mike: "Add date and time, without seconds, to saved/exported
+     filenames." A date alone COLLIDES: re-export after ten minutes on the
+     bench and the browser writes `R2-servos-2026-08-17 (1).json`, which is
+     the one filename that tells you nothing about which is which. fileStamp()
+     is local time to the minute (core/util.js) and is the same stamp every
+     other writer in the app uses. */
+  a.download = 'R2-servos-' + fileStamp() + '.json';
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(()=>URL.revokeObjectURL(a.href), 4000);
   if(typeof lg === 'function') lg('sys','servo config exported: '+a.download+' — '+servoCfgExportObj().count+' channels, travel only');
@@ -150,7 +156,10 @@ function servoCfgExport(){
    Returns {n, skipped, note} or throws with a sentence a builder can act
    on. Both accepted shapes end up here as the same array. */
 function servoCfgApply(rows, opts){
-  if(!Array.isArray(rows) || !rows.length) throw new Error('there are no channels in that file');
+  /* v1.45.0 — a failure string has to say what WAS expected, or the only
+     move left is guessing. One sentence, and it names the formats. */
+  if(!Array.isArray(rows) || !rows.length)
+    throw new Error('there are no channels in that file. It should be ' + ioFormatsIn() + '.');
   if(typeof MSTR === 'undefined' || !MSTR.channels) throw new Error('there is no channel table to import into yet');
   const o = opts || {};
   let n = 0, skipped = 0;
@@ -188,10 +197,46 @@ function servoCfgApply(rows, opts){
    a PCA builder has never opened Control Center), the READER does not — the
    same six fields arrive either way, and somebody bringing a .mstr to a PCA
    build is doing something sensible. */
+
+/* ONE TABLE, TWO CONSUMERS (v1.45.0)
+   Mike: "Clarify whether native Maestro files as well as JSON are
+   supported." The picker's `accept` and the reader's actual capability had
+   drifted — the accept list never mentioned the servo-config .json on a
+   Maestro build even though the reader took it, and neither of them
+   mentioned a PCA9685 header once the reader learned to read one. They are
+   generated from the same list now, and `maestro-import.test.js` fails if
+   one grows a format the other has not heard of. */
+/* `maestro:true` = a file a Pololu builder recognises. Everything else is
+   OURS or the co-processor's. Note that the build's own family word for a
+   PCA9685 co-processor is 'coproc', not 'pca' (config/hardware.js
+   servoFamily) — so the question this list answers is deliberately the
+   binary one, "is this a Maestro build", exactly as it was before. */
+const SERVO_CFG_FORMATS = [
+  {ext:'.mstr', maestro:true,  mime:'text/xml',
+   what:'a pololu maestro settings file, saved from control center'},
+  {ext:'.xml',  maestro:true,  mime:'text/xml',
+   what:'the same file under its other extension'},
+  {ext:'.json', maestro:false, mime:'application/json',
+   what:'a servo config this app exported, or a whole-setup backup'},
+  {ext:'.h',    maestro:false, mime:'text/plain',
+   what:'a PCA9685 servos.h or sequences.h for the MaestroPCA library'}
+];
+/* what the READER can actually do, whatever the picker chose to offer */
+function servoCfgReadable(){ return SERVO_CFG_FORMATS.map(f=>f.ext); }
+/* THE GAP, STATED (v1.45.0). It is deliberate, so it is written down rather
+   than merely tolerated — a builder who has been handed a file the picker
+   is not showing needs to know it will still go in. */
+const SERVO_CFG_ACCEPT_NOTE =
+  'the file picker offers your own build\'s formats first, but the reader takes all of them — '
+  + 'if the file you were sent is greyed out, choose "all files" and it will still be read.';
 function servoCfgAccept(){
   const fam = (typeof buildGet === 'function' && typeof servoFamily === 'function')
     ? servoFamily(buildGet().domeServo) : 'maestro';
-  return (fam === 'maestro') ? '.mstr,.xml,.json,text/xml' : '.json,.mstr,application/json';
+  const isMae = (fam === 'maestro');
+  const mine = SERVO_CFG_FORMATS.filter(f=>!!f.maestro === isMae);
+  const rest = SERVO_CFG_FORMATS.filter(f=>!!f.maestro !== isMae);
+  return mine.map(f=>f.ext).concat(rest.map(f=>f.ext),
+    [(mine[0] && mine[0].mime) || 'text/xml']).join(',');
 }
 function servoCfgImportFile(file, done){
   const fr = new FileReader();
@@ -199,13 +244,19 @@ function servoCfgImportFile(file, done){
     try{
       const r = servoCfgImportText(String(fr.result), file.name);
       const from = r.from === 'mstr' ? 'a Maestro settings file'
+                 : r.from === 'pca'  ? 'a PCA9685 servos.h / sequences.h'
                  : r.from === 'cfg'  ? 'a servo config' : 'a whole-setup file';
       if(typeof lg === 'function')
         lg('sys','servo config imported from '+from+' — '+r.n+' channels'
           + (r.skipped ? ', '+r.skipped+' past the end of this board' : ''));
+      /* v1.45.0 — a conversion between families loses fields, and the user
+         is told WHICH by name in the receipt, not only in the log */
+      const lost = (r.dropped && r.dropped.length)
+        ? ' · not carried across: ' + r.dropped.map(d=>d.field).join(', ') : '';
       if(typeof toast === 'function')
         toast('Imported travel for '+r.n+' channel'+(r.n===1?'':'s')
-          + (r.skipped ? ' — '+r.skipped+' did not fit this board' : ''));
+          + (r.skipped ? ' — '+r.skipped+' did not fit this board' : '') + lost,
+          lost ? 'warn' : '');
       if(typeof done === 'function') done(r);
     }catch(e){
       if(typeof lg === 'function') lg('warn','servo config import failed — '+e.message);
@@ -249,15 +300,44 @@ function servoCfgImportText(text, fileName){
     const rows = (doc.channels || []).map((c,i)=>Object.assign({i:i}, servoCfgFrom(c)));
     return Object.assign(servoCfgApply(rows, {board:doc.board, name:fileName || 'a .mstr'}), {from:'mstr'});
   }
+  /* v1.45.0 — the third family. A MaestroPCA header is C, not JSON, so it
+     has to be sniffed before JSON.parse gets a chance to fail on it. Travel
+     ONLY, exactly like the other two routes: the sequences a sequences.h
+     carries are the full importer's business, and they are named in the drop
+     list rather than quietly left behind. */
+  if(typeof pcaHeaderLooksLike === 'function' && pcaHeaderLooksLike(t)){
+    if(typeof pcaHeaderParse !== 'function') throw new Error('the PCA9685 header reader is not loaded');
+    const doc = pcaHeaderParse(t, fileName || 'sequences.h');
+    const rows = (doc.channels || []).map((c,i)=>Object.assign({i:i}, servoCfgFrom(c)));
+    const dropped = (doc.dropped || []).slice();
+    if((doc.sequences || []).length)
+      dropped.push({field:'sequences', n:doc.sequences.length,
+        why:doc.sequences.length + ' sequence(s) in that header were not taken — this door imports servo TRAVEL only. '
+          + 'Use the guided import to bring the choreography in as well.'});
+    const r = Object.assign(servoCfgApply(rows, {board:doc.board, name:fileName || 'a PCA9685 header'}),
+                            {from:'pca', dropped:dropped});
+    /* named, never merely counted — the contract mstrAdoptSequences() set
+       and mstr-share.test.js pins */
+    if(typeof lg === 'function'){
+      lg('sys','PCA9685 header read: '+r.n+' channel(s) of travel from '+(fileName || 'a header'));
+      lg('warn','  not carried across: '+dropped.map(d=>d.field).join(', '));
+      dropped.forEach(d=>lg('sys','  '+d.field+' — '+d.why));
+    }
+    return r;
+  }
   let j;
   try{ j = JSON.parse(t); }
-  catch(e){ throw new Error('that is neither a Maestro .mstr nor a servo config — it is not valid XML or JSON'); }
+  /* v1.45.0 — the message keeps its opening (it is the sentence a builder
+     recognises, and build-config.test.js pins it) and gains the whole list,
+     so "what SHOULD I have given it?" is answered in the same breath. */
+  catch(e){ throw new Error('that is neither a Maestro .mstr nor a servo config — it should be '+ioFormatsIn()+'.'); }
   /* our own export, or the whole-setup .json (whose maestro block carries
      the same table). Take the channels and leave the rest of it alone. */
   const rows = j.channels ? j.channels
              : (j.maestro && j.maestro.channels) ? j.maestro.channels
              : null;
-  if(!rows) throw new Error('that JSON has no channel table in it');
+  if(!rows) throw new Error('that JSON has no channel table in it — a servo config has a '
+    + '"channels" list and a whole-setup backup has one under "maestro". Otherwise: ' + ioFormatsIn() + '.');
   return Object.assign(servoCfgApply(rows, {board:j.board || (j.maestro && j.maestro.board),
                                             name:fileName || 'a servo config'}),
                        {from: j.kind === SERVO_CFG_KIND ? 'cfg' : 'setup'});

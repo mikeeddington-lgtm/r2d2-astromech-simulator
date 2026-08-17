@@ -395,12 +395,28 @@ function servoSharable(id){ return servoSpeaksMaestro(id); }
 
    domeServo / bodyServo / servoSplit / servoLink are all DERIVED from this
    in buildNormaliseServos(). Nothing downstream changed. */
+/* v1.45.0 — Mike: "Make Servo Hardware image-led: choose Maestro or PCA9685
+   first, then show relevant options." This list was already the right first
+   question; what it lacked was a picture, so `art` names the board whose photo
+   stands for the whole family — a Mini 24 for the Maestros, a PCA9685 for the
+   expanders (config/board-art.js resolves it, so a photo dropped in
+   src/art/boards/ lands here with nothing to change). It is deliberately a
+   REPRESENTATIVE, not a claim: choosing "Pololu Maestro" does not choose a
+   Mini 24, that is the size question further down the step.
+
+   Why this list and not SERVO_FAMILIES: the families are maestro / coproc /
+   direct, which is a taxonomy of BOARDS — and two of its three entries are
+   PCA9685 arrangements. Asked first it would put "is there a co-processor in
+   between?" ahead of "is it a Maestro at all?", which is the opposite of what
+   Mike asked for. That distinction IS asked, second, as the PCA9685 shape.
+   servoFamily() still uses the families to read a board answer back into a
+   shape (buildNormaliseServos). */
 const SERVO_DEVICES = [
-  {id:'maestro', label:'Pololu Maestro', sim:'full',
+  {id:'maestro', label:'Pololu Maestro', sim:'full', art:'mini24',
    note:'A ready-made servo controller that stores its own movements. The droid says "run number 3" down a serial wire and the board does the rest.'},
-  {id:'pca',     label:'PCA9685 expanders', sim:'full',
+  {id:'pca',     label:'PCA9685 expanders', sim:'full', art:'mpca16',
    note:'Cheap 16-channel expander boards. They need something to drive them — either a spare Arduino/ESP32 that answers like a Maestro, or the droid\'s own board.'},
-  {id:'other',   label:'Something else', sim:'park',
+  {id:'other',   label:'Something else', sim:'park', art:'other',
    note:'Recorded, and nothing more — there is no model for it yet. The simulator carries on with whatever you had before, so the rest of the setup still works.'}
 ];
 /* NOT offered in the dropdown — it is what a build looks like when the two
@@ -409,7 +425,7 @@ const SERVO_DEVICES = [
    the body). The picker cannot express it, and quietly rewriting somebody's
    saved build to something it is not would be worse than admitting that. So
    it is preserved, shown, and replaced the moment a device is chosen. */
-const SERVO_MIXED = {id:'mixed', label:'Different at each end', sim:'sub',
+const SERVO_MIXED = {id:'mixed', label:'Different at each end', sim:'sub', art:'other',
   note:'This build has one kind of board in the dome and another in the body — from a saved setup, or from the days when they were two separate questions. It still works; the picker below just cannot draw it. Choosing a device replaces it.'};
 function servoDeviceDef(id){
   return SERVO_DEVICES.find(d=>d.id === id) || (id === 'mixed' ? SERVO_MIXED : SERVO_DEVICES[0]);
@@ -459,12 +475,69 @@ const SERVO_TOPOS = [
 ];
 function servoTopos(device){ return SERVO_TOPOS.filter(t=>t.device === (device || buildGet().servoDevice)); }
 function servoTopoDef(id){ return SERVO_TOPOS.find(t=>t.id === id) || SERVO_TOPOS[0]; }
+
+/* ------------------------------------ the shape each family starts from
+   v1.45.0. Mike, on the PCA9685 arrangement: "defaulting to one controller
+   and two expanders." That is `p1x2`: 32 channels behind one small board,
+   one link from the droid, and the arrangement most people actually build —
+   whereas `p0` (straight off the droid's own I2C pins) is the cheap special
+   case that only the mod2026 sketch can drive.
+
+   It is the DEFAULT OF THE QUESTION, not of the app: choose the PCA9685
+   family and this is the shape you land on. `buildDefault()` still ships
+   `p0`, on purpose — the starting build is the all-mod2026 clean slate whose
+   sketch IS the no-controller arrangement (see the note there), and having
+   the two disagree would mean a brand-new wizard opening on a contradiction
+   it would then "fix" by re-picking the firmware. Changing the shipped
+   default is a one-word change here if Mike would rather have it.
+
+   Maestro starts at one board for the obvious reason: nothing to address,
+   nothing to chain. */
+const SERVO_DEFAULT_TOPO = {maestro:'m1', pca:'p1x2'};
+function servoDefaultTopo(device){
+  const list = servoTopos(device === 'other' ? 'maestro' : device);
+  const want = SERVO_DEFAULT_TOPO[device === 'other' ? 'maestro' : device];
+  return list.some(t=>t.id === want) ? servoTopoDef(want) : list[0];
+}
 /* the chosen shape, guarded against an id that does not belong to the chosen
    device (which is what a half-finished change of mind looks like) */
 function buildServoTopo(b){
   b = b||buildGet();
-  const list = servoTopos(b.servoDevice === 'other' ? 'maestro' : b.servoDevice);
-  return list.some(t=>t.id === b.servoTopo) ? servoTopoDef(b.servoTopo) : list[0];
+  const dev = (b.servoDevice === 'other') ? 'maestro' : b.servoDevice;
+  const list = servoTopos(dev);
+  return list.some(t=>t.id === b.servoTopo) ? servoTopoDef(b.servoTopo) : servoDefaultTopo(dev);
+}
+
+/* --------------------------------- one Maestro, or one at each end (v1.45.0)
+   Mike: "Maestro: choose one or two boards."
+
+   The count was IMPLIED before — it was whichever wiring picture you clicked,
+   so "how many boards have I got?" was answered by looking at three diagrams
+   and counting the rectangles. It is the explicit question now and the shape
+   is DERIVED from it: one board is `m1`, two boards is `m2c` (both on the one
+   host link — the standard Pololu wiring) unless the build already says
+   `m2s`, in which case that stays, because it is a real answer somebody gave
+   and the advanced switch on the step is where they gave it.
+
+   Nothing new is stored. The count is a view of `servoTopo`, which is still
+   the single answer buildNormaliseServos() derives everything else from. */
+const SERVO_BOARD_COUNTS = [
+  {n:1, id:'one', label:'One board', sim:'full',
+   note:'One Maestro running the whole droid — dome panels, body doors and arms. Nothing to address, nothing to chain, and the right answer whenever the channel count allows it. Every dome lead has to cross the slip ring.'},
+  {n:2, id:'two', label:'Two boards', sim:'full',
+   note:'One in the dome and one in the body — the usual arrangement on a finished droid, because the slip ring is the thing you do not want twenty-six servo wires crossing. Read what it says below about telling two boards apart.'}
+];
+/* which shape a count means, for THIS build */
+function servoBoardCountTopo(n, b){
+  b = b||buildGet();
+  if(n === 1) return 'm1';
+  const cur = servoTopoDef(b.servoTopo);
+  return (cur.device === 'maestro' && cur.boards > 1) ? cur.id : 'm2c';
+}
+/* and the count the build is currently on */
+function buildMaestroBoardCount(b){
+  b = b||buildGet();
+  return buildServoTopo(b).boards > 1 ? 2 : 1;
 }
 
 const SERVO_SPLIT_OPTIONS = [

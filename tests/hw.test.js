@@ -90,25 +90,33 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
      clock.ran >= 20 && clock.ran <= 45 && clock.after === 0,
      clock.ran+' ticks in 300 ms, '+clock.after+' after stopping');
 
-  console.log('\n════ the shared channel table ════');
+  /* v1.45.0: this used to drive #hwTable inside the #hwWrap overlay. That
+     overlay was the duplicate Mike asked to be rid of, so the assertions
+     move to the surface that absorbed it — the bench's own channel table,
+     which is now the one place a channel is configured. hw-table.js itself
+     is still shared and still exercised, by PCA Studio's suite, which is
+     where its page furniture actually exists. */
+  console.log('\n════ the bench channel table ════');
   const tbl = await ev(()=>{
     hwOpen();
-    const out = {open:!$('hwWrap').hidden};
-    out.rows = document.querySelectorAll('#hwTable tr[data-ch]').length;
-    const head = $('hwTable').rows[0].textContent;
+    const out = {open:SETUP.open};
+    const tab = ()=>$('setBody').querySelector('table.chtab');
+    out.rows = $('setBody').querySelectorAll('tr[data-ch]').length;
+    out.buildRows = HW.count();
+    const head = tab().rows[0].textContent;
     out.us = /µs/.test(head);
     out.rev = /rev/i.test(head);
     out.ease = /ease/i.test(head);
-    const ch = +document.querySelector('#hwTable tr[data-ch]').dataset.ch;
-    const cell = f=>document.querySelector('#hwTable tr[data-ch="'+ch+'"] [data-f='+f+']');
+    const ch = MSTR.channels.findIndex(c=>c && /^servo/i.test(c.mode));
+    const cell = k=>$('setBody').querySelector('tr[data-ch="'+ch+'"] [data-k='+k+']');
     const c = MSTR.channels[ch];
-    out.shownMin = cell('min').value;
+    out.shownMin = cell('minUs').value;
     out.storedMin = c.min;
-    cell('min').value = '1100'; cell('min').dispatchEvent(new Event('input',{bubbles:true}));
+    cell('minUs').value = '1100'; cell('minUs').dispatchEvent(new Event('input',{bubbles:true}));
     out.afterType = c.min;
-    /* home stays editable with boot off — boot is WHEN, not WHETHER */
-    c.homemode = 'Off'; hwTableBuild('hwTable');
-    out.homeEditable = !cell('home').disabled;
+    /* centre stays editable with boot off — boot is WHEN, not WHETHER */
+    c.homemode = 'Off'; setupRender();
+    out.homeEditable = !cell('ctrUs').disabled;
     /* reverse is drawn from the numbers, never stored */
     out.revBefore = {checked:cell('rev').checked, min:c.min, max:c.max};
     cell('rev').click();
@@ -119,20 +127,20 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
     HW.drive(ch, Math.max(c.min,c.max));
     for(let k=0;k<600;k++) HW.tick(10);
     hwTableSync();
-    out.bar = $('pb'+ch).style.width;
-    out.readout = $('us'+ch).textContent;
+    out.bar = $('spb'+ch).style.width;
+    out.readout = $('sus'+ch).textContent;
     hwClose();
-    out.closed = $('hwWrap').hidden;
+    out.closed = !SETUP.open;
     return out;
   });
-  ok('the bench opens as an overlay with one row per channel in use',
-     tbl.open && tbl.rows > 0 && tbl.closed, tbl.rows+' rows');
-  ok('it is the same table Studio has — µs, rev and ease',
+  ok('the bench opens with one row per channel the build has',
+     tbl.open && tbl.rows === tbl.buildRows && tbl.rows > 0 && tbl.closed, tbl.rows+' rows');
+  ok('it carries the same columns Studio has — µs, rev and ease',
      tbl.us && tbl.rev && tbl.ease);
   ok('µs in, quarter-µs stored',
      tbl.shownMin === String(Math.round(tbl.storedMin/4)) && tbl.afterType === 4400,
      'showed '+tbl.shownMin+', typing 1100 stored '+tbl.afterType);
-  ok('home is editable with boot off', tbl.homeEditable);
+  ok('centre is editable with boot off', tbl.homeEditable);
   ok('reverse swaps the ends and the tick follows the numbers',
      tbl.revBefore.checked === false && tbl.revAfter.checked === true
      && tbl.revAfter.min === tbl.revBefore.max
@@ -225,7 +233,7 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
     const flush = ()=>new Promise(r=>setTimeout(r,0));
     const out = {};
     hwOpen();
-    out.bar   = !!$('bConnect') && !!$('serialChip') && !!$('bMon');
+    out.bar   = !!$('bSetConnect') && !!$('serialChip') && !!$('bMon');
     out.chip  = $('serialChip').textContent;
     out.mon   = !!$('monOut') && $('secMon').classList.contains('hide');
     monShow(true);  out.monOpens  = !$('secMon').classList.contains('hide');
@@ -576,12 +584,251 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
     setupCalCancel(); setupClose();
     return /Set MIN/.test(t) && /Set CENTER/.test(t) && /Set MAX/.test(t);
   }));
+  /* v1.45.0: the wording Mike asked for on 2026-08-16 lived on the folded-in
+     overlay's own button. That overlay is gone, so it moved to the DOOR — the
+     Bench pane's button (ui-pane.js), which is now the only thing standing
+     between him and the bench. */
   ok('the bench pane offers to EDIT the config when there is one, not set it up', await ev(()=>{
-    hwOpen();
-    const t = $('hwWrap').querySelector('[data-hw="setup"]').textContent;
-    hwClose();
-    return /Edit current servo config/.test(t);
+    makeStarter('dome','mini24');
+    buildMaestroPane();
+    const b = Array.from($('maeHost').querySelectorAll('button'))
+      .find(x=>/^(Edit current servo config|Set up servo hardware)/.test(x.textContent));
+    return !!b && /Edit current servo config/.test(b.textContent);
   }));
+
+  /* ==================================================================
+     v1.45.0 — Mike's five bench items, in his words:
+       "Keep Configure Servo visible; order columns: board pin, use, name,
+        configure, drives."
+       "Add dome-view panel selection for servo-channel assignments" /
+        "Add the dome map to Servo Setup as well as Panels."
+       "Remove or merge the duplicated Servo Bench into Servo Setup."
+       "Disconnect hardware on exit from Servo Setup."
+       ...and the two export buttons that threw ReferenceError in the sim.
+     ================================================================== */
+  console.log('\n════ the channel table in Mike\'s column order (v1.45.0) ════');
+  const cols = await ev(()=>{
+    setupOpen(4);
+    const tab = $('setBody').querySelector('table.chtab');
+    const head = Array.from(tab.rows[0].cells);
+    const row  = Array.from($('setBody').querySelector('tr[data-ch]').cells);
+    const at = sel=>row.findIndex(td=>td.querySelector(sel));
+    const stick = head.filter(th=>th.classList.contains('cst')).length;
+    const lefts = head.filter(th=>th.classList.contains('cst')).map(th=>th.style.left);
+    const out = {
+      /* the first cell is the pick-all tick, then Mike's order */
+      order: head.slice(1, 7).map(th=>th.textContent.trim().toLowerCase()).join('|'),
+      /* the cells are positionally paired with the headers, so they must
+         agree — reordering one and not the other is the trap this checks */
+      calAt:  at('[data-k=cal]'),
+      partAt: at('[data-k=part]'),
+      nameAt: at('[data-k=name]'),
+      useAt:  at('[data-k=use]'),
+      pickAt: at('[data-k=pick]'),
+      stick, lefts,
+      /* the pick-all tick still drives the apply bar */
+      applyBefore: $('setBody').querySelector('[data-act=applysel]').disabled
+    };
+    const all = $('setBody').querySelector('[data-k=pickall]');
+    all.checked = true; all.dispatchEvent(new Event('input',{bubbles:true}));
+    out.picked = (SETUP.pick||[]).length;
+    out.applyAfter = $('setBody').querySelector('[data-act=applysel]').disabled;
+    out.applyLabel = $('setBody').querySelector('[data-act=applysel]').textContent;
+    SETUP.pick = [];
+    setupClose();
+    return out;
+  });
+  ok('the headers read #, board·pin, use, name, configure, drives — Mike\'s order',
+     cols.order === '#|board·pin|use|name|configure|drives', cols.order);
+  ok('…and every cell sits under its own header, not one column adrift',
+     cols.pickAt===0 && cols.useAt===3 && cols.nameAt===4 && cols.calAt===5 && cols.partAt===6,
+     JSON.stringify([cols.pickAt,cols.useAt,cols.nameAt,cols.calAt,cols.partAt]));
+  ok('the identity columns through configure are pinned, so configure cannot scroll off',
+     cols.stick === 6 && cols.lefts.every(l=>/px$/.test(l))
+     && parseFloat(cols.lefts[5]) > parseFloat(cols.lefts[4]),
+     cols.stick+' sticky · '+cols.lefts.join(','));
+  ok('the pick-all tick still arms the apply bar',
+     cols.applyBefore === true && cols.applyAfter === false && cols.picked > 0,
+     cols.picked+' picked · '+cols.applyLabel.trim());
+
+  console.log('\n════ the dome map, on the bench\'s Channels step (v1.45.0) ════');
+  const dome = await ev(()=>{
+    const out = {};
+    setupOpen(4);
+    out.door = !!$('setBody').querySelector('[data-act=dome]');
+    /* a body part the dome drawing cannot show, so the panel has to say so */
+    const body = MSTR.channels.findIndex(c=>c && /^servo/i.test(c.mode));
+    HW.setPart(body, 'dataportDoor');
+    /* a dome part already claimed by another channel, so the panel has to
+       say WHICH channel has it — the same thing the dropdown says */
+    let other = MSTR.channels.findIndex((c,i)=>c && i!==body && /^servo/i.test(c.mode));
+    HW.setPart(other, 'pie0');
+    setupRender();
+    $('setBody').querySelector('[data-act=dome]').click();
+    out.open  = !!$('domeWrap') && !!$('domeWrap').querySelector('svg.domemap');
+    /* the pie already claimed is drawn as claimed, and its tooltip names
+       the channel that has it */
+    const pie0 = $('domeWrap').querySelectorAll('g.dmpie')[0];
+    out.pieHas = pie0.getAttribute('class').indexOf('has') >= 0;
+    out.pieTitle = pie0.querySelector('title').textContent;
+    /* which channels the diagram cannot place */
+    out.strays = /dataport/i.test($('domeWrap').textContent);
+    /* pick a free channel, click a panel, and the part is assigned */
+    /* a dome starter maps every channel, so free one up deliberately rather
+       than hoping for an unmapped row */
+    let free = MSTR.channels.findIndex((c,i)=>c && /^servo/i.test(c.mode) && !c.act);
+    if(free < 0){
+      free = MSTR.channels.findIndex((c,i)=>c && i!==body && i!==other && /^servo/i.test(c.mode));
+      HW.setPart(free, '');
+    }
+    SETUP.sel = free; setupDomeRender();
+    const pie3 = $('domeWrap').querySelectorAll('g.dmpie')[3];
+    pie3.dispatchEvent(new MouseEvent('click',{bubbles:true}));
+    out.assigned = MSTR.channels[free].act;
+    out.free = free;
+    /* closing the map leaves the bench open */
+    $('domeWrap').querySelector('[data-dome=close]').click();
+    out.closed = !$('domeWrap') || !$('domeWrap').querySelector('svg.domemap');
+    out.benchStillOpen = SETUP.open;
+    setupClose();
+    return out;
+  });
+  ok('the Channels step has a door onto the dome map', dome.door);
+  ok('…and it opens the same top-down dome the Panels step draws', dome.open);
+  ok('a panel another channel already claims is drawn claimed, and names that channel',
+     dome.pieHas && /channel\s*\d/.test(dome.pieTitle), JSON.stringify(dome.pieTitle));
+  ok('it names the channels the diagram cannot place, rather than dropping them',
+     dome.strays);
+  ok('select a row, click a panel, and the channel drives it',
+     dome.assigned === 'pie3', 'ch '+dome.free+' → '+dome.assigned);
+  ok('closing the map leaves the bench where it was',
+     dome.closed && dome.benchStillOpen);
+  /* Esc has three jobs on this step now, and getting the order wrong would
+     mean shutting a diagram hung up on a real board (setupExitHardware) */
+  ok('Esc shuts the map, not the bench — and does not touch the link', await ev(()=>{
+    setupOpen(4);
+    SER.port = {}; SER.writer = { write:b=>Promise.resolve() }; SER.blocked = false;
+    setupDomeOpen();
+    document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));
+    const out = {mapShut: !(SETUP.dome && SETUP.dome.open), benchOpen: SETUP.open, kept: !!SER.port};
+    SER.port = null; SER.writer = null; serialUiSync();
+    setupClose();
+    return out.mapShut && out.benchOpen && out.kept;
+  }));
+
+  console.log('\n════ one bench, not two (v1.45.0) ════');
+  const fold = await ev(()=>{
+    const out = {};
+    /* the Bench pane's button lands on the SETUP wizard now — there is no
+       second "Servo hardware" overlay to land on */
+    hwOpen();
+    out.benchOpen = SETUP.open && SETUP_STEPS[SETUP.step].key === 'channels';
+    out.noSecondOverlay = !$('hwWrap') || !$('hwWrap').innerHTML;
+    out.isOpen = (typeof hwIsOpen === 'function') && hwIsOpen();
+    out.modal = uiModalOpen();
+    /* the live half came across: a drive slider, a position bar, a µs
+       readout and the four quick-move buttons */
+    const ch = MSTR.channels.findIndex(c=>c && /^servo/i.test(c.mode));
+    const tr = $('setBody').querySelector('tr[data-ch="'+ch+'"]');
+    out.slider = !!tr.querySelector('[data-k=slide]');
+    out.bar    = !!$('spb'+ch) && !!$('spt'+ch);
+    out.us     = !!$('sus'+ch);
+    out.quick  = ['soff','slo','smid','shi'].every(k=>!!tr.querySelector('[data-k='+k+']'));
+    /* and it MOVES — the same engine, the same clock */
+    const c = MSTR.channels[ch];
+    HW.drive(ch, Math.max(c.min,c.max));
+    for(let k=0;k<600;k++) HW.tick(10);
+    hwTableSync();
+    out.barWidth = $('spb'+ch).style.width;
+    out.readout  = $('sus'+ch).textContent;
+    /* the serial chrome serial-link.js binds by id is here too */
+    out.link = ['bSetConnect','serialChip','secMon','monOut','monIn','ckNl','ckFollow','bMon']
+      .every(id=>!!$(id));
+    /* all-home and all-off, the two things on the old bar that move servos */
+    out.allHome = !!$('setBody').querySelector('[data-act=drvhome]');
+    out.allOff  = !!$('setBody').querySelector('[data-act=drvoff]');
+    hwClose();
+    out.shut = !SETUP.open && !hwIsOpen() && !uiModalOpen();
+    return out;
+  });
+  ok('the bench button opens the setup wizard on its Channels step',
+     fold.benchOpen && fold.noSecondOverlay);
+  ok('hwIsOpen() and uiModalOpen() both still tell the truth about it',
+     fold.isOpen === true && fold.modal === true && fold.shut === true);
+  ok('the live drive slider, position bar, µs readout and quick moves came across',
+     fold.slider && fold.bar && fold.us && fold.quick, JSON.stringify(fold));
+  ok('…and the bar follows the engine here, exactly as it did on the old bench',
+     parseFloat(fold.barWidth) > 95 && /µs/.test(fold.readout),
+     fold.barWidth+' · '+fold.readout);
+  ok('the serial chrome serial-link.js binds by id is on the bench', fold.link);
+  ok('all home and all off came across — nothing that drives a servo was lost',
+     fold.allHome && fold.allOff);
+
+  console.log('\n════ leaving the bench puts the hardware down (v1.45.0) ════');
+  const exit = await ev(async ()=>{
+    const out = {};
+    const fake = ()=>{ SER.port = {}; SER.writer = { write:b=>Promise.resolve() };
+                       SER.blocked = false; serialUiSync(); };
+    setupOpen(4);
+    fake(); LIVE.on = true;
+    /* stepping between the bench's own steps is not leaving it */
+    setupGo(2); setupGo(4);
+    out.stepKept = !!SER.port;
+    /* nor is cancelling the dial */
+    const ch = MSTR.channels.findIndex(c=>c && /^servo/i.test(c.mode));
+    setupCalOpen(ch); setupCalCancel();
+    out.dialKept = !!SER.port;
+    /* the servos must be left holding, not released — remember the target */
+    HW.drive(ch, MSTR.channels[ch].home || 6000);
+    for(let k=0;k<80;k++) HW.tick(10);
+    const held = HW.engine().st[ch].target;
+    setupClose();
+    await new Promise(r=>setTimeout(r,30));
+    out.closedPort = SER.port === null;
+    out.disarmed = LIVE.on === false;
+    out.stillHeld = HW.engine().st[ch].target === held && HW.engine().st[ch].active === true;
+    out.said = LOG.slice(-6).map(l=>l.s).join(' | ');
+    /* and Esc does the same thing the × does */
+    setupOpen(4); fake();
+    document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));
+    await new Promise(r=>setTimeout(r,30));
+    out.escClosed = !SETUP.open && SER.port === null;
+    SER.port = null; SER.writer = null; LIVE.on = false; serialUiSync();
+    return out;
+  });
+  ok('stepping between the bench\'s own steps keeps the link', exit.stepKept);
+  ok('cancelling the dial keeps it too', exit.dialKept);
+  ok('closing the bench disconnects the board and disarms live drive',
+     exit.closedPort && exit.disarmed, JSON.stringify([exit.closedPort, exit.disarmed]));
+  ok('…and leaves the servos holding where they were, not released',
+     exit.stillHeld);
+  ok('…and says so, rather than going quiet on a link it just dropped',
+     /disconnect/i.test(exit.said) && /hold/i.test(exit.said), exit.said);
+  ok('Esc out of the bench puts the hardware down the same way', exit.escClosed);
+
+  console.log('\n════ the bench\'s two exports work in the SIM (v1.45.0) ════');
+  const exp = await ev(()=>{
+    const seen = [];
+    const real = HTMLAnchorElement.prototype.click;
+    HTMLAnchorElement.prototype.click = function(){ seen.push(this.download); };
+    setupOpen(5);
+    SETUP.adv = true; setupRender();
+    /* click them, exactly as Mike does — a bare download() exists only in
+       PCA Studio, so in the sim these two threw ReferenceError */
+    const hit = a=>{ const b = $('setBody').querySelector('[data-act='+a+']'); if(b) b.click(); return !!b; };
+    const okH = hit('exph');
+    const okJ = hit('expjson');
+    HTMLAnchorElement.prototype.click = real;
+    SETUP.adv = false;
+    setupClose();
+    return {seen, okH, okJ};
+  });
+  ok('both buttons are there and neither throws', exp.okH && exp.okJ && exp.seen.length === 2,
+     JSON.stringify(exp.seen));
+  ok('servos.h and the bench .json are both stamped with the date and time',
+     exp.seen.some(n=>/^servos-\d{4}-\d\d-\d\d-\d{4}\.h$/.test(n)) &&
+     exp.seen.some(n=>/^servo-setup-\d{4}-\d\d-\d\d-\d{4}\.json$/.test(n)),
+     JSON.stringify(exp.seen));
 
   console.log('\n════ no page errors ════');
   ok('nothing threw', errs.length===0, errs.join(' | '));

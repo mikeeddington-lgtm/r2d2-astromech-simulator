@@ -369,6 +369,48 @@ const LIVE = fs.readFileSync(path.resolve(__dirname,'fixtures-live-dome.mstr'),'
   ok('button emits a header whose slots match the loadout', ui.hasTable && ui.declared===ui.slots,
      ui.declared+' of '+ui.slots);
 
+  /* =================================================================
+     v1.45.0 — Mike: "…then exporting to either format." Conversion is
+     lossy in both directions and the losses are not symmetrical. Every
+     dropped field is named to the user; this pins the list.
+     ================================================================= */
+  console.log('\n════ v1.45.0 — Maestro → PCA9685 names what it cannot carry ════');
+  const drops = await ev(()=>{
+    loadProfile('maestro25'); setBoard('mini24'); makeStarter('dome','mini24'); reindexSubs();
+    if(typeof pcaExportDrops !== 'function') return {missing:true};
+    /* a per-frame speed row and a non-servo channel, both of which a PCA
+       header has nowhere to put */
+    MSTR.channels[MSTR.channels.length-1].mode = 'Input';
+    const seqs = loadoutSeqs();
+    seqs[0].frames[0].speeds = MSTR.channels.map(()=>10);
+    const d = pcaExportDrops(MSTR.channels, seqs);
+    delete seqs[0].frames[0].speeds;
+    return {fields:d.map(x=>x.field), reasons:d.every(x=>!!x.why),
+            counted:d.every(x=>x.n === undefined || typeof x.n === 'number'),
+            note:(typeof pcaExportDropNote==='function') ? pcaExportDropNote(d) : ''};
+  });
+  ok('the Maestro-only fields are named, not silently discarded',
+     !drops.missing && ['homemode','neutral','range','mode','invert','frame speed/acceleration']
+       .every(f=>(drops.fields||[]).indexOf(f)>=0), (drops.fields||[]).join(', '));
+  ok('...each with a reason a builder can act on', !!drops.reasons && !!drops.counted);
+  ok('...and one sentence that lists them by name for the user',
+     /homemode/.test(drops.note||'') && /neutral/.test(drops.note||''), (drops.note||'').slice(0,120));
+
+  console.log('\n════ v1.45.0 — quarter-µs stays quarter-µs across the conversion ════');
+  const units = await ev(()=>{
+    if(typeof pcaHeaderParse !== 'function') return {missing:true};
+    const h = pcaGenFromLoadout();
+    const P = pcaHeaderParse(h, 'u.h');
+    const c0 = MSTR.channels.find(c=>/^servo/i.test(c.mode));
+    const g0 = P.channels[c0.i];
+    return {same: g0.min===c0.min && g0.max===c0.max,
+            declaredQus: /QUARTER-MICROSECONDS/.test(h),
+            mine:[c0.min,c0.max], got:[g0.min,g0.max]};
+  });
+  ok('endpoints cross unchanged — both formats already speak quarter-µs',
+     !units.missing && units.same && units.declaredQus,
+     JSON.stringify(units.mine)+' → '+JSON.stringify(units.got));
+
   console.log('\n'+pass+' passed, '+(fail?fail+' FAILED':'0 failed'));
   console.log('page errors: '+(errs.length?errs.join(' | '):'none'));
   await browser.close();

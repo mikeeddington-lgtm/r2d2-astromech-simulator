@@ -95,9 +95,15 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
     const chip = wizRailChip(wizSteps().findIndex(s=>s.key==='sound'));
     return chip.textContent.indexOf('✓')>=0 && /DY-SV5W/.test(chip.textContent);
   }));
+  /* v1.45.0 — the answer line is now an EMPTY slot on a job step rather than
+     no element at all: every chip is one size, and reserving the line is what
+     stops a chip growing when it gets an answer (css/07-startup.css). What the
+     assertion is actually about is unchanged — a place you go says nothing
+     about itself — so it reads the slot's CONTENT rather than its existence. */
   ok('a non-question step gets no tick and no subtitle', await ev(()=>{
     const chip = wizRailChip(wizSteps().findIndex(s=>s.key==='_scene'));
-    return chip.textContent.indexOf('✓')<0 && !chip.querySelector('.railans');
+    const ans = chip.querySelector('.railans');
+    return chip.textContent.indexOf('✓')<0 && (!ans || ans.textContent==='');
   }));
   ok('changing an answer updates the chip', await ev(()=>{
     buildSet('sound','mdyx5300'); buildStartup();
@@ -296,6 +302,54 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
   }));
 
   /* ================================================================
+     v1.45.0 — Mike: "Make setup-stage selection bubbles consistent in
+     size." Measured, not inspected: getBoundingClientRect() across every
+     chip in the rail, in every state it can be in at once.
+     ================================================================ */
+  console.log('\n════ every rail chip is one size (v1.45.0) ════');
+  const chipStates = await ev(()=>{
+    modelSet('mouse');                       // gives the rail its greyed .na chips
+    /* wizOPEN, not wizGo: a closed overlay is display:none, every chip
+       measures 0×0 and "they are all the same size" passes for the wrong
+       reason. The width/height assertions below check for a real box too. */
+    wizOpen(wizStepIndex('sound'));          // something before it, something after
+    const d = Array.from($('stprail').querySelectorAll('.raildot'));
+    return {
+      n: d.length, steps: wizSteps().length,
+      act:  d.filter(x=>x.classList.contains('act')).length,
+      done: d.filter(x=>x.classList.contains('done')).length,
+      na:   d.filter(x=>x.classList.contains('na')).length,
+      ans:  d.filter(x=>x.querySelector('.railans') && x.querySelector('.railans').textContent).length,
+      noAns:d.filter(x=>!x.querySelector('.railans') || !x.querySelector('.railans').textContent).length
+    };
+  });
+  ok('the measured rail really does hold every kind of chip at once',
+     chipStates.n===chipStates.steps && chipStates.act===1 && chipStates.done>0 &&
+     chipStates.na>0 && chipStates.ans>0 && chipStates.noAns>0, JSON.stringify(chipStates));
+  ok('...and all fifteen are the same width and the same height', await ev(()=>{
+    const r = Array.from($('stprail').querySelectorAll('.raildot')).map(d=>d.getBoundingClientRect());
+    const w = new Set(r.map(x=>Math.round(x.width)));
+    const h = new Set(r.map(x=>Math.round(x.height)));
+    /* a real box, on screen — not fifteen zeroes behind a closed overlay */
+    return w.size===1 && h.size===1 && r[0].width > 40 && r[0].height > 20;
+  }), await ev(()=>{
+    const r = Array.from($('stprail').querySelectorAll('.raildot')).map(d=>d.getBoundingClientRect());
+    return Array.from(new Set(r.map(x=>Math.round(x.width)+'×'+Math.round(x.height)))).join(' / ');
+  }));
+  ok('...and nothing moves as you walk the setup — no jump on active or done', await ev(()=>{
+    const box = ()=>Array.from($('stprail').querySelectorAll('.raildot'))
+      .map(d=>{ const b = d.getBoundingClientRect(); return Math.round(b.width)+'x'+Math.round(b.height); })
+      .join('|');
+    wizOpen(0);                    const a = box();
+    wizGo(wizStepIndex('servos')); const b2 = box();
+    wizGo(wizSteps().length-1);    const c = box();
+    modelSet('droid'); wizGo(0);
+    const one = a.split('|')[0];
+    closeStartup();
+    return a===b2 && b2===c && new Set(a.split('|')).size===1 && !/^0x/.test(one);
+  }));
+
+  /* ================================================================
      v1.42.0 — the Panels step / Config tab is model-aware (1.3)
      ================================================================ */
   console.log('\n════ the Panels note is model-aware (1.3) ════');
@@ -425,15 +479,56 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
     Array.from($('cfgHost').querySelectorAll('button')).some(b=>/Open the setup/.test(b.textContent))));
   ok('the sketch constants stayed', await ev(()=>
     /Speed/.test($('cfgHost').textContent) && $('cfgHost').querySelectorAll('input[type=number]').length>4));
-  ok('the header firmware buttons are gone — it is a build answer now', await ev(()=>
-    !$('fwsel') && $('fwTag') && $('fwTag').textContent===PROFILE.short));
-  ok('the boards live on the wizard wiring step', await ev(()=>{
-    wizOpen(wizSteps().findIndex(s=>s.key==='_wiring'));
-    const n = $('startupBody').querySelectorAll('.boardcard').length;
-    closeStartup();
-    return n===2;
+  /* v1.45.0 — Mike: "Remove the Maestro 2025 reference/image." The buttons
+     went in v1.4.0 and the read-only tag that replaced them has gone too, so
+     the header no longer spells a board maker's product name across the
+     chrome. The sketch is still named where it is CHOSEN and where the build
+     is summarised — that is what the second half asserts, because removing a
+     display must not remove the information. */
+  ok('the header carries no firmware buttons and no firmware tag', await ev(()=>
+    !$('fwsel') && !$('fwTag') && !/Maestro 2025/.test(($('hdrBezel')||{textContent:''}).textContent)));
+  ok('…and the sketch is still named in the build summary', await ev(()=>{
+    const r = buildSummaryRows().find(x=>x.key==='firmware');
+    return !!r && String(r.label||'').length > 0;
   }));
-  ok('the Model tab points at the setup instead of drawing boards twice', await ev(()=>{
+  /* ================================================================
+     v1.45.0 — Mike: "Remove the non-functional Wiring 'Boards' section."
+
+     It drew a photo-and-pins card per board, and for a mod2026 or PCA9685
+     build — the DEFAULT build — it could not do what it promised: no photo
+     and no pin map exist for those boards, the pin buttons deliberately did
+     not open the picker for mod2026, and the explanations went to
+     $('cadMsg'), which does not exist while the overlay is up.
+
+     So the assertion inverts: there are no board cards ANYWHERE now. What
+     the section was reached for is asked on the Panels step and printed on
+     the wiring sheet, and hwPins()/chPartOptions() — the parts of
+     app/boards.js everything else reads — are pinned below and elsewhere.
+     ================================================================ */
+  ok('no board-and-pins cards are drawn anywhere any more', await ev(()=>{
+    wizOpen(wizSteps().findIndex(s=>s.key==='_wiring'));
+    const inWiz = $('startupBody').querySelectorAll('.boardcard, .pinstrip, .pinbtn').length;
+    closeStartup();
+    buildCadPane(); buildConfig();
+    return inWiz===0 && typeof buildBoardsSect==='undefined' &&
+           $('cadHost').querySelectorAll('.boardcard').length===0 &&
+           $('cfgHost').querySelectorAll('.boardcard').length===0;
+  }));
+  ok('the wiring step still has the diagram, the sheet buttons and the beta note', await ev(()=>{
+    wizOpen(wizSteps().findIndex(s=>s.key==='_wiring'));
+    const h = $('startupBody');
+    const svg = h.querySelectorAll('.wdwrap svg').length;
+    const btns = Array.from(h.querySelectorAll('button')).filter(b=>/wiring sheet|CSV/.test(b.textContent)).length;
+    const beta = !!h.querySelector('.note.beta');
+    closeStartup();
+    return svg===1 && btns===2 && beta;
+  }));
+  ok('...and the channel↔part machinery the rest of the app reads is untouched', await ev(()=>
+    typeof hwPins==='function' && hwPins('dome').pins.length > 0 &&
+    typeof chPartOptions==='function' && chPartOptions().length > 0 &&
+    typeof chAssign==='function' && typeof chFindUse==='function' &&
+    HW.parts().length===chPartOptions().length));
+  ok('the Model tab points at the setup rather than drawing boards', await ev(()=>{
     buildCadPane();
     return $('cadHost').querySelectorAll('.boardcard').length===0 && /Config/.test($('cadHost').textContent);
   }));
@@ -947,10 +1042,61 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
     SERVO_DEVICES.map(d=>d.id).join()==='maestro,pca,other' &&
     SERVO_DEVICES.every(d=>d.label && d.note && d.sim) &&
     servoDeviceDef('other').sim==='park'));
-  ok('the step is dropdowns, not a wall of cards', await ev(()=>{
+  /* ================================================================
+     v1.45.0 — Mike: "Make Servo Hardware image-led: choose Maestro or
+     PCA9685 first, then show relevant options."
+
+     This step was a dropdown first (the v1.36.0 assertion below said so in
+     as many words). The FAMILY is now three picture cards at the top, on
+     the real board photos, and nothing else on the step exists until it is
+     answered — so what used to be asserted as "dropdowns, not cards" is
+     asserted the other way up, plus the new rule that matters more: the
+     first control you meet is the family, and the questions after it belong
+     to the family you picked.
+     ================================================================ */
+  ok('the first thing on the step is a picture of each family', await ev(()=>{
     wizGo(wizStepIndex('servos'));
-    return $('startupBody').querySelectorAll('select.svfsel').length>=2 &&
-           $('startupBody').querySelectorAll('.optcard').length===0;
+    const host = $('startupBody');
+    const grid = host.querySelector('.famgrid');
+    const cards = grid ? grid.querySelectorAll('.optcard') : [];
+    /* the family grid is BEFORE any dropdown in the document */
+    const first = host.querySelector('.famgrid, select.svfsel');
+    return !!grid && cards.length===servoDeviceOptions().length && cards.length===3 &&
+           first === grid &&
+           Array.from(cards).every(c=>/^servoDevice:/.test(c.dataset.opt));
+  }));
+  ok('...and each card carries the real board photo, whole card clickable', await ev(()=>{
+    const cards = Array.from($('startupBody').querySelectorAll('.famgrid .optcard'));
+    const mae = cards.find(c=>c.dataset.opt==='servoDevice:maestro');
+    const pca = cards.find(c=>c.dataset.opt==='servoDevice:pca');
+    return cards.every(c=>c.querySelector('.optpic')) &&
+           !!mae.querySelector('img.optphoto') && !!pca.querySelector('img.optphoto') &&
+           mae.tabIndex===0 && pca.tabIndex===0;
+  }));
+  ok('clicking a family card is what answers the question', await ev(()=>{
+    $('startupBody').querySelector('[data-opt="servoDevice:maestro"]').click();
+    const a = buildGet().servoDevice==='maestro' &&
+              $('startupBody').querySelector('[data-opt="servoDevice:maestro"]').classList.contains('act');
+    $('startupBody').querySelector('[data-opt="servoDevice:pca"]').click();
+    return a && buildGet().servoDevice==='pca';
+  }));
+  ok('choosing PCA9685 lands on one controller and two expanders', await ev(()=>{
+    /* Mike: "defaulting to one controller and two expanders" — arriving from
+       the Maestro family, with no pca shape in the build to keep */
+    buildSet('servoDevice','maestro'); buildSet('servoTopo','m2c');
+    buildSet('servoDevice','pca');
+    return buildGet().servoTopo==='p1x2' && servoDefaultTopo('pca').id==='p1x2' &&
+           buildGet().domeServo==='mpca32';
+  }));
+  ok('...and only that family\'s questions are on the step', await ev(()=>{
+    buildSet('servoDevice','pca'); buildStartup();
+    const pcaCards = $('startupBody').querySelectorAll('.flowcard').length;
+    const pcaCount = $('startupBody').querySelectorAll('[data-opt^="servoBoards"]').length;
+    buildSet('servoDevice','maestro'); buildStartup();
+    const maeCount = $('startupBody').querySelectorAll('[data-opt^="servoBoards"]').length;
+    const maeArr   = $('startupBody').querySelectorAll('[data-opt="servoTopo:p1x2"]').length;
+    return pcaCards===servoTopos('pca').length && pcaCount===0 &&
+           maeCount===2 && maeArr===0;
   }));
   ok('Other records the answer and takes nothing down with it', await ev(()=>{
     const was = buildGet().domeServo;
@@ -977,12 +1123,17 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
   ok('the ones the sketch cannot address say so rather than being left out', await ev(()=>
     SERVO_TOPOS.filter(t=>t.sim==='park').map(t=>t.id).join()==='m2s,p2s,p1s' &&
     SERVO_TOPOS.every(t=>t.note && t.label && t.flow.length)));
-  ok('every arrangement is drawn, and the parked ones are drawn dashed', await ev(()=>{
+  /* v1.45.0 — the PCA9685 family is where every arrangement is still offered
+     as a picture; the Maestro family asks the COUNT instead (below), because
+     Mike asked for one-or-two boards rather than three diagrams to count the
+     rectangles in. */
+  ok('every PCA arrangement is drawn, and the parked ones are drawn dashed', await ev(()=>{
+    buildSet('servoDevice','pca'); buildStartup();
     const cards = $('startupBody').querySelectorAll('.flowcard');
     const svgs  = $('startupBody').querySelectorAll('.flowcard svg.flow');
     const dash  = $('startupBody').querySelectorAll('.flowcard svg.flow.dash');
-    return cards.length===servoTopos('maestro').length && svgs.length===cards.length &&
-           dash.length===servoTopos('maestro').filter(t=>t.sim==='park').length;
+    return cards.length===servoTopos('pca').length && svgs.length===cards.length &&
+           dash.length===servoTopos('pca').filter(t=>t.sim==='park').length;
   }));
   ok('a diagram has one box per node and one arrow between each', await ev(()=>{
     const t = servoTopoDef('m2c');
@@ -997,10 +1148,101 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
     return d.querySelectorAll('rect').length===8 && d.querySelector('svg').classList.contains('dash');
   }));
   ok('clicking a diagram picks that arrangement', await ev(()=>{
-    $('startupBody').querySelector('[data-opt="servoTopo:m2c"]').click();
-    return buildGet().servoTopo==='m2c' &&
-           $('startupBody').querySelector('[data-opt="servoTopo:m2c"]').classList.contains('act');
+    buildSet('servoDevice','pca'); buildStartup();
+    $('startupBody').querySelector('[data-opt="servoTopo:p1"]').click();
+    return buildGet().servoTopo==='p1' &&
+           $('startupBody').querySelector('[data-opt="servoTopo:p1"]').classList.contains('act');
   }));
+
+  /* ================================================================
+     v1.45.0 — Mike: "Maestro: choose one or two boards."
+
+     The count used to be implied by which of three wiring diagrams you
+     clicked. It is the explicit question now, and the shape is DERIVED from
+     it — nothing new is stored, so buildNormaliseServos() is still the one
+     place any of this turns into domeServo/bodyServo/split/link.
+     ================================================================ */
+  console.log('\n════ Maestro: one board or two (v1.45.0) ════');
+  ok('the Maestro family asks the count, as two pictures', await ev(()=>{
+    buildSet('servoDevice','maestro'); buildSet('servoTopo','m1'); buildStartup();
+    const cards = Array.from($('startupBody').querySelectorAll('[data-opt^="servoBoards"]'));
+    return cards.length===2 &&
+           cards.map(c=>c.dataset.opt).join()==='servoBoards:1,servoBoards:2' &&
+           cards.every(c=>c.querySelector('svg.flow')) &&
+           cards[0].classList.contains('act') && !cards[1].classList.contains('act');
+  }));
+  ok('clicking "two boards" derives the chained shape — the standard wiring', await ev(()=>{
+    $('startupBody').querySelector('[data-opt="servoBoards:2"]').click();
+    return buildGet().servoTopo==='m2c' && buildMaestroBoardCount()===2 &&
+           buildServoSplit()==='two' && buildServoLink()==='chain' &&
+           $('startupBody').querySelector('[data-opt="servoBoards:2"]').classList.contains('act');
+  }));
+  ok('...and clicking "one board" derives the single-board shape', await ev(()=>{
+    $('startupBody').querySelector('[data-opt="servoBoards:1"]').click();
+    return buildGet().servoTopo==='m1' && buildMaestroBoardCount()===1 &&
+           buildServoSplit()==='one' && buildGet().bodyServo===buildGet().domeServo;
+  }));
+  ok('the port-each arrangement is behind one advanced switch, not gone', await ev(()=>{
+    $('startupBody').querySelector('[data-opt="servoBoards:2"]').click();
+    const hiddenFirst = !$('startupBody').querySelector('[data-opt="servoTopo:m2s"]');
+    const chk = $('wizServoAdv');
+    chk.checked = true; chk.dispatchEvent(new Event('change'));
+    const shown = !!$('startupBody').querySelector('[data-opt="servoTopo:m2s"]')
+               && !!$('startupBody').querySelector('[data-opt="servoTopo:m2c"]');
+    return hiddenFirst && !!chk && shown;
+  }));
+  ok('...and choosing it still records the parked arrangement', await ev(()=>{
+    $('startupBody').querySelector('[data-opt="servoTopo:m2s"]').click();
+    return buildGet().servoTopo==='m2s' && buildServoLink()==='separate' &&
+           buildMaestroBoardCount()===2;
+  }));
+  ok('...a build already ON it opens the switch itself, rather than hiding the answer', await ev(()=>{
+    WIZ_SERVO_ADV = false; buildStartup();
+    return !!$('startupBody').querySelector('[data-opt="servoTopo:m2s"]') &&
+           $('wizServoAdv').checked===true;
+  }));
+  ok('...and the count question still reads "two boards" while it is chosen', await ev(()=>{
+    const c2 = $('startupBody').querySelector('[data-opt="servoBoards:2"]');
+    const two = c2.classList.contains('act');
+    /* clicking "two boards" again must not throw away the port-each answer */
+    c2.click();
+    return two && buildGet().servoTopo==='m2s';
+  }));
+  await ev(()=>{ WIZ_SERVO_ADV = false; buildSet('servoTopo','m2c'); buildStartup(); });
+  /* the promise the restructure had to keep: a build saved under ANY of the
+     seven shapes still loads, still renders, and still reads back as itself */
+  const shapes = await ev(()=>{
+    const bad = [];
+    SERVO_TOPOS.forEach(t=>{
+      /* what a loaded .json does: drop the shape in and let the step render */
+      buildSet('servoDevice', t.device);
+      buildSet('servoTopo', t.id);
+      buildStartup();
+      const b = buildGet();
+      const ans = buildServoAnswer(b);
+      const step = $('startupBody').textContent;
+      const okShape = b.servoTopo === t.id
+        && buildServoTopo(b).id === t.id
+        /* two boards or two links means two; one of either means one, EXCEPT
+           when the board cannot be shared — the mod2026 expanders are two
+           fixed addresses on the host bus, never one controller */
+        && b.servoSplit === ((t.boards > 1 || t.links > 1 || !servoSharable(b.domeServo)) ? 'two' : 'one')
+        && b.servoLink === (t.link || 'chain')
+        && !!ans.label && !!hwGet().dome && !!hwGet().body
+        /* the step still renders, family first, with that family selected */
+        && $('startupBody').querySelectorAll('.famgrid .optcard').length === 3
+        && $('startupBody').querySelector('[data-opt="servoDevice:'+t.device+'"]').classList.contains('act')
+        && step.indexOf('Maestro, or PCA9685?') >= 0;
+      if(!okShape) bad.push(t.id+'→'+b.servoTopo+'/'+b.servoSplit+'/'+b.servoLink);
+    });
+    /* leave the build where the next section expects to find it */
+    buildSet('servoDevice','maestro'); buildSet('servoTopo','m2c');
+    buildSet('servoSize1','mini24'); buildSet('servoSize2','mini12');
+    WIZ_SERVO_ADV = false; buildStartup();
+    return {bad, n:SERVO_TOPOS.length};
+  });
+  ok('every saved shape still loads and still reads correctly',
+     shapes.bad.length===0 && shapes.n===8, shapes.n+' shapes; bad: '+shapes.bad.join(' '));
 
   console.log('\n════ the shape drives everything downstream ════');
   ok('one Maestro is one board, one link, one board card', await ev(()=>{
@@ -1104,11 +1346,19 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
            hwGet().dome==='mini24' && hwGet().body==='mod2026' &&
            buildServoLocs().join()==='dome,body';
   }));
+  /* v1.45.0 — the family is picture cards now, so the legacy `mixed` answer
+     appears as a FOURTH card, selected, rather than as a fourth entry in a
+     dropdown. Same rule either way: shown, kept, replaced only on purpose. */
   ok('...and the step says so rather than pretending it can draw it', await ev(()=>{
     buildStartup();
     const t = $('startupBody').textContent;
-    return /not one of the three shapes/.test(t) &&
-           Array.from($('startupBody').querySelector('select.svfsel').options).some(o=>o.value==='mixed');
+    const card = $('startupBody').querySelector('[data-opt="servoDevice:mixed"]');
+    return /not one of the shapes these pictures can draw/.test(t) &&
+           !!card && card.classList.contains('act') &&
+           $('startupBody').querySelectorAll('.famgrid .optcard').length===4 &&
+           /Mini Maestro 24/.test(t) && /PCA9685 @ 0x40/.test(t) &&
+           /* and nothing tries to ask a family question it cannot answer */
+           $('startupBody').querySelectorAll('.flowcard').length===0;
   }));
   ok('choosing a device replaces it cleanly', await ev(()=>{
     buildSet('servoDevice','maestro');
@@ -1959,6 +2209,53 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
      art.unknown === '');
   ok('the drawn stand-in is inline SVG, so it themes and scales', art.esc === true);
   ok('...and a photo dropped in src/art/boards/ wins over the drawing', art.photoWins === true);
+
+  /* ================================================================
+     v1.45.0 — Mike: "Enlarge the Xbox 360 wireless image."
+
+     The size belongs to the STEP (wizard.js, WIZ_BIG_PIC), not to the
+     photo: the controller step has three options and the whole screen,
+     the twenty-one board cards do not. So the assertion is a COMPARISON —
+     the controller photos grew, and the board photos did not. Measured
+     with getComputedStyle: a LINKED stylesheet's cssRules throws under
+     file://, so reading the CSS text is never an option here.
+     ================================================================ */
+  console.log('\n════ the controller step\'s photos are bigger (v1.45.0) ════');
+  const pic = await ev(()=>{
+    const measure = key=>{
+      wizGo(wizStepIndex(key));
+      const grid = $('startupBody').querySelector('.optgrid');
+      const ph = grid.querySelector('img.optphoto');
+      const card = ph.closest('.optcard');
+      return {big: grid.classList.contains('bigpic'),
+              h: Math.round(parseFloat(getComputedStyle(ph).height)),
+              /* the plate the picture sits on, photo or drawing */
+              boxH: Math.round(parseFloat(getComputedStyle(card.querySelector('.optpic')).minHeight)),
+              cards: grid.querySelectorAll('.optcard').length,
+              pics: grid.querySelectorAll('.optpic').length};
+    };
+    modelSet('droid');
+    const c = measure('controller'), s = measure('sound'), d = measure('domeMotor');
+    /* the answer Mike named, and its picture */
+    wizGo(wizStepIndex('controller'));
+    const xb = $('startupBody').querySelector('[data-opt="controller:xbox360"] img.optphoto');
+    const xbH = Math.round(xb.getBoundingClientRect().height);
+    wizGo(0);
+    return {c, s, d, xbH, xbSrc: /xbox/i.test(xb.getAttribute('alt')||'')};
+  });
+  ok('the controller step is the one marked roomy', pic.c.big===true &&
+     pic.s.big===false && pic.d.big===false, JSON.stringify([pic.c.big,pic.s.big,pic.d.big]));
+  ok('its photos are meaningfully taller — half again and more',
+     pic.c.h >= pic.s.h*1.6, pic.c.h+'px vs '+pic.s.h+'px');
+  ok('...and the plate under them grew with them, not just the image',
+     pic.c.boxH > pic.s.boxH, pic.c.boxH+'px vs '+pic.s.boxH+'px');
+  ok('the Xbox 360 wireless photo is the one that actually grew on screen',
+     pic.xbSrc && pic.xbH === pic.c.h, pic.xbH+'px');
+  ok('the twenty-one board cards keep the size their row rhythm depends on',
+     pic.s.h === pic.d.h && pic.s.h === 132, pic.s.h+'px on both');
+  ok('every card on all three steps still has its picture box',
+     pic.c.pics===pic.c.cards && pic.s.pics===pic.s.cards && pic.d.pics===pic.d.cards,
+     JSON.stringify(pic));
 
   console.log('\n════ the dome map drives ════');
   const play = await ev(()=>{

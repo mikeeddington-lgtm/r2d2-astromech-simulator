@@ -322,6 +322,122 @@ const LIVE = fs.readFileSync(path.resolve(__dirname,'fixtures-live-dome.mstr'),'
        JSON.stringify(starters[w]));
   });
 
+  /* =================================================================
+     v1.45.0 — Mike: "Support importing and converting Maestro and
+     PCA9685 configurations, then exporting to either format."
+
+     "A PCA9685 configuration" is the servos.h / sequences.h shape this
+     project's own MaestroPCA library defines — i.e. read back exactly
+     what pca-gen.js writes. So the sharpest test is a round trip
+     through our own generator.
+     ================================================================= */
+  console.log('\n════ v1.45.0 — a PCA9685 configuration reads back in ════');
+  const pcaRt = await ev(()=>{
+    setBoard('mini24'); makeStarter('dome','mini24'); reindexSubs();
+    const mine = MSTR.channels.filter(c=>/^servo/i.test(c.mode))
+      .map(c=>[c.i,c.name,c.min,c.max,c.speed,c.acceleration]);
+    const seqBefore = JSON.parse(JSON.stringify(loadoutSeqs()));
+    const h = pcaGenFromLoadout();
+    if(typeof pcaHeaderParse !== 'function') return {missing:true};
+    const P = pcaHeaderParse(h, 'sequences.h');
+    const got = P.channels.filter(c=>/^servo/i.test(c.mode))
+      .map(c=>[c.i,c.name,c.min,c.max,c.speed,c.acceleration]);
+    return {
+      sniffH: pcaHeaderLooksLike(h),
+      sniffMstr: pcaHeaderLooksLike(buildMstrText()),
+      nCh: P.channels.length, nChMine: MSTR.channels.length,
+      chSame: JSON.stringify(got)===JSON.stringify(mine),
+      nServo: got.length,
+      nSeq: P.sequences.length, nSeqMine: seqBefore.length,
+      names: P.sequences.map(q=>q.name),
+      mineNames: seqBefore.map(q=>q.name),
+      framesSame: P.sequences.length===seqBefore.length && P.sequences.every((q,k)=>
+        q.frames.length===seqBefore[k].frames.length && q.frames.every((f,j)=>
+          f.duration===seqBefore[k].frames[j].duration &&
+          JSON.stringify(f.targets)===JSON.stringify(seqBefore[k].frames[j].targets))),
+      drops: (P.dropped||[]).map(d=>d.field),
+      dropsHaveReasons: (P.dropped||[]).every(d=>!!d.why),
+      board: P.board
+    };
+  });
+  ok('the sniffer tells a PCA9685 header from a Maestro .mstr',
+     pcaRt.sniffH === true && pcaRt.sniffMstr === false);
+  ok('every channel comes back — count and the whole servo table verbatim',
+     pcaRt.nCh === pcaRt.nChMine && pcaRt.chSame, pcaRt.nServo+' servo channels of '+pcaRt.nCh);
+  ok('the sequences come back with their names, frames and targets intact',
+     pcaRt.nSeq === pcaRt.nSeqMine && pcaRt.framesSame,
+     pcaRt.nSeq+' of '+pcaRt.nSeqMine+' · '+(pcaRt.names||[]).slice(0,2).join(', '));
+  ok('what a PCA9685 header cannot carry is reported BY NAME, never silently dropped',
+     ['neutral','range','homemode','invert'].every(f=>(pcaRt.drops||[]).indexOf(f)>=0),
+     (pcaRt.drops||[]).join(', '));
+  ok('...and every named drop carries a reason', pcaRt.dropsHaveReasons);
+
+  console.log('\n════ v1.45.0 — a PCA9685 config can leave as either family ════');
+  const bothWays = await ev(()=>{
+    const h = pcaGenFromLoadout();
+    const P = pcaHeaderParse(h, 'from-pca.h');
+    /* adopt it wholesale: it is now this build's config, with no .mstr
+       behind it — so the Maestro export has to be generated from scratch */
+    mstrApply(P);
+    const xml = buildMstrText();
+    const doc = new DOMParser().parseFromString(xml, 'application/xml');
+    const again = pcaGenFromLoadout();
+    return {
+      validXml: doc.documentElement.nodeName === 'UscSettings',
+      hasChannels: /<Channel name=/.test(xml),
+      hasQuit: /\bquit\b/.test(xml),
+      nSeqXml: (xml.match(/<Sequence /g)||[]).length,
+      hAgain: again.indexOf('MPCA_CHANNEL_TABLE') >= 0,
+      xmlTextNull: !MSTR.xmlText
+    };
+  });
+  ok('a config that arrived as a PCA9685 header exports as a valid .mstr',
+     bothWays.validXml && bothWays.hasChannels && bothWays.hasQuit && bothWays.nSeqXml > 0,
+     bothWays.nSeqXml+' sequences in the XML');
+  ok('...and it had no Pololu file behind it, so the XML was genuinely generated',
+     bothWays.xmlTextNull);
+  ok('...and it still exports as a PCA9685 header', bothWays.hAgain);
+
+  console.log('\n════ v1.45.0 — the offered accept list and the reader agree ════');
+  const acc = await ev(()=>{
+    const exts = s=>s.split(',').map(x=>x.trim()).filter(x=>x.charAt(0)==='.');
+    buildSet('servoDevice','maestro'); buildSet('servoTopo','m1');
+    const mae = servoCfgAccept();
+    buildSet('servoDevice','pca'); buildSet('servoTopo','p1x2');
+    const pca = servoCfgAccept();
+    buildSet('servoDevice','maestro'); buildSet('servoTopo','m1');
+    const readable = (typeof servoCfgReadable === 'function') ? servoCfgReadable() : [];
+    const offered = exts(mae).concat(exts(pca)).filter((v,i,a)=>a.indexOf(v)===i);
+    return {mae, pca, offered:offered.sort(), readable:readable.slice().sort(),
+            note: typeof SERVO_CFG_ACCEPT_NOTE === 'string' ? SERVO_CFG_ACCEPT_NOTE : ''};
+  });
+  ok('every extension the picker offers is one the reader can actually read',
+     acc.offered.length>0 && acc.offered.every(e=>acc.readable.indexOf(e)>=0),
+     acc.offered.join(' '));
+  ok('every format the reader can read is offered somewhere — no silent capability',
+     acc.readable.length>0 && acc.readable.every(e=>acc.offered.indexOf(e)>=0),
+     acc.readable.join(' '));
+  ok('the picker still LEADS with this build\'s own family',
+     /^\.mstr/.test(acc.mae) && /^\.json/.test(acc.pca), acc.mae+'  |  '+acc.pca);
+  ok('the gap between what is offered and what is read is stated, not merely tolerated',
+     /offer/i.test(acc.note) && /read/i.test(acc.note), acc.note.slice(0,90));
+
+  const probe = await ev(()=>{
+    setBoard('mini24'); makeStarter('dome','mini24'); reindexSubs();
+    const samples = {'.mstr': buildMstrText(), '.xml': buildMstrText(),
+                     '.json': JSON.stringify(servoCfgExportObj()), '.h': pcaGenFromLoadout()};
+    const out = {};
+    Object.keys(samples).forEach(k=>{
+      try{ const r = servoCfgImportText(samples[k], 'probe'+k); out[k] = r.from+'/'+r.n; }
+      catch(e){ out[k] = 'threw: '+e.message; }
+    });
+    return out;
+  });
+  ok('the reader really does take all four, and says which family each came from',
+     /^mstr\/\d+/.test(probe['.mstr']||'') && /^mstr\/\d+/.test(probe['.xml']||'') &&
+     /^cfg\/\d+/.test(probe['.json']||'') && /^pca\/\d+/.test(probe['.h']||''),
+     JSON.stringify(probe));
+
   ok('no uncaught page errors', errs.length===0, errs.join(' | '));
   await browser.close();
   console.log('\n'+pass+' passed, '+fail+' failed');

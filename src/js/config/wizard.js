@@ -35,8 +35,12 @@ const WIZ_EXTRA = [
      an answer, so it gets a chip of its own. */
   {key:'_servoSet', title:'Servo setup', q:'Now let us make the servos move.',
    why:'Everything so far describes the droid. This is where you find out where each panel actually stops — and the first question is whether you have already done it once.'},
+  /* v1.45.0 — the second sentence used to advertise the Boards cards ("the
+     boards below are clickable"). Those are gone (Mike: "Remove the
+     non-functional Wiring 'Boards' section" — see app/boards.js), so it names
+     what is actually here now: a beta diagram and the printable sheet. */
   {key:'_wiring', title:'Wiring',  q:'Here is the loom this build needs.',
-   why:'Control signals only — every V+ line is deliberately left off, because power distribution is your call. The boards below are clickable: a pin lights the part it drives.'},
+   why:'Control signals only — every V+ line is deliberately left off, because power distribution is your call. The diagrams are beta; the printable sheet below pairs every channel with the part it drives.'},
   {key:'_panels', title:'Panels',  q:'Which servo moves which panel?',
    why:'Assign a channel to each moving part. One channel per part; moving a part frees the channel it was on. The droid is beside you — press ▶ to prove the travel.'},
   {key:'_paint',  title:'Colours', q:'What does it look like?',
@@ -315,9 +319,14 @@ function wizOptionCard(host, key, opt, on, blockers, onPick){
      underneith". A photo when one has been dropped in src/art/boards/, the
      drawn stand-in otherwise, and nothing at all for an answer that is not
      a thing you can hold (config/board-art.js). */
-  const art = (typeof boardArtHtml === 'function') ? boardArtHtml(key, opt.id, opt.label) : '';
+  /* v1.45.0 — `opt.art` lets an answer BORROW another answer's picture. The
+     servo step's family cards need it: "Pololu Maestro" is not itself a board
+     you can photograph, so it shows a Mini 24 and the expander family shows a
+     PCA9685. Everything else still asks by its own id. */
+  const artId = opt.art || opt.id;
+  const art = (typeof boardArtHtml === 'function') ? boardArtHtml(key, artId, opt.label) : '';
   if(art){
-    const photo = (typeof boardArtIsPhoto === 'function') && boardArtIsPhoto(key, opt.id);
+    const photo = (typeof boardArtIsPhoto === 'function') && boardArtIsPhoto(key, artId);
     const pic = el('div','optpic' + (photo ? ' photo' : ''));
     pic.innerHTML = art;
     c.appendChild(pic);
@@ -365,11 +374,26 @@ function wizModelBanner(host, step){
   return true;
 }
 
+/* ------------------------------------------ the roomy steps (v1.45.0)
+   Mike: "Enlarge the Xbox 360 wireless image."
+
+   The photo box is one size for all twenty-one board cards on purpose —
+   that is what lets a row of cards where only some have photos still line
+   up (css/07-startup.css, .optpic). Growing `img.optphoto` itself would
+   have grown every one of them and taken the row rhythm with it.
+
+   But the size is really a property of the STEP, not of the app: the
+   controller step has three options and the whole width of the screen,
+   while the servo and sound steps have seven cards fighting for it. So a
+   step named here gets the bigger box, and nothing else changes. Add a key
+   when a step earns it; the twenty-one cards are not affected either way. */
+const WIZ_BIG_PIC = {controller:1};
+
 function wizHardwareStep(host, step){
   const b = buildGet();
   const unused = wizModelBanner(host, step);
 
-  const grid = el('div','optgrid' + (unused ? ' na' : ''));
+  const grid = el('div','optgrid' + (WIZ_BIG_PIC[step.key] ? ' bigpic' : '') + (unused ? ' na' : ''));
   BUILD_OPTIONS[step.key].forEach(o=>{
     /* the firmware step greys what the HARDWARE cannot run; every other step
        now greys what the chosen SKETCH cannot drive (v1.35.0) — the same
@@ -600,35 +624,124 @@ function wizField(host, label, hint, opts, cur, onPick){
   return sel;
 }
 
-/* The shape, as pictures. One card per arrangement the chosen device has,
-   each drawn by config/flow-art.js from the topology's own `flow` array. */
+/* One flow card: the arrangement drawn as a picture, whole card clickable
+   (config/flow-art.js draws it from the topology's own `flow` array).
+
+   v1.45.0 — pulled out of wizTopoPicker so the three picture questions on the
+   servo step are literally the same card: the PCA9685 arrangement grid, the
+   Maestro one-board/two-boards pair, and the advanced "how do two boards
+   reach the droid" pair. `o.key`/`o.id` name the card for a test and for the
+   step it belongs to; `o.label`/`o.note` let a card say what the QUESTION
+   calls this arrangement rather than what the topology calls it. */
+function wizFlowCard(grid, t, on, o){
+  o = o || {};
+  const c = el('div','flowcard' + (on ? ' act' : '') + (t.sim === 'park' ? ' park' : ''));
+  c.dataset.opt = (o.key || 'servoTopo') + ':' + (o.id !== undefined ? o.id : t.id);
+  c.tabIndex = 0;
+
+  const head = el('div','opthead');
+  head.appendChild(el('b', null, o.label || t.label));
+  if(t.sim === 'park')     head.appendChild(el('span','optbadge park','not working yet'));
+  else if(t.sim === 'sub') head.appendChild(el('span','optbadge sub','stands in'));
+  else if(on)              head.appendChild(el('span','optbadge ok','selected'));
+  c.appendChild(head);
+
+  const pic = el('div','flowpic');
+  pic.innerHTML = (typeof servoTopoSvg === 'function') ? servoTopoSvg(t) : '';
+  c.appendChild(pic);
+
+  c.appendChild(el('div','optnote', o.note || t.note));
+
+  const pick = o.onPick || (()=>{ buildSet('servoTopo', t.id); buildStartup(); });
+  c.addEventListener('click', pick);
+  c.addEventListener('keydown', e=>{ if(e.key === 'Enter' || e.key === ' '){ e.preventDefault(); pick(); } });
+  grid.appendChild(c);
+  return c;
+}
+
+/* The shape, as pictures. One card per arrangement the chosen device has. */
 function wizTopoPicker(host, b){
   const list = servoTopos(b.servoDevice);
   const cur  = buildServoTopo(b);
   const grid = el('div','flowgrid');
-  list.forEach(t=>{
-    const c = el('div','flowcard' + (t.id === cur.id ? ' act' : '') + (t.sim === 'park' ? ' park' : ''));
-    c.dataset.opt = 'servoTopo:' + t.id;
-    c.tabIndex = 0;
+  list.forEach(t=>wizFlowCard(grid, t, t.id === cur.id));
+  host.appendChild(grid);
+  return grid;
+}
 
-    const head = el('div','opthead');
-    head.appendChild(el('b', null, t.label));
-    if(t.sim === 'park')     head.appendChild(el('span','optbadge park','not working yet'));
-    else if(t.sim === 'sub') head.appendChild(el('span','optbadge sub','stands in'));
-    else if(t.id === cur.id) head.appendChild(el('span','optbadge ok','selected'));
-    c.appendChild(head);
+/* ============================================ SERVO HARDWARE (v1.45.0)
+   Mike: "Make Servo Hardware image-led: choose Maestro or PCA9685 first, then
+   show relevant options." And: "Maestro: choose one or two boards. PCA9685:
+   visual board-variation choice, defaulting to one controller and two
+   expanders."
 
-    const pic = el('div','flowpic');
-    pic.innerHTML = (typeof servoTopoSvg === 'function') ? servoTopoSvg(t) : '';
-    c.appendChild(pic);
+   WHAT THIS STEP USED TO BE. A dropdown of three devices, then a grid of
+   wiring diagrams, then more dropdowns, then a photo strip. Everything was
+   present at once and the first control was a <select> — so the question that
+   decides the whole rest of the step ("which kind of board is it?") looked
+   exactly as important as "which chip runs the co-processor", and the
+   pictures, which are the part that actually tells you what you are looking
+   at, came third.
 
-    c.appendChild(el('div','optnote', t.note));
+   WHAT IT IS NOW. The family FIRST, as three picture cards using the real
+   board photos — the same card the model step uses (Mike's own example of
+   pictures beating lists), whole card clickable. Then, and only then, that
+   family's own question:
 
-    const pick = ()=>{ buildSet('servoTopo', t.id); buildStartup(); };
-    c.addEventListener('click', pick);
-    c.addEventListener('keydown', e=>{ if(e.key === 'Enter' || e.key === ' '){ e.preventDefault(); pick(); } });
-    grid.appendChild(c);
+     Maestro   → one board or two. That was implied by which wiring diagram
+                 you clicked; it is the explicit question now and the shape is
+                 derived from it (servoBoardCountTopo). How two boards reach
+                 the droid — chained, or a port each — is the detail behind
+                 the one advanced switch, collapsed rather than hidden, so
+                 that answer is still there and still changeable.
+     PCA9685   → the arrangement, as pictures, defaulting to one controller
+                 and two expanders (SERVO_DEFAULT_TOPO).
+
+   WHAT DID NOT CHANGE. buildNormaliseServos() is still the ONE place any of
+   this is turned into domeServo/bodyServo/servoSplit/servoLink/PREFS.hw, and
+   every control here goes through buildSet() to reach it. A saved build with
+   any of the seven topologies still loads and still reads correctly, and the
+   legacy `mixed` answer — a Maestro at one end and expanders at the other,
+   which the pictures cannot draw — is still shown, still selected, and still
+   replaced only when you choose something else.
+   ===================================================================== */
+
+/* Collapsed, not hidden: ONE switch, for the session, exactly as the Bench's
+   own `advanced` tick works (maestro/setup-hw.js). Not a preference — it is a
+   view state, and nobody wants yesterday's curiosity remembered. */
+let WIZ_SERVO_ADV = false;
+
+/* 1 · the family. Three cards, real photos, whole card is the click target. */
+function wizServoFamilyPicker(host, b, unused){
+  const grid = el('div','optgrid famgrid' + (unused ? ' na' : ''));
+  servoDeviceOptions(b).forEach(d=>{
+    wizOptionCard(grid, 'servoDevice', d, b.servoDevice === d.id, [],
+      id=>{ buildSet('servoDevice', id); buildStartup(); });
   });
+  host.appendChild(grid);
+  return grid;
+}
+
+/* 2a · Maestro: one board or two — the question, not the consequence */
+function wizMaestroCountPicker(host, b){
+  const cur  = buildMaestroBoardCount(b);
+  const grid = el('div','flowgrid pair');
+  SERVO_BOARD_COUNTS.forEach(c=>{
+    const t = servoTopoDef(servoBoardCountTopo(c.n, b));
+    wizFlowCard(grid, t, cur === c.n, {
+      key:'servoBoards', id:c.n, label:c.label, note:c.note,
+      onPick:()=>{ buildSet('servoTopo', servoBoardCountTopo(c.n, b)); buildStartup(); }
+    });
+  });
+  host.appendChild(grid);
+  return grid;
+}
+
+/* 2b · and the detail behind the switch: how two of them reach the droid */
+function wizServoLinkPicker(host, b){
+  const cur  = buildServoTopo(b);
+  const grid = el('div','flowgrid pair');
+  servoTopos('maestro').filter(t=>t.boards > 1).forEach(t=>wizFlowCard(grid, t, t.id === cur.id));
   host.appendChild(grid);
   return grid;
 }
@@ -646,21 +759,22 @@ function wizServosStep(host, step){
   const unused = wizModelBanner(host, step);
   const topo = buildServoTopo(b);
 
-  /* ------------------------------------------------------ 1 · the device */
-  const s1 = sect(host, 'What do the servos plug into?', servoDeviceDef(b.servoDevice).label);
-  const form1 = el('div','svform' + (unused ? ' na' : ''));
-  wizField(form1, 'Device', 'the thing with the servo headers on it',
-    servoDeviceOptions(b).map(d=>({id:d.id, label:d.label, note:d.note, sim:d.sim})),
-    b.servoDevice, id=>{ buildSet('servoDevice', id); buildStartup(); });
-  s1.appendChild(form1);
+  /* ------------------------------------------- 1 · the family, as pictures */
+  const s1 = sect(host, 'Maestro, or PCA9685?', servoDeviceDef(b.servoDevice).label);
+  const h1 = el('div','hint');
+  h1.innerHTML = 'There are two ways to drive twenty-odd servos, and everything else on this step follows from '
+    + 'which one is in your droid. Click the picture that looks like the board in your hand — the sizes and the '
+    + 'wiring come after.';
+  s1.appendChild(h1);
+  wizServoFamilyPicker(s1, b, unused);
 
   if(b.servoDevice === 'mixed'){
-    /* a saved build the picker cannot draw — show what it IS, and let the
-       Boards cards on the wiring step carry the detail (v1.36.0) */
+    /* a saved build the pictures cannot draw — show what it IS, and leave it
+       alone until the user replaces it themselves (v1.36.0) */
     const n = el('div','hint');
     n.innerHTML = '<b>' + buildLabel('domeServo', b.domeServo) + '</b> in the dome, <b>'
       + buildLabel('bodyServo', b.bodyServo) + '</b> in the body. That is a real arrangement and the simulator drives it — '
-      + 'it just is not one of the three shapes below. Choose a device above to replace it.';
+      + 'it just is not one of the shapes these pictures can draw. Choose a card above to replace it.';
     s1.appendChild(n);
     wizServoLinkWarning(host, b);
     return;
@@ -675,45 +789,90 @@ function wizServosStep(host, step){
     return;
   }
 
-  /* ------------------------------------------------------- 2 · the shape */
-  const s2 = sect(host, 'How is it wired?', topo.label);
-  const h2 = el('div','hint');
-  h2.innerHTML = 'Follow the arrows: this is the path from the droid\'s own Arduino to a servo horn. '
-    + 'The difference between these is where the second board hangs — off the first one, or off the droid.';
-  s2.appendChild(h2);
-  wizTopoPicker(s2, b);
+  /* ------------------------------- 2 · that family's own question, and only it */
+  if(b.servoDevice === 'maestro'){
+    /* Mike: "Maestro: choose one or two boards." The count IS the question now;
+       the wiring shape is derived from it (config/hardware.js). */
+    const s2 = sect(host, 'One Maestro, or one at each end?',
+                    buildMaestroBoardCount(b) === 1 ? 'one board' : 'two boards');
+    const h2 = el('div','hint');
+    h2.innerHTML = 'The picture on each card is the path from the droid\'s own Arduino to a servo horn. '
+      + 'Count the channels you need before you choose: the MK4 dome alone is 12 pies and 14 side panels.';
+    s2.appendChild(h2);
+    wizMaestroCountPicker(s2, b);
 
-  /* ------------------------------------------------- 3 · what the boards are */
-  const s3 = sect(host, 'Which boards?', buildServoAnswer(b).short);
+    /* ONE explicit switch, and the answer behind it stays answerable. Opened
+       by default when the build is already ON the non-standard arrangement —
+       hiding somebody's own answer from them would be worse than a tick box. */
+    if(buildMaestroBoardCount(b) > 1){
+      const open = WIZ_SERVO_ADV || buildServoTopo(b).link === 'separate';
+      const lab = el('label','svadv');
+      lab.title = 'how the two boards reach the droid: both on one serial line with device numbers, '
+                + 'or a serial port each. Chained is the standard Pololu wiring and the only one the sketches open.';
+      const chk = document.createElement('input');
+      chk.type = 'checkbox'; chk.checked = open; chk.id = 'wizServoAdv';
+      chk.addEventListener('change',()=>{ WIZ_SERVO_ADV = chk.checked; buildStartup(); });
+      lab.appendChild(chk);
+      lab.appendChild(document.createTextNode('advanced — how the two boards reach the droid'));
+      s2.appendChild(lab);
+      if(open) wizServoLinkPicker(s2, b);
+    }
+  }else{
+    /* Mike: "PCA9685: visual board-variation choice, defaulting to one
+       controller and two expanders" (SERVO_DEFAULT_TOPO, config/hardware.js) */
+    const s2 = sect(host, 'How are the boards arranged?', topo.label);
+    const h2 = el('div','hint');
+    h2.innerHTML = 'Follow the arrows: this is the path from the droid\'s own Arduino to a servo horn. '
+      + 'The difference between these is what sits in front of the expanders — a small board of their own that '
+      + 'answers like a Maestro, or nothing at all.';
+    s2.appendChild(h2);
+    wizTopoPicker(s2, b);
+  }
+
+  /* ------------------------------------------- 3 · the sizes, and the boards */
+  const s3 = sect(host, b.servoDevice === 'maestro' ? 'Which size?' : 'What is driving them?',
+                  buildServoAnswer(b).short);
   const form = el('div','svform' + (unused ? ' na' : ''));
 
   if(b.servoDevice === 'maestro'){
-    wizField(form, topo.boards > 1 ? 'Maestro 1' : 'Maestro', 'the dome end — the pies and the side panels',
+    const two = buildMaestroBoardCount(b) > 1;
+    wizField(form, two ? 'Maestro 1 — dome' : 'The Maestro',
+      two ? 'the dome end — the pies and the side panels' : 'running the whole droid',
       wizMaestroSizes('domeServo'), b.servoSize1,
       id=>{ buildSet('servoSize1', id); buildStartup(); });
-    if(topo.boards > 1){
-      wizField(form, 'Maestro 2', 'the body — doors, arms, dataport and chargebay',
+    if(two){
+      wizField(form, 'Maestro 2 — body', 'doors, arms, dataport and chargebay',
         wizMaestroSizes('bodyServo'), b.servoSize2,
         id=>{ buildSet('servoSize2', id); buildStartup(); });
     }
   }else{
-    wizField(form, 'Controller', 'the board running MaestroReplacement, between the droid and the expanders',
-      servoMcuOptions().map(m=>({id:m.id, label:m.label, suffix:'SDA '+m.sda+' · SCL '+m.scl, note:m.note})),
-      b.servoMcu, id=>{ buildSet('servoMcu', id); buildStartup(); });
     const total = (topo.pca || 1) * (topo.links > 1 ? topo.links : 1);
-    const n = el('div','hint');
-    n.innerHTML = '<b>' + total + ' × PCA9685</b> — ' + (total * 16) + ' channels. '
-      + 'The expanders themselves have nothing to choose: they are all the same 16-channel board, and the second one '
-      + 'in a pair just has its address jumper soldered so it answers as 0x41.';
-    form.appendChild(n);
-    /* the sentence the whole co-processor route rests on, kept where the
-       controller is chosen rather than in a section of its own (v1.36.0) */
-    const c = el('div','note cy');
-    c.innerHTML = '<b>To the Padawan sketch this is a Maestro.</b> The controller holds the sequences itself and answers '
-      + '<code>restartScript(n)</code> on the droid\'s UART exactly as a Pololu board does, so nothing in the firmware '
-      + 'changes. Flash <b>MaestroReplacement</b> from <code>arduino/MaestroPCA/examples/</code> — <b>PCA_Bridge</b>, '
-      + 'over in <code>pca-studio/</code>, is the bench tool you calibrate with, not the one the droid runs on.';
-    form.appendChild(c);
+    if(topo.direct){
+      /* no controller at all: there is nothing to choose here, so say what the
+         arrangement means instead of offering an answer it does not have */
+      const n = el('div','hint');
+      n.innerHTML = '<b>' + total + ' × PCA9685</b> — ' + (total * 16) + ' channels, straight off the droid\'s own '
+        + 'I2C pins (SDA 20, SCL 21) at 0x40 and 0x41. Nothing in between, so nothing to choose — and nowhere to store '
+        + 'movements either, which is why only the mod2026 sketch can drive it.';
+      form.appendChild(n);
+    }else{
+      wizField(form, 'Controller', 'the board running MaestroReplacement, between the droid and the expanders',
+        servoMcuOptions().map(m=>({id:m.id, label:m.label, suffix:'SDA '+m.sda+' · SCL '+m.scl, note:m.note})),
+        b.servoMcu, id=>{ buildSet('servoMcu', id); buildStartup(); });
+      const n = el('div','hint');
+      n.innerHTML = '<b>' + total + ' × PCA9685</b> — ' + (total * 16) + ' channels. '
+        + 'The expanders themselves have nothing to choose: they are all the same 16-channel board, and the second one '
+        + 'in a pair just has its address jumper soldered so it answers as 0x41.';
+      form.appendChild(n);
+      /* the sentence the whole co-processor route rests on, kept where the
+         controller is chosen rather than in a section of its own (v1.36.0) */
+      const c = el('div','note cy');
+      c.innerHTML = '<b>To the Padawan sketch this is a Maestro.</b> The controller holds the sequences itself and answers '
+        + '<code>restartScript(n)</code> on the droid\'s UART exactly as a Pololu board does, so nothing in the firmware '
+        + 'changes. Flash <b>MaestroReplacement</b> from <code>arduino/MaestroPCA/examples/</code> — <b>PCA_Bridge</b>, '
+        + 'over in <code>pca-studio/</code>, is the bench tool you calibrate with, not the one the droid runs on.';
+      form.appendChild(c);
+    }
   }
   s3.appendChild(form);
   wizBoardPics(s3, b);
@@ -936,11 +1095,19 @@ function wizServoSetupStep(host, step){
      The READER stays permissive on purpose — it is the same six fields
      either way, and somebody bringing a .mstr to a PCA build is doing
      something sensible, not something wrong. What narrows is the OFFER. */
+  /* v1.45.0 — Mike: "Clarify whether native Maestro files as well as JSON
+     are supported." The narrowing above stays (it is what he asked for), but
+     the PCA branch now has TWO files of its own to name — the bench's servo
+     config .json and a MaestroPCA servos.h / sequences.h, which the reader
+     learned to read in v1.45.0 — and the gap between what is OFFERED and
+     what is READ is stated out loud underneath rather than left for somebody
+     to discover with a greyed-out file. The one canonical sentence lives in
+     maestro/ui-files.js (IO_FORMATS_SENTENCE). */
   const cfgSrc = (fam === 'maestro')
-    ? {file:'A Pololu <b>.mstr</b>', where:'the settings file Maestro Control Center saves',
+    ? {file:'A Pololu <b>.mstr</b> or <b>.xml</b>', where:'the settings file Maestro Control Center saves',
        accept:'.mstr,.xml,text/xml', pick:'Choose a .mstr…'}
-    : {file:'A <b>servo config</b>', where:'the file the bench exports at the end of this page',
-       accept:'.json,application/json', pick:'Choose a config…'};
+    : {file:'A <b>servo config .json</b> or a PCA9685 <b>servos.h</b>', where:'the file the bench exports at the end of this page, or the header you compiled from it',
+       accept:'.json,.h,application/json', pick:'Choose a config…'};
 
   const imp = el('div','optcard');
   imp.dataset.opt = 'servoCfg:import';
@@ -963,10 +1130,16 @@ function wizServoSetupStep(host, step){
     try{
       const r = servoCfgImportText(await f.text(), f.name);
       const from = r.from === 'mstr' ? 'a Maestro settings file'
+                 : r.from === 'pca'  ? 'a PCA9685 servos.h / sequences.h'
                  : r.from === 'cfg'  ? 'a servo config' : 'a whole-setup file';
       lg('sys','servo config imported from '+from+' — '+r.n+' channels'
         + (r.skipped ? ', '+r.skipped+' past the end of this board' : ''));
-      toast('Imported '+r.n+' channels'+(r.skipped ? ' — '+r.skipped+' did not fit this board' : ''));
+      /* v1.45.0 — crossing between the two board families drops fields, and
+         they are named to the user rather than counted. */
+      const lost = (r.dropped && r.dropped.length)
+        ? ' · not carried across: ' + r.dropped.map(d=>d.field).join(', ') : '';
+      toast('Imported '+r.n+' channels'+(r.skipped ? ' — '+r.skipped+' did not fit this board' : '')+lost,
+        lost ? 'warn' : '');
       buildStartup();
     }catch(e){
       /* there is no appAlert in this app — appConfirm with one way out is
@@ -982,6 +1155,12 @@ function wizServoSetupStep(host, step){
   ibtn.addEventListener('click', e=>{ e.stopPropagation(); fi.click(); });
   ib.appendChild(ibtn);
   imp.appendChild(ib);
+  /* v1.45.0 — the offer narrows by board family, the reader does not. Say so. */
+  if(typeof SERVO_CFG_ACCEPT_NOTE === 'string'){
+    const igap = el('div','optnote');
+    igap.textContent = SERVO_CFG_ACCEPT_NOTE;
+    imp.appendChild(igap);
+  }
   imp.addEventListener('click',()=>fi.click());
   grid.appendChild(imp);
 
@@ -1085,8 +1264,18 @@ function wizServoSetupStep(host, step){
   const h4 = el('div','hint');
   h4.innerHTML = 'Travel only, in a file of its own — the same file the bench writes from <b>save servo config</b> on its '
     + 'Finish step, so there is one thing to keep and one thing to import. A servo config is the part of a build that '
-    + 'outlives everything else about it: the panels do not move because you changed sketch.';
+    + 'outlives everything else about it: the panels do not move because you changed sketch. '
+    + 'The filename carries the date and the time, so two exports in one afternoon are told apart by name.';
   s4.appendChild(h4);
+  /* v1.45.0 — Mike: "Clarify whether native Maestro files as well as JSON are
+     supported." This is the other place a builder decides what to keep, so
+     the one canonical sentence belongs here too rather than a fourth
+     paraphrase of it. Defined in maestro/ui-files.js. */
+  if(typeof IO_FORMATS_SENTENCE === 'string'){
+    const h5 = el('div','hint');
+    h5.innerHTML = '<b>' + xmlEsc(IO_FORMATS_SENTENCE) + '</b>';
+    s4.appendChild(h5);
+  }
 }
 
 /* Which tool does the job, and the links to get it. "Holding links" — Mike
@@ -1204,6 +1393,15 @@ function wizServoBenchSect(host, b){
 function wizWiringStep(host){
   const b = buildGet();
   const s = sect(host, 'Control signals', buildLabel('arduino', b.arduino));
+  /* v1.45.0 — Mike: "Mark wiring images as Beta." The badge is drawn INTO the
+     SVG (app/wiring.js, wiringBetaSvg) so it travels with the picture into the
+     exported sheet; this line is the same sentence in prose, above the diagram,
+     where it is read before the wire is cut rather than after. */
+  const beta = el('div','note beta');
+  beta.innerHTML = '<span class="betachip">beta</span> <b>These diagrams are beta.</b> '
+    + 'They are drawn from the sketch you chose and the answers you gave in this setup, so '
+    + WIRING_BETA_WHY + ' The channel tables on the wiring sheet are the part you can trust to the pin.';
+  s.appendChild(beta);
   const wrap = el('div','wdwrap');
   wrap.innerHTML = (typeof systemDiagramSvg === 'function') ? systemDiagramSvg() : '';
   s.appendChild(wrap);
@@ -1218,9 +1416,19 @@ function wizWiringStep(host){
   s.appendChild(bar);
   const msg = el('div','hint'); msg.id='wizMsg'; s.appendChild(msg);
 
-  /* the boards themselves — moved out of the Config tab, since the wiring
-     is exactly where you want to see which pin goes where */
-  if(typeof buildBoardsSect === 'function') buildBoardsSect(host);
+  /* THE "BOARDS" SECTION IS GONE (v1.45.0). Mike: "Remove the non-functional
+     Wiring 'Boards' section." It drew a card per board with clickable pins —
+     and for the DEFAULT build it could not do the thing it promised: the
+     labelled photos and pin maps (app/board-img.js) only ever covered the four
+     Pololu Maestros, so a mod2026 or PCA9685 build got a bare numeric grid;
+     the pin buttons deliberately did not open the picker for mod2026 (its map
+     is compile-time constants); and every explanation it wanted to give was
+     written to $('cadMsg'), which does not exist while this overlay is up — so
+     those clicks were silent no-ops on the one build most people have.
+
+     Do not put it back as it was. Which channel drives which part is asked and
+     answered on the PANELS step (config/tab.js, buildAssignSect) and printed
+     in full on the wiring sheet, both of which work for every build. */
 
   const h = el('div','note');
   h.innerHTML = '<b>No V+ lines are drawn, on purpose.</b> Servo and motor power is the most build-specific part of an astromech and the most dangerous to get from a diagram — '
@@ -1678,10 +1886,18 @@ function buildStartup(){
                  +((opt||isModel)?' ans':'')+(na?' na':''));
       const lab = el('span','raillab');
       if(opt || isModel) lab.appendChild(el('span','railtick'+(seen?'':' unseen'), seen?'✓':'○'));
-      lab.appendChild(document.createTextNode(s.title));
+      /* the title in its own span, not a bare text node (v1.45.0): the chips
+         are all one fixed size now, so the label needs something to ellipsise
+         inside rather than pushing the box wider — css/07-startup.css */
+      lab.appendChild(el('span','railttl', s.title));
       d.appendChild(lab);
+      /* EVERY chip gets the answer slot, even when it has nothing to put in
+         it (v1.45.0). It is what stops a chip growing a line the moment it
+         has an answer — the reserved height is in the CSS, so an empty slot
+         costs nothing but the space it was always going to need. */
       if(opt)          d.appendChild(el('span','railans', opt.short || opt.label));
       else if(isModel) d.appendChild(el('span','railans', mLab));
+      else             d.appendChild(el('span','railans', ''));
       d.title = 'Step '+(i+1)+' of '+steps.length+' — '+s.title
               + (opt ? ' · '+opt.label : (isModel ? ' · '+mLab : ''))
               + (isQuestion && !seen ? '\nNot visited yet — this is the default, not something you have confirmed.' : '')

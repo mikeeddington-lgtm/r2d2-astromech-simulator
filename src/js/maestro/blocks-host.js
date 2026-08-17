@@ -58,6 +58,56 @@ const BLKH = {
     });
     return out;
   },
+  /* EVERY MOVING PANEL, WIRED OR NOT (v1.45.0)
+     Mike: "Show every moving panel in the sequencer; render unconfigured
+     ones in muted grey."
+
+     `actions()` above answers "what can I put a brick on", and it must keep
+     answering exactly that — blocks.js's compiler, blockGroups(), the
+     ready-made shapes and PCA Studio's own 45-blocks-host.js all lean on
+     it, and a brick on a channel-less part compiles to nothing. So the
+     !c.act rule stays where it is and this is a SECOND, separate question:
+     "what does this droid physically have?"
+
+     That question is the host's by definition. chPartOptions() (reached via
+     HW.parts()) is the model's own list of movers — the same list every
+     "what does this channel drive" dropdown in the app is built from, so a
+     panel renamed in the builder reads the same here as on the wiring
+     sheet. PCA Studio has no droid and no CAD, does not define this at
+     all, and its library is unchanged as a result: blkActionLib() asks with
+     a typeof guard, and a host that cannot answer simply gets the old
+     wired-only list. */
+  movers(){
+    const opts = (typeof HW !== 'undefined' && typeof HW.parts === 'function') ? HW.parts()
+               : (typeof chPartOptions === 'function') ? chPartOptions() : [];
+    const wired = {};
+    this.channels().forEach(c=>{ if(c && c.act && /^servo/i.test(c.mode||'')) wired[c.act] = c; });
+    const out = [];
+    const seen = {};
+    opts.forEach(op=>{
+      /* `other:true` is OTH_KEYS — the ten "Other 1…10" placeholders for
+         things that are NOT on the model (app/boards.js). An unconfigured
+         placeholder is not a moving panel anybody is waiting to wire, so
+         it earns its chip only once a channel claims it, via actions(). */
+      if(!op || !op.act || op.other || seen[op.act]) return;
+      seen[op.act] = true;
+      const c = wired[op.act];
+      out.push({act:op.act, label:BLKH.label(op.act) || op.label || op.act,
+                cad:op.cad || '', ch:c ? c.i : -1, on:!!c, lit:BLKH.litNote(op.act)});
+    });
+    return out;
+  },
+  /* What Printed Droid says a dome lower panel actually carries when it is
+     NOT a moving panel (dome-map.js DOME_LAYOUT.lit). Plenty of builds
+     differ — the wizard's Map step already treats this as a question rather
+     than an error — so it rides in the tooltip and never hides a chip. */
+  litNote(ref){
+    if(typeof DOME_LAYOUT === 'undefined' || !DOME_LAYOUT.lit) return '';
+    const m = /^panel(\d+)$/.exec(String(ref || ''));
+    if(!m) return '';
+    return DOME_LAYOUT.lit[(+m[1]) + 1] || '';
+  },
+
   /* groups make useful bricks too — "all the pies" as one drag */
   groups(){
     const out = [];

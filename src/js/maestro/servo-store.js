@@ -145,7 +145,7 @@ function servoStoreLoad(){
   /* the engine, the sub table and the live pose all sized off the table */
   if(typeof reindexSubs === 'function') reindexSubs();
   if(typeof EDIT !== 'undefined'){
-    EDIT.live = MSTR.channels.map(c=>(c && (c.home || c.neutral)) || DEFAULT_NEUTRAL);
+    EDIT.live = MSTR.channels.map(c=>chanRest(c));   // v1.45.0 — see chanRest() in maestro/boards.js
   }
   if(typeof HW !== 'undefined' && HW.rebuild) HW.rebuild(false);
 

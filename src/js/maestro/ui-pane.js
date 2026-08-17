@@ -234,18 +234,59 @@ function buildMaestroPane(){
   bExpH.title='sequences.h for the MaestroPCA Arduino library — the same loadout and slot numbers, played on a PCA9685 instead of a Maestro';
   bExpH.disabled=!MSTR.loaded;
   bExpH.addEventListener('click',exportPcaHeader);
+
+  /* ONE GUIDED FRONT DOOR (v1.45.0)
+     Mike: "Put build/import/export/assign-panel actions in a guided
+     wizard."
+
+     What was here was eleven buttons in one bar and two long paragraphs
+     explaining which of them to press. The four jobs those buttons serve —
+     build sequences, import a config, export, assign panels — now have one
+     door that asks which you came for and then walks it
+     (maestro/wizard-import.js jobwizOpen).
+
+     COLLAPSE, DON'T HIDE. Every one of the eleven is still here, in a
+     disclosure directly underneath: one click on the summary, one on the
+     button. Nothing was renamed and no id moved, so #btnCfgImport,
+     #btnAssignPanels, #btnExpPca and #lnkMstrFull are the same elements
+     doing the same jobs for whatever else reaches for them. */
+  const doorBar = el('div','conbar');
+  const bJob = el('button','b prim','Build, import, export or assign…');
+  bJob.id = 'btnJobWiz';
+  bJob.title = 'what do you want to do? — four jobs, each one walked through, '
+             + 'with the specialist file formats behind Advanced';
+  bJob.addEventListener('click',()=>{ if(typeof jobwizOpen === 'function') jobwizOpen(); });
+  doorBar.appendChild(bJob);
+  s0.appendChild(doorBar);
+  const doorHint = el('div','hint prose');
+  doorHint.innerHTML = '<b>' + xmlEsc(IO_FORMATS_SENTENCE) + '</b>';
+  s0.appendChild(doorHint);
+
   if(isMaestroBuild) bar.appendChild(bImp);
   bar.appendChild(bCfg); bar.appendChild(bCfgX); bar.appendChild(bMap);
   if(!isMaestroBuild) bar.appendChild(bImp);
   bar.appendChild(bGen); bar.appendChild(bGenD); bar.appendChild(bGenA); bar.appendChild(bExp); bar.appendChild(bExpH);
   bar.appendChild(fin); bar.appendChild(seqOnly);
-  s0.appendChild(bar);
+  const advIO = document.createElement('details');
+  advIO.className = 'advio';
+  advIO.id = 'maeAdvIO';
+  const advSum = document.createElement('summary');
+  advSum.textContent = 'all ' + bar.querySelectorAll('button').length + ' file buttons, one by one';
+  advSum.title = 'the same actions the guided door above walks you through — '
+               + 'every one of them, in a single bar, for when you already know which you want';
+  advIO.appendChild(advSum);
+  advIO.appendChild(bar);
+  s0.appendChild(advIO);
   const msg=el('div','hint prose'); msg.id='maeMsg';
+  /* WHAT THIS SENTENCE IS FOR NOW (v1.45.0). It used to be a paragraph of
+     instructions about which button to press, in two build-dependent
+     variants — and the guided door above is that paragraph's job. What is
+     left is the STATE: what is loaded, or what to do first. */
   msg.innerHTML = MSTR.loaded
     ? MSTR.servoCount+' channels · '+MSTR.sequences.length+' sequence(s) · '+MSTR.subs.length+' subroutine(s)'
     : (isMaestroBuild
-        ? 'Import the file you saved from Maestro Control Center, or drop it anywhere on the window. No file yet? <b>Body starter</b> and <b>Dome starter</b> each build a named 24-channel layout whose subroutines 0–7 line up with the sketch. The sketch drives one Maestro, so pick the board you are wiring.'
-        : '<b>Import servo config</b> reads the travel this app exports — names, endpoints, centre, speed — and leaves your sequences and panel wiring alone. Drop the file anywhere on the window and it lands here too. <b>Maestro sequences</b> takes the choreography out of somebody else\'s .mstr and plays it through YOUR servo settings. No layout yet? <b>Body starter</b> and <b>Dome starter</b> build a named table to work from.');
+        ? 'Nothing loaded. <b>Import a config</b> above reads the file you saved from Maestro Control Center — or drop it anywhere on the window. No file yet? <b>Build sequences</b> offers a named starter layout whose subroutines 0–7 line up with the sketch.'
+        : 'Nothing loaded. <b>Import a config</b> above reads the travel this app exports, and leaves your sequences and panel wiring alone — or drop the file anywhere on the window. No layout yet? <b>Build sequences</b> offers a named starter table to work from.');
   s0.appendChild(msg);
   if(!isMaestroBuild){
     const adv=el('div','hint');
@@ -288,10 +329,31 @@ function buildMaestroPane(){
   /* --- the servo hardware bench (folded in from PCA Studio, 2026-08-12) --- */
   const sHw = sect(host,'Servo hardware','the channel table, live');
   const hwBar = el('div','conbar');
-  const bHw = el('button','b prim','Open the servo bench…');
-  bHw.title = 'The live channel table: drive a servo, watch where it actually is, '
-            + 'and set the endpoints, speed, release and ease that go into sequences.h';
-  bHw.addEventListener('click',()=>hwOpen());
+  /* WHICH DOOR IS THIS, HONESTLY (v1.45.0)
+     The #hwWrap "Servo hardware" overlay is gone: the six-step bench IS the
+     servo setup now, and its Channels step (4) is the live channel table
+     this button always meant. hwOpen() survives as an alias, so the change
+     here is not about avoiding a crash — it is about the label telling the
+     truth. "Open the servo bench…" says nothing about whether you are
+     about to CREATE a config or EDIT one you already measured, and that is
+     the only thing a builder wants to know before clicking.
+
+     WHAT COUNTS AS "you already have one" — setupSaveWorth(), not travel
+     alone. Mike, v1.38.3: he had named and ticked four channels and not yet
+     been round the dial, and a gate that counted only non-default travel
+     decided he had done nothing. A table with names and parts in it is a
+     config you edit; it is not a setup you start again. servoCfgConfigured()
+     stays as the fallback for any host that has no bench loaded. */
+  const worth  = (typeof setupSaveWorth === 'function') ? setupSaveWorth() : null;
+  const trav   = (typeof servoCfgConfigured === 'function') ? servoCfgConfigured() : 0;
+  const already = worth ? (worth.worth ? (trav || worth.used) : 0) : trav;
+  const bHw = el('button','b prim', already ? 'Edit current servo config…' : 'Set up servo hardware…');
+  bHw.title = (already
+      ? already + ' channel(s) already carry travel. '
+      : 'No travel measured yet. ')
+    + 'The live channel table: drive a servo, watch where it actually is, '
+    + 'and set the endpoints, speed, release and ease that go into sequences.h';
+  bHw.addEventListener('click',()=>setupOpen(4));
   hwBar.appendChild(bHw);
   sHw.appendChild(hwBar);
   const hHw = el('div','hint prose');
@@ -349,7 +411,10 @@ function buildChannelMap(host){
   });
   const bHome=el('button','b','Home all');
   bHome.addEventListener('click',()=>{
-    MSTR.channels.forEach(c=>{ EDIT.live[c.i]=c.home; if(c.act) ACT_T[c.act]=chanNorm(c,c.home); });
+    /* v1.45.0 — "home" is where the thing RESTS, which for a channel the
+       board leaves alone at power-up is not mid-travel. chanRest() obeys an
+       explicit Goto home and answers for the actuator otherwise. */
+    MSTR.channels.forEach(c=>{ const h=chanRest(c); EDIT.live[c.i]=h; if(c.act) ACT_T[c.act]=chanNorm(c,h); });
     rebuildMaestroUI();
   });
   [bAuto,bClear,bServo,bHome].forEach(b=>bar.appendChild(b));
@@ -573,7 +638,11 @@ function exportMstr(){
   const blob = new Blob([text], {type:'text/xml'});
   const a=document.createElement('a');
   a.href=URL.createObjectURL(blob);
-  a.download = MSTR.fileName.replace(/\.mstr$/i,'') + '.mstr';
+  /* v1.45.0 — Mike: "Add date and time, without seconds, to saved/exported
+     filenames." The .mstr is the file that gets carried to a Windows box and
+     loaded in Control Center; two of them called the same thing, one of which
+     is yesterday's endpoints, is a servo driven into the shell. */
+  a.download = MSTR.fileName.replace(/\.mstr$/i,'') + '-' + fileStamp() + '.mstr';
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(()=>URL.revokeObjectURL(a.href), 4000);
   lg('mae','exported '+a.download+' — '+MSTR.sequences.length+' sequences, '+MSTR.subs.length+' subroutines');

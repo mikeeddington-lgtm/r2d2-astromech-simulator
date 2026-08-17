@@ -174,6 +174,30 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
     return r==='all' && MSTR.loaded && MSTR.servoCount===3 && !document.querySelector('.dlgcard');
   }));
 
+  /* =================================================================
+     v1.45.0 — the same contract mstrAdoptSequences() and
+     mstrMatchChannels() already honour, extended to the new PCA9685
+     family: nothing crosses a format boundary in silence. The log is
+     the receipt, and it names the fields.
+     ================================================================= */
+  console.log('\n════ v1.45.0 — crossing between families is reported, field by field ════');
+  const rep = await ev(()=>{
+    loadProfile('maestro25'); setBoard('mini24'); makeStarter('dome','mini24'); reindexSubs();
+    if(typeof pcaHeaderParse !== 'function') return {missing:true};
+    const before = LOG.length;
+    const h = pcaGenFromLoadout();
+    const r = servoCfgImportText(h, 'friend-sequences.h');
+    const said = LOG.slice(before).map(e=>e.s).join(' | ');
+    return {from:r.from, n:r.n, dropped:(r.dropped||[]).map(d=>d.field), said};
+  });
+  ok('a PCA9685 header lands in the servo-config reader, not the .mstr reader',
+     rep.from === 'pca' && rep.n > 0, rep.from+' / '+rep.n);
+  ok('the fields it could not carry are named in the log, not just counted',
+     /neutral/.test(rep.said||'') && /range/.test(rep.said||''), (rep.said||'').slice(-160));
+  ok('...and the reader hands the same list back to its caller',
+     ['neutral','range','homemode','invert'].every(f=>(rep.dropped||[]).indexOf(f)>=0),
+     (rep.dropped||[]).join(', '));
+
   console.log('\n════ no page errors ════');
   ok('nothing threw', errs.length===0, errs.join(' | '));
 

@@ -7,13 +7,32 @@
 
 /* Shown top-left in the header so a stale copy is obvious at a glance.
    BUMP THIS on every delivery (HANDOVER §change log gets the same number). */
-const APP_VERSION = '1.44.1';
+const APP_VERSION = '1.45.0';
 /* The licence the app's own About box states — one string, one place.
    Scoped on purpose: MIT covers THIS project's code and artwork, and the
    About box has to say so rather than implying it covers the geometry, the
    BSD-3-Clause firmware lineage or the manufacturers' photographs, none of
    which are ours to license (v1.44.0; see LICENSE and CREDITS.md). */
 const APP_LICENCE = 'MIT';
+
+/* ------------------------------------------------------- download stamps
+   Every file this app saves carries the moment it was saved, to the minute:
+   `R2-servos-2026-08-17-1532.json`. Mike, v1.45.0 — a date alone collided on
+   the same-day re-export (three attempts at one calibration are three files
+   called the same thing, and the browser silently renames them (1), (2)),
+   and a name with no stamp at all is worse: you cannot tell which of two
+   downloads is the newer one without opening both.
+
+   LOCAL time, not UTC — the stamp exists to be recognised by the person who
+   pressed the button. Seconds are deliberately left off: they add noise to a
+   name a human reads, and nobody exports the same file twice inside a minute.
+   `fileStamp()` is the whole API; pass a Date to stamp a specific moment. */
+function fileStamp(d){
+  const t = (d instanceof Date) ? d : new Date();
+  const p = n => String(n).padStart(2,'0');
+  return t.getFullYear() + '-' + p(t.getMonth()+1) + '-' + p(t.getDate()) +
+         '-' + p(t.getHours()) + p(t.getMinutes());
+}
 
 /* -------------------------------------------------------- arduino helpers */
 const map_ = (x,a,b,c,d)=>Math.trunc((x-a)*(d-c)/(b-a)+c);   // integer, unconstrained — same as Arduino
@@ -65,7 +84,11 @@ function uiModalOpen(){
   const sw = $('setupWrap'); if(sw && !sw.classList.contains('hide')) return true; // servo-hardware bench
   const iw = $('impWiz');    if(iw && !iw.hidden)                     return true; // import wizard
   const bw = $('bldWiz');    if(bw && !bw.hidden)                     return true; // Build your Maestro
-  const hw = $('hwWrap');    if(hw && !hw.hidden)                     return true; // servo hardware overlay
+  const jw = $('jobWiz');    if(jw && !jw.hidden)                     return true; // build/import/export/assign chooser (v1.45.0)
+  /* #hwWrap was the second servo bench, folded into #setupWrap in v1.45.0.
+     The lookup stays because it costs nothing and the id is gone rather than
+     renamed — but the bench above is what guards that surface now. */
+  const hw = $('hwWrap');    if(hw && !hw.hidden)                     return true; // (retired) servo hardware overlay
   return false;
 }
 

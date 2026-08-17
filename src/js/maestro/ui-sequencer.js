@@ -216,7 +216,9 @@ function buildPose(){
   seqUnmappedNote(host, MSTR.channels.filter(c=>c && /^servo/i.test(c.mode) && !c.act).length);
   const tools=el('div','conbar'); tools.style.width='100%'; tools.style.padding='4px 0 0';
   const bHome=el('button','b','All home');
-  bHome.addEventListener('click',()=>{ MSTR.channels.forEach(c=>{EDIT.live[c.i]=c.home;}); applyLivePose(); buildPose(); });
+  /* v1.45.0 — chanRest(), not c.home: a channel with homemode Off has no
+     number worth obeying, and mid-travel left every pie panel half open. */
+  bHome.addEventListener('click',()=>{ MSTR.channels.forEach(c=>{EDIT.live[c.i]=chanRest(c);}); applyLivePose(); buildPose(); });
   const bMin=el('button','b','All min');
   bMin.addEventListener('click',()=>{ MSTR.channels.forEach(c=>{EDIT.live[c.i]=Math.min(c.min,c.max);}); applyLivePose(); buildPose(); });
   const bMax=el('button','b','All max');

@@ -99,6 +99,53 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
   ok('it is a standalone printable document', /^<!DOCTYPE html>/.test(html) && /@media print/.test(html));
   ok('it names the profile it was generated for', html.includes(await ev(()=>PROFILE.name)));
 
+  /* ================================================================
+     v1.45.0 — Mike: "Mark wiring images as Beta." The badge is drawn
+     INSIDE each SVG so it cannot be separated from the picture, in the
+     app and in the exported sheet — which is the copy that gets printed
+     and carried to a bench with no UI around it.
+     ================================================================ */
+  console.log('\n════ the diagrams say they are beta ════');
+  ok('one plain sentence says what beta means here', await ev(()=>
+    /guide, not a datasheet/.test(WIRING_BETA_WHY) &&
+    /pinout before you cut a wire/.test(WIRING_BETA_WHY)));
+  ok('the control-signal diagram carries a BETA badge, inside the SVG', await ev(()=>{
+    const s = systemDiagramSvg();
+    return /^<svg/.test(s) && s.indexOf('>BETA<') > 0 && s.indexOf(WIRING_BETA_WHY) > 0;
+  }));
+  ok('the servo wiring diagram carries it too', await ev(()=>{
+    const s = wiringDiagramSvg(wiringRows());
+    return s.indexOf('>BETA<') > 0 && s.indexOf(WIRING_BETA_WHY) > 0;
+  }));
+  ok('the badge is amber — the --am warning token, not a new colour', await ev(()=>
+    /stroke="var\(--am,#f2a63c\)"/.test(systemDiagramSvg())));
+  ok('the exported sheet marks both diagrams and explains it in prose', (()=>{
+    const heads = (html.match(/<h2>[^<]*<span class="bmark">beta<\/span><\/h2>/g)||[]).length;
+    return heads===2 && /class="note beta"/.test(html) && /diagrams below are beta/.test(html);
+  })(), (html.match(/bmark">beta/g)||[]).length+' beta marks');
+  ok('the setup step says it above the picture, before a wire is cut', await ev(()=>{
+    wizOpen(wizSteps().findIndex(s=>s.key==='_wiring'));
+    const n = $('startupBody').querySelector('.note.beta');
+    const t = n ? n.textContent : '';
+    closeStartup();
+    return !!n && /These diagrams are beta/.test(t) && /guide, not a datasheet/.test(t)
+        && !!n.querySelector('.betachip');
+  }));
+
+  /* ================================================================
+     v1.45.0 — Mike: "Add date and time, without seconds, to
+     saved/exported filenames." Two writers live in this file's reach:
+     the wiring sheet and its CSV.
+     ================================================================ */
+  console.log('\n════ the exported names carry the date and time ════');
+  ok('R2-wiring-<profile>-YYYY-MM-DD-HHMM.html', await ev(()=>
+    /^R2-wiring-[a-z0-9]+-\d{4}-\d{2}-\d{2}-\d{4}\.html$/.test(downloadWiring('html'))));
+  ok('...and the CSV the same, to the minute and no further', await ev(()=>{
+    const n = downloadWiring('csv');
+    return /^R2-wiring-[a-z0-9]+-\d{4}-\d{2}-\d{2}-\d{4}\.csv$/.test(n)
+        && n.indexOf(fileStamp())>0;      // local time, the shared stamp
+  }));
+
   const csv = await ev(()=>wiringCsv());
   const lines = csv.trim().split('\n');
   ok('the CSV has a header plus one line per row', lines.length===rows.length+1, lines.length+' lines');

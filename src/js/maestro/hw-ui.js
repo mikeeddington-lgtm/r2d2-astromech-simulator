@@ -1,96 +1,72 @@
 'use strict';
 /* =====================================================================
-   SERVO HARDWARE — the sim's surface for the folded-in PCA Studio
+   SERVO HARDWARE — the sim's doors onto the bench, and the header chip
 
-   PCA Studio is a whole page: a channel table you drive, a link to a real
-   board, and a setup wizard. The sim has no room for a whole page, and its
-   sidebar panes are 300 px wide — a sixteen-column channel table does not
-   go in a sidebar.
+   HISTORY, because the shape of this file is the story of it. PCA Studio is
+   a whole page: a channel table you drive, a link to a real board, and a
+   setup wizard. The sim has no room for a whole page, so when Studio was
+   folded in (2026-08-12) it got TWO surfaces instead of one — a "Servo
+   hardware" overlay (#hwWrap) with the live table and the serial console,
+   and the six-step setup wizard (#setupWrap) with the channel table and the
+   dial. Both edited MSTR.channels. Both had a connect button. Both called
+   themselves the bench, and each had one thing the other did not.
 
-   So it gets an overlay, on the same furniture the import and build
-   wizards already use (.iwrap / .iwcard), reached from the Bench. That is
-   deliberate: Bench is "the Maestro workshop — the board, the outputs and
-   the serial console", and this is the bench for the OTHER board.
+   v1.45.0. Mike: "Remove or merge the duplicated Servo Bench into Servo
+   Setup." He chose fold it in, so this file no longer draws a surface: the
+   bench IS the setup wizard's Channels step, and there is exactly one place
+   a channel is configured. What #hwWrap had and #setupWrap did not has gone
+   ACROSS rather than away —
 
-   What is on it is not a copy of Studio. The table is literally Studio's
-   table (src/js/maestro/hw-table.js) and the numbers it edits are
-   MSTR.channels — the ones calibrated against real linkages. Driving a row
-   moves the engine, the 3D droid, and the servo if one is plugged in.
+     · the live drive slider, position bar, µs readout and quick moves are
+       three columns on the shared channel table now (setup-hw-channels.js);
+     · the board link row and the serial monitor are still drawn HERE, by
+       hwLinkRender() below, into a #hwLink host the Channels step puts up
+       when the host has one to fill. They cannot move into the shared file:
+       serial-link.js binds a fixed set of element ids (bConnect, serialChip,
+       secMon, monOut …) and PCA Studio's own PAGE already carries every one
+       of them, so a shared copy would be two elements with one id in one of
+       the two apps;
+     · "all home" and "all off" are two buttons on the step's own drive row.
+
+   What is left in this file is the three doors (hwOpen / hwClose /
+   hwIsOpen — other modules ask whether a hardware surface is open and a
+   door and its guards are one feature), the link row, and the header chip.
    ===================================================================== */
 
-function hwOpen(){
-  const w = $('hwWrap'); if(!w) return;
-  w.hidden = false;
-  HW.rebuild(true);
-  hwRender();
-  hwTableSync();
+/* Which step IS the bench. By key, not by the number 4 — the step list is
+   allowed to grow and this is the one place that has to be right. */
+function hwBenchStep(){
+  const i = (typeof SETUP_STEPS !== 'undefined')
+    ? SETUP_STEPS.findIndex(s=>s.key === 'channels') : -1;
+  return i >= 0 ? i : 4;
+}
+/* The door. #bHw in the Bench pane calls this, and so does anything else
+   that used to mean "show me the servo hardware": it lands on the bench's
+   Channels step, where the names, endpoints, mappings and the dial are. */
+function hwOpen(step){
+  if(typeof setupOpen !== 'function') return;
+  setupOpen(typeof step === 'number' ? step : hwBenchStep());
 }
 function hwClose(){
-  const w = $('hwWrap'); if(!w) return;
-  w.hidden = true;
+  if(typeof SETUP !== 'undefined' && SETUP.open && typeof setupClose === 'function') setupClose();
 }
-function hwIsOpen(){ const w = $('hwWrap'); return !!w && !w.hidden; }
+/* Kept honest rather than kept around: util.js's uiModalOpen(), hw-host.js's
+   HW.applied() and the sounds suite all ask this, and after the fold-in the
+   truthful answer is "is the bench open", not "is a div called hwWrap
+   showing". */
+function hwIsOpen(){ return typeof SETUP !== 'undefined' && !!SETUP.open; }
+/* HW.applied() repaints whatever hardware surface is up. That is the bench's
+   own render now. */
+function hwRender(){ if(hwIsOpen() && typeof setupRender === 'function') setupRender(); }
 
-function hwRender(){
-  const w = $('hwWrap'); if(!w) return;
-  const chans = HW.channels().filter(c=>c && /^servo/i.test(c.mode||''));
-  const audit = (typeof pwAudit === 'function') ? pwAudit() : {warn:[], bad:[]};
-  const chn = n=>n+' channel'+(n===1?'':'s');
-  const flag = (audit.bad.length ? '<span class="pwflag bad">'+chn(audit.bad.length)+' outside 500–2500 µs</span>' : '')
-             + (audit.warn.length ? '<span class="pwflag warn">'+chn(audit.warn.length)+' outside 1000–2000 µs</span>' : '');
-
-  w.innerHTML = '<div class="iwcard hwcard"><div class="iwhead">'
-    + '<h2>Servo hardware</h2>'
-    + '<p class="iwsub">The channel table, live. Drag a <b>drive</b> slider and the bar beside it '
-    + 'shows where that servo actually is — the model of the board if nothing is plugged in, the '
-    + 'servo itself if something is. These are the same numbers the sequencer and '
-    + '<code>sequences.h</code> use.</p>'
-    + '<button class="iwx" data-hw="close" title="close">×</button>'
-    + '</div>'
-    + '<div class="iwbody hwbody">'
-    + '<div id="hwLink"></div>'
-    + '<div class="conbar hwbar">'
-    + '<label class="sw"><input type="checkbox" id="hwOnlyUsed"'+(HWT.only==='used'?' checked':'')
-    + '> only channels in use</label>'
-    + '<span class="dim">'+chans.length+' of '+HW.count()+' channels</span>'
-    + flag
-    + '<span class="sp" style="flex:1"></span>'
-    /* "Edit current servo config", not "Set up hardware" (Mike,
-       2026-08-16) — it lands on the Channels step of a wizard whose first
-       four questions were answered long ago, so on a build that HAS a
-       config the old label promised a setup it was not going to run. */
-    + '<button class="b prim" data-hw="setup" title="the channel table and the dial, on step 5 of the hardware wizard — your names, endpoints and mappings are already in it">'
-    + (chans.length ? 'Edit current servo config…' : 'Set up hardware…') + '</button>'
-    + '<button class="b" data-hw="allhome" title="drive every channel to its home">All home</button>'
-    + '<button class="b danger" data-hw="alloff" title="stop pulsing every channel — everything goes limp">All off</button>'
-    + '</div>'
-    + '<div class="hwscroll"><table class="settab hwtab" id="hwTable"></table></div>'
-    + '<div class="hint prose">Endpoints here are <b>yours</b> — they came from your <code>.mstr</code> '
-    + 'or from the dial, and nothing in the sim rewrites them on its own. <b>release</b> and <b>ease</b> '
-    + 'were exportable into <code>sequences.h</code> long before there was anywhere to set them; this is '
-    + 'that place.</div>'
-    + '</div></div>';
-
-  hwTableBuild('hwTable');
-  if(typeof hwLinkRender === 'function') hwLinkRender();
-
-  w.onclick = e=>{
-    const b = e.target.closest('[data-hw]'); if(!b) return;
-    const a = b.dataset.hw;
-    if(a === 'close') hwClose();
-    if(a === 'setup'){ setupOpen(4); }      /* straight to Channels — the sim already knows its boards */
-    if(a === 'allhome'){
-      HW.channels().forEach((c,i)=>{ if(c && /^servo/i.test(c.mode||'') && c.home) HW.drive(i, c.home); });
-      HW.say('every channel driven to its home');
-    }
-    if(a === 'alloff'){
-      HW.channels().forEach((c,i)=>{ if(c && /^servo/i.test(c.mode||'')) HW.drive(i, 0); });
-      HW.say('all pulses stopped — every servo is limp');
-    }
-  };
-  const only = $('hwOnlyUsed');
-  if(only) only.onchange = ()=>{ HWT.only = only.checked ? 'used' : 'all'; hwRender(); };
-}
+/* WHOSE PORT IS IT? (v1.45.0 — see setupExitHardware in setup-hw.js)
+   In the sim the link exists for this bench: the dial's whole premise is a
+   real servo on the end of it, and leaving the bench with the port open is
+   how you forget a connected droid. So the sim answers yes, and closing the
+   bench disarms and disconnects. PCA Studio does not define this at all —
+   its port belongs to its page, whose header holds the connect button and
+   whose monitor outlives any overlay. */
+function hwSetupOwnsLink(){ return true; }
 
 /* ------------------------------------------------------------- the link
    The shared serial module (serial-link.js) drives a fixed set of element
@@ -98,7 +74,12 @@ function hwRender(){
    verbatim. Rather than rewrite 220 lines of working, hardware-tested code
    to take selectors as arguments, the sim renders the SAME ids inside the
    bench card. The module cannot tell which app it is in, which is the
-   point. */
+   point.
+
+   v1.45.0: the host it fills is #hwLink on the bench's Channels step
+   (setup-hw-channels.js), not the overlay this file used to draw. It stays
+   in a SIM-ONLY file precisely because of those fixed ids — Studio's page
+   already has every one of them, and a shared copy would duplicate them. */
 function hwLinkRender(){
   const host = $('hwLink'); if(!host) return;
   const on = (typeof SER !== 'undefined') && !!SER.port;
@@ -108,9 +89,13 @@ function hwLinkRender(){
      buttons in #monWarn, before the user got a chance to click either */
   const prevMonText = $('monOut') ? $('monOut').textContent : '';
   const monWasOpen = !!$('secMon') && !$('secMon').classList.contains('hide');
+  /* v1.45.0: no connect button here. The step's own #bSetConnect is two
+     lines above this row with the sentence that says what the dial is
+     actually moving, and one card with two ⚡ Connect buttons in it is the
+     duplication the fold-in was for. `bConnect` is Studio's page furniture
+     and serialUiSync() skips it when it is absent — which it now is, here. */
   host.innerHTML =
       '<div class="conbar hwlink">'
-    + '<button class="b" id="bConnect">'+(on?'⚡ Disconnect':'⚡ Connect hardware')+'</button>'
     + '<span class="chip" id="serialChip">'+(on ? (SER.blocked?'monitor only':'hardware') : 'virtual')+'</span>'
     + '<button class="b" id="bMon">Serial monitor</button>'
     + '<span class="dim" id="monPort">'+(on?'115200 8N1':'not connected')+'</span>'
@@ -134,16 +119,12 @@ function hwLinkRender(){
     + '<button class="b" id="bMonSend">send</button>'
     + '</div></div>';
 
-  /* connect/disconnect both repaint this bar when they finish — the module
-     updates the chip and the button text itself, so all this adds is the
-     rest of the row */
-  $('bConnect').onclick = async ()=>{
-    if(SER.port) await serialDisconnect(); else await serialConnect();
-    /* no hwLinkRender() here (v1.39.5) — the module already repaints via
-       serialUiSync() → the registered callback below, and doing it again
-       here was the second render that stomped the warn bar */
-  };
-  /* ...and repaint when the link changes from somewhere else — the setup
+  /* connect and disconnect belong to #bSetConnect above this row now
+     (setupBindLink, v1.45.0). This bar only has to FOLLOW the link, which
+     it does through the registry below — and deliberately not by calling
+     hwLinkRender() from a click handler, which was the second render that
+     stomped the warn bar (v1.39.5).
+     ...so: repaint when the link changes from somewhere else — the setup
      wizard's Channels step can open and close the same port (v1.38.1).
      A NAMED function, so serialUiRegister's dedupe-by-identity actually
      works — an anonymous closure here registered a fresh copy on every

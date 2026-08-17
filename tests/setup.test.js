@@ -116,6 +116,16 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
       && o.prefs.rc && o.prefs.rc.padId==='test-transmitter-001' && o.prefs.rc.chans.length===2;
   })());
 
+  /* v1.45.0 — Mike: "Add date and time, without seconds, to saved/exported
+     filenames." setupExport() is one of this file's two writers; the wiring
+     sheet and its CSV are pinned in wiring.test.js. */
+  ok('the exported file is named R2-setup-<profile>-YYYY-MM-DD-HHMM.json', await ev(()=>{
+    const n = setupExport();
+    return /^R2-setup-[a-z0-9]+-\d{4}-\d{2}-\d{2}-\d{4}\.json$/.test(n)
+        && n.indexOf(fileStamp())>0            // the shared stamp, local time
+        && !/\d{4}-\d{2}-\d{2}-\d{6}/.test(n); // to the minute, no seconds
+  }));
+
   // wreck everything, then import the snapshot
   const restored = await page.evaluate(async (text)=>{
     loadProfile('mod2026');
@@ -205,6 +215,77 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
     const found = Array.from($('startupBody').querySelectorAll('button.b')).some(b=>/Fusion/.test(b.textContent));
     closeStartup(); return found;
   }));
+
+  /* ================================================================
+     v1.45.0 — Mike: "Make Reset clear hardware configuration too."
+
+     Reset already removed both keys. What it did not do was empty the
+     in-memory MSTR — and maestro/servo-store.js flushes MSTR to its key on
+     `pagehide`, which is exactly what location.reload() fires. So the
+     channel table was written back AFTER the wipe and restored at boot,
+     which is the "hardware config survives a Reset" Mike kept seeing.
+
+     This drives the real button and lets the RELOAD ACTUALLY HAPPEN —
+     `location.reload` cannot be redefined in Chromium, and a stub would
+     have missed the point anyway: the pagehide the reload fires is the
+     whole bug. So the assertions are taken on the far side of it, which is
+     also where Mike was standing when he saw his config come back.
+     Deliberately LAST in this suite: it empties the stores and reboots.
+     ================================================================ */
+  console.log('\n════ Reset wipes the hardware configuration too ════');
+  const before = await ev(()=>{
+    /* a configuration worth losing: a Maestro build, plus a channel table
+       carrying a name nobody but its owner would have typed */
+    PREFS.seenStartup = true;
+    buildSet('domeServo','mini24'); buildSet('bodyServo','mini12');
+    if(!MSTR.loaded) buildEnsureMaestro();
+    MSTR.channels[0].name = 'MIKE-CALIBRATED';
+    MSTR.channels[0].mode = 'Servo';
+    servoStoreSave(); prefsSave();
+    window.__preReset = true;                    // gone the moment we get a new document
+    return {prefs: !!localStorage.getItem('r2sim.prefs.v1'),
+            servo: !!localStorage.getItem('r2sim.servo.v1'),
+            named: !!(servoStoreInfo() && JSON.parse(localStorage.getItem('r2sim.servo.v1'))
+                      .channels.some(c=>c.name==='MIKE-CALIBRATED'))};
+  });
+  ok('there was a saved config and a calibrated channel table to lose',
+     before.prefs && before.servo && before.named, JSON.stringify(before));
+  const asked = await ev(()=>{
+    wizOpen(wizSteps().length-1);                // Save / Load / Reset live here
+    const btn = Array.from($('startupBody').querySelectorAll('button.b.danger'))
+      .find(b=>b.textContent==='Reset');
+    if(!btn) return null;
+    btn.click();
+    const dlg = document.querySelector('.dlgwrap');
+    return {title: btn.title, text: dlg ? dlg.textContent : ''};
+  });
+  ok('the confirm says the servo channel table goes as well', !!asked
+     && /servo channel table/.test(asked.text) && /measured endpoint/.test(asked.text));
+  ok('…and so do the build answers from this setup', !!asked && /build answers/.test(asked.text));
+  ok('the button title says it too', !!asked && /servo hardware config/.test(asked.title)
+     && /channel table/.test(asked.title), asked && asked.title);
+  /* confirming reloads the page, so this evaluate loses its context */
+  await ev(()=>{ const d = document.querySelector('.dlgwrap'); if(d) d.querySelector('.dlgyes').click(); })
+    .catch(()=>{});
+  await page.waitForFunction(
+    'window.__preReset===undefined && typeof CAD!=="undefined" && CAD.loaded', {timeout:60000});
+  const gone = await ev(()=>({
+    servoKey: !!localStorage.getItem('r2sim.servo.v1'),
+    restorable: !!servoStoreInfo(),
+    name: (MSTR.channels[0]||{}).name || '',
+    /* the prefs key is written again on the way up (applyTheme saves) — what
+       matters is that it comes back EMPTY of everything that was in it */
+    theme: PREFS.theme, seen: !!PREFS.seenStartup, configured: buildConfigured(),
+    dome: (PREFS.hw||{}).dome || ''
+  }));
+  ok('the servo store is gone, and stayed gone through the reload',
+     gone.servoKey === false && gone.restorable === false, JSON.stringify(gone));
+  ok('…so the calibrated channel table did not come back', gone.name !== 'MIKE-CALIBRATED',
+     'ch0 name after reset: "'+gone.name+'"');
+  ok('…and neither did the build answers', gone.configured === false && gone.dome !== 'mini24',
+     'hw.dome: "'+gone.dome+'"');
+  ok('it really did restart fresh — first-run defaults are back',
+     gone.seen === false && gone.theme === 'light');
 
   console.log(`\n${pass} passed, ${fail} failed`);
   console.log('page errors:', errs.length?errs:'none');

@@ -33,6 +33,10 @@ function setupExportObj(){
          file, so both keys land in the same hunk. */
       builder: PREFS.builder || null,
       track: PREFS.track || null,
+      /* v1.45.0 — the named track layouts (PREFS.tracks, app/track.js's
+         LAYOUT LIBRARY). `track` above stays as the mirror of the active
+         one, so a file written here still imports into v1.44.1. */
+      tracks: PREFS.tracks || null,
       /* workspaces (v1.17.0): where the app is open, and whether the Bench's
          Advanced switch (the Serial console) is on. ws is the RUNTIME answer,
          so a file saved from the sequencer desk carries 'seq' — the import
@@ -67,7 +71,13 @@ function setupExport(){
   const text = JSON.stringify(setupExportObj(), null, 1);
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([text], {type:'application/json'}));
-  a.download = 'R2-setup-' + PROFILE.id + '.json';
+  /* v1.45.0 — Mike: "Add date and time, without seconds, to saved/exported
+     filenames." Three snapshots taken in one afternoon used to be
+     R2-setup-mod2026(1).json and friends, which is the browser naming them,
+     not you. fileStamp() (core/util.js) is local time to the minute — the
+     minute is the useful grain for a build session, and dropping the seconds
+     keeps the name readable and sortable. */
+  a.download = 'R2-setup-' + PROFILE.id + '-' + fileStamp() + '.json';
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(()=>URL.revokeObjectURL(a.href), 4000);
   lg('sys','setup exported: '+a.download+' — profile, config, Maestro, mapping, paint, groups, themes');
@@ -101,6 +111,14 @@ function setupImportObj(o){
     if(pf.build) PREFS.build = pf.build;
     if(pf.bestLap) PREFS.bestLap = pf.bestLap;
     if(pf.stageTheme) PREFS.stageTheme = pf.stageTheme;
+    /* v1.45.0 — PREFS.builder is assigned BEFORE modelSet(), because
+       modelSet('builder') crosses the off->on-stage edge and rebuilds the
+       assembly from PREFS on the way through (scene/builder.js's mbSetShown →
+       mbRebuildFromPrefs). Landing the file's assembly afterwards meant a
+       builder-model file rebuilt twice, the first time from whatever assembly
+       this browser had BEFORE the import — replaying that one's restore
+       warnings, and (now that a rebuild writes its result back) saving it. */
+    if(pf.builder !== undefined) PREFS.builder = pf.builder;
     if(pf.model && typeof modelSet === 'function') modelSet(pf.model, {frame:false});
     if(pf.env && typeof envApply === 'function') envApply(pf.env);  // v1.39.5: the popover promises the backdrop travels — now it does
     /* v1.41.0 — same "absent key = keep current" rule as env above. The
@@ -111,10 +129,16 @@ function setupImportObj(o){
        `track` is carried for the practice-circuit agent, who owns its shape
        and its own apply path — this file only has to not drop the key. */
     if(pf.builder !== undefined){
-      PREFS.builder = pf.builder;
       if(typeof modelGet === 'function' && modelGet() === 'builder' && typeof mbRebuildFromPrefs === 'function') mbRebuildFromPrefs();
     }
+    /* v1.45.0 — the layout library is what trackShapeData() reads; `track`
+       is only its mirror. A file from v1.44.1 carries `track` and no
+       `tracks`, so clear the library and let trackLibLoad() upgrade that
+       single layout into it, exactly as a v1.44.1 browser's own prefs are. */
+    if(pf.tracks !== undefined) PREFS.tracks = pf.tracks;
+    else if(pf.track !== undefined) PREFS.tracks = null;
     if(pf.track !== undefined) PREFS.track = pf.track;
+    if((pf.tracks !== undefined || pf.track !== undefined) && typeof trackRebuild === 'function') trackRebuild();
     /* workspaces (v1.17.0). Three shapes of file land here:
        — a current file: ws + adv. ws==='seq' (saved mid-desk) lands on Drive.
        — a pre-workspace file carrying the retired `view`: 'advanced' means
@@ -160,7 +184,7 @@ function setupImportObj(o){
     MSTR.fileName = m.fileName || 'imported-setup.mstr';
     MSTR.xmlText = '';
     MSTR.loaded = true;
-    EDIT.live = MSTR.channels.map(c=>c.home||c.neutral||DEFAULT_NEUTRAL);
+    EDIT.live = MSTR.channels.map(c=>chanRest(c));   // v1.45.0 — doors rest shut, gimbals rest centred
     EDIT.seq = 0; EDIT.frame = -1;
     if(!MSTR.loadout) loadoutReset();          // an older setup file predates the loadout
     if(typeof reindexSubs==='function') reindexSubs();
@@ -229,14 +253,48 @@ function setupButtons(host, msgEl){
   fin.addEventListener('change',()=>{ if(fin.files[0]) setupImportFile(fin.files[0]); fin.value=''; });
   bLoad.addEventListener('click',()=>fin.click());
   const bReset = el('button','b danger','Reset');
-  bReset.title = 'wipe every saved preference — paint, names, groups, electronics, channel edits, best lap — and restart fresh';
+  /* v1.45.0 — Mike: "Make Reset clear hardware configuration too." The button
+     already called servoStoreClear(), and the store really was empty for the
+     three lines that followed — but the servo channel table came back anyway,
+     with every name and measured endpoint intact.
+
+     WHY. maestro/servo-store.js listens for `pagehide` and `visibilitychange`
+     and flushes MSTR to its key so a tab closed mid-edit keeps the last 500 ms
+     of work. `location.reload()` fires `pagehide`. So the sequence was:
+     remove the key → remove the servo key → reload → pagehide → the flush
+     writes the still-populated in-memory MSTR straight back into the key we
+     had just deleted → boot restores it. The clear was real; the resurrection
+     happened afterwards, which is why reading the store between the two
+     showed nothing wrong.
+
+     THE FIX is to empty the thing that gets flushed, not to fight the flush:
+     servoStoreSave() refuses to write a table with no servo channels in it
+     (servoStoreWorth()), so a blanked MSTR makes the on-the-way-out flush a
+     no-op — and any pending servoStoreTouch() debounce with it. The listeners
+     stay exactly as they are; they are right for every other exit.
+
+     (Not the reader: buildEnsureMaestro() is innocent here. It regenerates a
+     starter only when nothing is loaded, and a starter's channels are named
+     after panels with factory endpoints — v1.43.0's trap — which is not what
+     Mike saw. He saw HIS names come back. That is a restore, not a starter.) */
+  bReset.title = 'wipe every saved preference AND the servo hardware config — paint, names, groups, '
+    + 'electronics choice, the build answers, the servo channel table with its measured endpoints, '
+    + 'best lap — and restart fresh';
   bReset.addEventListener('click',async ()=>{
     if(!await appConfirm('Are you sure? This wipes ALL saved settings — paint scheme, part names, groups, '
-      + 'electronics choice, channel assignments, UI scale, best lap — and restarts the sim.\n\n'
+      + 'UI scale, best lap — and restarts the sim.\n\n'
+      + 'It also wipes the hardware configuration: the build answers from this setup (what board is where, '
+      + 'which sketch, which sound module) and the servo channel table with every name, part mapping and '
+      + 'measured endpoint you calibrated, plus the sequences built on them.\n\n'
       + 'Setup .json files you have saved to disk are NOT touched; you can Load one afterwards.',
       {title:'Reset everything', yes:'Wipe and restart', no:'Cancel', danger:true})) return;
-    try{ localStorage.removeItem(STORE_KEY); }catch(e){}
+    /* the in-memory table first — see the note above */
+    if(typeof MSTR !== 'undefined'){
+      MSTR.loaded = false; MSTR.channels = []; MSTR.sequences = []; MSTR.subs = [];
+      MSTR.loadout = null; MSTR.xmlText = ''; MSTR.fileName = ''; MSTR.header = {};
+    }
     if(typeof servoStoreClear === 'function') servoStoreClear();
+    try{ localStorage.removeItem(STORE_KEY); }catch(e){}
     location.reload();
   });
   bar.appendChild(bSave); bar.appendChild(bLoad); bar.appendChild(bReset); bar.appendChild(fin);

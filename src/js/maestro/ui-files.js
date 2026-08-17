@@ -1,4 +1,30 @@
 'use strict';
+/* =====================================================================
+   THE ONE SENTENCE ABOUT FORMATS (v1.45.0)
+
+   Mike: "Clarify whether native Maestro files as well as JSON are
+   supported." He means it literally — the app never said plainly what it
+   eats. The drop target listed a .mstr but not the servo-config .json it
+   has accepted since v1.39.1; the servo-config picker narrowed by build
+   family while its reader stayed wider; the build wizard named one family
+   per build; and after v1.45.0's format work a PCA9685 header goes in too
+   and was named nowhere at all. Five strings, five slightly different
+   answers, none of them complete.
+
+   So there is ONE canonical sentence, it lives here, and every other
+   string in the app is derived from it or made consistent with it. If a
+   reader learns a new format, this string is the thing that has to change
+   and every door changes with it.
+   ===================================================================== */
+const IO_FORMATS_IN =
+  'a pololu maestro .mstr or .xml, a servo config .json, a whole-setup .json, '
+  + 'or a PCA9685 servos.h or sequences.h';
+const IO_FORMATS_OUT =
+  'a .mstr for a maestro, sequences.h for a PCA9685, and a servo config .json from either';
+const IO_FORMATS_SENTENCE = 'imports: ' + IO_FORMATS_IN + '. exports: ' + IO_FORMATS_OUT + '.';
+function ioFormatsIn(){ return IO_FORMATS_IN; }
+function ioFormatsOut(){ return IO_FORMATS_OUT; }
+
 function isAudioFile(f){ return /\.(mp3|wav|ogg|m4a|flac|aac)$/i.test(f.name) || /^audio\//.test(f.type); }
 /* --- drag & drop anywhere ---
    "Anywhere" is the point of this: a builder should be able to throw a
@@ -38,6 +64,13 @@ window.addEventListener('drop', e=>{
      importer and was refused as "not a setup file" — the app rejecting a file
      it had written itself an hour earlier. Sniff the kind, then route. */
   else if(/\.json$/i.test(f.name)) jsonDropRoute(f);
+  /* v1.45.0 — a MaestroPCA header dropped on the window used to be handed
+     to the .mstr wizard, which told the user their own generated file was
+     not valid XML. It is a THIRD family of config now (import.js
+     pcaHeaderParse), so it gets its own reader — same sniff-the-content
+     rule as the two .json shapes above, because a header renamed .txt is
+     still a header and somebody else's PCA sketch is not one of ours. */
+  else if(/\.h$|\.hpp$/i.test(f.name)) pcaHeaderDropRoute(f);
   else if(typeof impwizOpen==='function'){ impwizOpen(); impwizRead(f); }
   else readMstrFile(f);
 });
@@ -62,6 +95,44 @@ function jsonDropRoute(file){
       return;
     }
     if(typeof setupImportText === 'function') setupImportText(text, file.name);
+  };
+  fr.readAsText(file);
+}
+
+/* A dropped .h. Travel goes in through the servo-config reader (which is
+   where a channel table belongs whatever family it arrived in); if the
+   header also carries sequences the guided import is offered, because
+   adopting somebody else's choreography is a decision, not a side effect
+   of dropping a file. (v1.45.0) */
+function pcaHeaderDropRoute(file){
+  const fr = new FileReader();
+  fr.onload = async ()=>{
+    const text = String(fr.result);
+    if(typeof pcaHeaderLooksLike !== 'function' || !pcaHeaderLooksLike(text)){
+      if(typeof toast === 'function')
+        toast(file.name + ' is not a MaestroPCA header — no MpcaChannelDef table in it', 'err');
+      return;
+    }
+    try{
+      const r = servoCfgImportText(text, file.name);
+      if(typeof rebuildMaestroUI === 'function') rebuildMaestroUI();
+      const seqs = (r.dropped || []).find(d=>d.field === 'sequences');
+      if(!seqs) return;
+      if(typeof appConfirm !== 'function') return;
+      const go = await appConfirm(
+        file.name + ' also carries ' + seqs.n + ' sequence(s). Travel is already in. '
+        + 'Bring the sequences in as well, played through YOUR endpoints?',
+        {title:'sequences too?', yes:'adopt them', no:'travel only'});
+      if(!go) return;
+      const P = pcaHeaderParse(text, file.name);
+      mstrAdoptSequences(P);
+      if(typeof rebuildMaestroUI === 'function') rebuildMaestroUI();
+      if(typeof toast === 'function')
+        toast('Adopted ' + P.sequences.length + ' sequence(s) from ' + file.name
+              + ' — playing through YOUR servo settings');
+    }catch(e){
+      if(typeof toast === 'function') toast('Could not read ' + file.name + ': ' + e.message, 'err');
+    }
   };
   fr.readAsText(file);
 }

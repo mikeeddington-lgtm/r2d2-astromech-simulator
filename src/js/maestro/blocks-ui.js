@@ -584,7 +584,55 @@ function blkActionLib(seq){
     }));
     row.appendChild(c);
   });
+
+  /* EVERY MOVING PANEL IS IN THIS LIST (v1.45.0)
+     Mike: "Show every moving panel in the sequencer; render unconfigured
+     ones in muted grey."
+
+     A panel with no servo channel used to be simply ABSENT here, which is
+     indistinguishable from a panel this droid does not have — so the one
+     question the library could not answer was "where is my magic panel?".
+     Every mover the model carries gets a chip now. The unconfigured ones go
+     LAST (so the list still opens with things you can actually drag, and so
+     `.blkchip.pc` still means "a part with a channel behind it" for every
+     other reader of this DOM), and they are dimmed + dashed — the same
+     visual language `.blkchip.seq.off` already uses for a sequence that is
+     not on the board.
+
+     WHAT A DRAG DOES: it REFUSES, with the reason and an offer to go and
+     map it. The alternative — map-then-use — would have to invent a channel
+     number on the user's behalf, and the channel a panel is on is a wiring
+     fact about a physical droid, not a detail the sequencer may guess. It
+     is also what the Pose view next door already does: an unmapped channel
+     there gets "map it to move it" instead of a dead slider (ui-sequencer.js
+     seqPoseChans/buildPose). One rule, both views. */
+  const movers = (typeof BLKH.movers === 'function') ? BLKH.movers() : [];
+  const off = movers.filter(m=>!m.on);
+  off.forEach(m=>{
+    const c = el('div','blkchip off unconf', m.label);
+    c.dataset.act = m.act;
+    c.title = m.label + ' has no servo channel yet — nothing to drive, so there is no brick.'
+            + (m.lit ? '\nprinted droid lists this one as ' + m.lit + ' rather than a servo; plenty of builds differ.' : '')
+            + (m.cad ? '\nCAD: ' + m.cad : '')
+            + '\nclick to map it to a channel';
+    /* pointerdown, not click: the wired chips start their drag on pointerdown
+       (blkChipDrag), so answering on the same event is what makes "you cannot
+       drag this one" read as an answer rather than as a dead control. */
+    c.addEventListener('pointerdown', ev=>{ ev.preventDefault(); ev.stopPropagation(); blkUnconfOffer(m); });
+    row.appendChild(c);
+  });
   host.appendChild(row);
+  if(off.length){
+    const note = el('div','hint');
+    const b = el('button','b','map one…');
+    b.style.marginLeft = '6px';
+    b.addEventListener('click',()=>blkMapPanelsOpen());
+    note.appendChild(document.createTextNode(
+      off.length + ' moving panel' + (off.length===1?'':'s') + ' on this droid ' +
+      (off.length===1?'has':'have') + ' no servo channel yet — grey, and not draggable.'));
+    note.appendChild(b);
+    host.appendChild(note);
+  }
 
   /* groups and ready-made shapes: one click builds a whole figure */
   const groups = blockGroups();
@@ -612,6 +660,27 @@ function blkActionLib(seq){
     host.appendChild(row2);
   }
   return host;
+}
+
+/* Where a panel GETS a channel. The bench's Channels step is the one table
+   with a part column per row and a Test button beside it, so that is the
+   door — the same one ui-pane.js's servo-config button opens. The build
+   wizard's Panels step is the fallback for a build that has no bench. */
+function blkMapPanelsOpen(){
+  if(typeof setupOpen === 'function'){ setupOpen(4); return true; }
+  if(typeof wizOpen === 'function' && typeof wizStepIndex === 'function'){
+    const i = wizStepIndex('_panels');
+    if(i >= 0){ wizOpen(i); return true; }
+  }
+  return false;
+}
+/* One line, then a way out of the dead end — never a bare refusal. */
+async function blkUnconfOffer(m){
+  const why = m.label + ' has no servo channel yet, so a brick for it would drive nothing.'
+            + (m.lit ? '\n\nPrinted Droid lists this one as ' + m.lit + ' rather than a servo — plenty of builds differ.' : '');
+  if(typeof appConfirm !== 'function'){ if(typeof toast === 'function') toast(why,'warn'); return; }
+  const go = await appConfirm(why, {title:'not wired yet', yes:'map it now…', no:'not now'});
+  if(go) blkMapPanelsOpen();
 }
 
 /* ------------------------------------------------------- the inspector

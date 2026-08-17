@@ -202,6 +202,135 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
      pieOptRenamed==='Front Pie Panel', pieOptRenamed);
   await page.evaluate(n=>{ setPartLabel(n,''); rebuildMaestroUI(); }, pieName);   // leave PARTS clean
 
+
+  /* =================================================================
+     v1.45.0 — Mike: "Add date and time, without seconds, to
+     saved/exported filenames." A date alone collides the second time
+     you export on the same afternoon, which is exactly when you are
+     iterating and most need to tell two files apart.
+     ================================================================= */
+  console.log('\n════ v1.45.0 — saved filenames carry the date AND the time ════');
+  const stamps = await ev(()=>{
+    const seen=[];
+    const real = HTMLAnchorElement.prototype.click;
+    HTMLAnchorElement.prototype.click = function(){ seen.push(this.download); };
+    try{
+      makeStarter('dome'); CFG.maestroSource='imported'; reindexSubs();
+      servoCfgExport(); exportMstr(); exportPcaHeader();
+    }catch(e){ seen.push('threw: '+e.message); }
+    HTMLAnchorElement.prototype.click = real;
+    return {seen, stamp:(typeof fileStamp==='function')?fileStamp():'no-fileStamp'};
+  });
+  ok('the servo config .json is stamped to the minute, not just the day',
+     /^R2-servos-\d{4}-\d{2}-\d{2}-\d{4}\.json$/.test(stamps.seen[0]||'')
+     && (stamps.seen[0]||'').indexOf(stamps.stamp)>0, stamps.seen[0]);
+  ok('the .mstr export is stamped too',
+     /-\d{4}-\d{2}-\d{2}-\d{4}\.mstr$/.test(stamps.seen[1]||'')
+     && (stamps.seen[1]||'').indexOf(stamps.stamp)>0, stamps.seen[1]);
+  ok('the PCA9685 sequences.h is stamped too',
+     /-\d{4}-\d{2}-\d{2}-\d{4}\.h$/.test(stamps.seen[2]||'')
+     && (stamps.seen[2]||'').indexOf(stamps.stamp)>0, stamps.seen[2]);
+
+  /* =================================================================
+     v1.45.0 — Mike: "Put build/import/export/assign-panel actions in a
+     guided wizard." One door with four jobs behind it, the specialist
+     outputs behind Advanced, and nothing that used to be reachable
+     stops being reachable.
+     ================================================================= */
+  console.log('\n════ v1.45.0 — one guided front door for build / import / export / assign ════');
+  await ev(()=>{ loadProfile('maestro25'); makeStarter('dome'); CFG.maestroSource='imported'; rebuildMaestroUI(); });
+  ok('the pane leads with one door', await ev(()=>
+     !!$('btnJobWiz') && typeof jobwizOpen === 'function'));
+  ok('the chooser offers exactly the four jobs Mike named', await ev(()=>{
+    if(typeof jobwizOpen !== 'function') return false;
+    jobwizOpen();
+    const cards = Array.from(document.querySelectorAll('#jobWiz .jwjob')).map(c=>c.dataset.job);
+    jobwizClose();
+    return cards.length===4 && ['build','import','export','assign'].every(k=>cards.indexOf(k)>=0);
+  }));
+  ok('picking a job walks that job, it does not just close', await ev(()=>{
+    if(typeof jobwizOpen !== 'function') return false;
+    jobwizOpen();
+    document.querySelector('#jobWiz .jwjob[data-job="export"]').click();
+    const r = JOBWIZ.job==='export' && /servo config/i.test($('jobWiz').textContent);
+    jobwizClose(); return r;
+  }));
+  ok('the specialist outputs are behind Advanced, not beside the file most people want', await ev(()=>{
+    if(typeof jobwizOpen !== 'function') return false;
+    jobwizOpen(); jobwizGo('export');
+    const adv = $('jobWiz').querySelector('.jwadv');
+    const txt = adv ? adv.textContent : '';
+    const prim = $('jobWiz').querySelector('button.prim');
+    const r = !!adv && /\.mstr/.test(txt) && /sequences\.h/.test(txt) && /whole/i.test(txt)
+           && !!prim && /servo config/i.test(prim.textContent)
+           && !/sequences\.h/.test(prim.textContent);
+    jobwizClose(); return r;
+  }));
+  ok('every button that existed before is still in the pane', await ev(()=>{
+    rebuildMaestroUI();
+    const labels = Array.from($('maeHost').querySelectorAll('button')).map(b=>b.textContent);
+    return !!$('btnCfgImport') && !!$('btnAssignPanels') && !!$('btnExpPca')
+        && labels.indexOf('Export .mstr')>=0 && labels.indexOf('Export servo config')>=0
+        && labels.indexOf('Body starter')>=0 && labels.indexOf('Dome starter')>=0;
+  }));
+  ok('...and each of them is at most two clicks away', await ev(()=>{
+    const d = $('maeAdvIO');
+    if(!d) return false;
+    const wasOpen = d.open;
+    d.open = true;                                   // click one: the disclosure
+    const reachable = ['btnCfgImport','btnAssignPanels','btnExpPca']
+      .every(id=>{ const b=$(id); return b && d.contains(b); });
+    d.open = wasOpen;
+    return reachable;
+  }));
+
+  console.log('\n════ v1.45.0 — the one canonical sentence about formats ════');
+  ok('there is exactly one sentence and it names both families, in and out', await ev(()=>
+     typeof IO_FORMATS_SENTENCE === 'string'
+     && /\.mstr/.test(IO_FORMATS_SENTENCE) && /\.json/.test(IO_FORMATS_SENTENCE)
+     && /servos\.h/.test(IO_FORMATS_SENTENCE) && /sequences\.h/.test(IO_FORMATS_SENTENCE)));
+  ok('...and it is where the import/export job is chosen', await ev(()=>{
+    if(typeof jobwizOpen !== 'function') return false;
+    jobwizOpen(); jobwizGo('import');
+    const a = $('jobWiz').textContent.indexOf(IO_FORMATS_SENTENCE) >= 0;
+    jobwizGo('export');
+    const b = $('jobWiz').textContent.indexOf(IO_FORMATS_SENTENCE) >= 0;
+    jobwizClose(); return a && b;
+  }));
+
+  console.log('\n════ v1.45.0 — the servo bench door says which door it is ════');
+  /* WHAT COUNTS AS "you already have one" — setupSaveWorth(), the same gate
+     Mike settled in v1.38.3 when a travel-only test decided that four named,
+     ticked channels were nothing. A table with names and parts in it is a
+     config you EDIT; measured travel is sufficient but not necessary. */
+  ok('the label follows whether this build already has a servo config worth editing', await ev(()=>{
+    rebuildMaestroUI();
+    const b = Array.from($('maeHost').querySelectorAll('button'))
+      .find(x=>/Edit current servo config…|Set up servo hardware…/.test(x.textContent));
+    if(!b) return false;
+    const w = (typeof setupSaveWorth === 'function') ? setupSaveWorth() : null;
+    const have = w ? !!w.worth : !!servoCfgConfigured();
+    return have
+      ? b.textContent === 'Edit current servo config…'
+      : b.textContent === 'Set up servo hardware…';
+  }));
+  ok('…and a table of named channels with factory travel still reads as EDIT', await ev(()=>{
+    makeStarter('dome','mini24');       // names and parts, nobody near the dial yet
+    rebuildMaestroUI();
+    const b = Array.from($('maeHost').querySelectorAll('button'))
+      .find(x=>/Edit current servo config…|Set up servo hardware…/.test(x.textContent));
+    return !!b && b.textContent === 'Edit current servo config…' && !servoCfgConfigured();
+  }));
+  ok('...and it opens the six-step bench on its Channels step, not the old overlay', await ev(()=>{
+    const b = Array.from($('maeHost').querySelectorAll('button'))
+      .find(x=>/Edit current servo config…|Set up servo hardware…/.test(x.textContent));
+    if(!b) return false;
+    b.click();
+    const key = (typeof SETUP_STEPS!=='undefined' && SETUP_STEPS[SETUP.step]) ? SETUP_STEPS[SETUP.step].key : '';
+    if(typeof setupClose==='function') setupClose();
+    return key === 'channels';
+  }));
+
   // leave it in a sane state
   await ev(()=>{ makeStarter(); CFG.maestroSource='imported'; rebuildMaestroUI(); });
 

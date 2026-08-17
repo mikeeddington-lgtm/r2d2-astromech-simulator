@@ -1184,6 +1184,102 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
     return !$('sqClearAll');
   }));
 
+  /* =================================================================
+     v1.45.0 — Mike: "Show every moving panel in the sequencer; render
+     unconfigured ones in muted grey."
+
+     Before this the brick library listed only channels that drive
+     something (BLKH.actions()'s !c.act rule), so a panel you had not
+     wired yet was simply absent — indistinguishable from a panel your
+     droid does not have. Every mover on the model is listed now; the
+     ones with no servo channel are dimmed and dashed and refuse the
+     drag with a reason, exactly as the Pose view refuses a slider.
+     ================================================================= */
+  console.log('\n════ v1.45.0 — every moving panel is in the library, unconfigured ones in grey ════');
+  const gy = await ev(()=>{
+    setBoard('mini24'); makeStarter('dome','mini24'); setStripMode('seq');
+    EDIT.seq = blockNewRoutine('Grey test');
+    /* unwire one panel that the model definitely has */
+    const c = MSTR.channels.find(x=>x.act==='pie0');
+    if(c) c.act='';
+    buildSequencer();
+    const lib = document.querySelector('#seqblocks .blklib');
+    const pc  = lib.querySelectorAll('.blkchip.pc').length;
+    const un  = lib.querySelectorAll('.blkchip.unconf').length;
+    const movers = (typeof BLKH!=='undefined' && typeof BLKH.movers==='function') ? BLKH.movers() : null;
+    const shown = Array.from(lib.querySelectorAll('.blkchip.pc, .blkchip.unconf')).map(c=>c.dataset.act);
+    const chip = lib.querySelector('.blkchip.unconf');
+    const cs = chip ? getComputedStyle(chip) : null;
+    return {pc, un, nMovers: movers?movers.length:-1,
+            everyMoverShown: movers ? movers.every(m=>shown.indexOf(m.act)>=0) : false,
+            everyWiredShown: blockActions().every(a=>shown.indexOf(a.act)>=0),
+            noDuplicateChip: shown.length === new Set(shown).size,
+            nOff: movers?movers.filter(m=>!m.on).length:-1,
+            firstPcIsWired: !!(lib.querySelector('.blkchip.pc') &&
+                               blockActions().some(a=>a.act===lib.querySelector('.blkchip.pc').dataset.act)),
+            hasPie0: !!(chip && lib.querySelector('.blkchip.unconf[data-act="pie0"]')),
+            dashed: cs ? cs.borderLeftStyle==='dashed' || cs.borderTopStyle==='dashed' : false,
+            dim: cs ? parseFloat(cs.opacity) < 1 : false,
+            title: chip ? chip.title : '',
+            note: /moving panel/i.test(lib.textContent)};
+  });
+  ok('BLKH.movers() knows every mover on the model, wired or not', gy.nMovers > 0 && gy.nOff > 0,
+     gy.nMovers+' movers, '+gy.nOff+' unconfigured');
+  ok('every mover on the model has a chip — nothing is silently absent',
+     gy.everyMoverShown, gy.pc+' wired + '+gy.un+' grey vs '+gy.nMovers+' movers');
+  ok('...and every wired part still has one, including ones no CAD part carries',
+     gy.everyWiredShown && gy.noDuplicateChip);
+  ok('the panel we just unwired is present as a grey chip', gy.hasPie0);
+  ok('an unconfigured chip is unmistakably not-yet-wired (dimmed + dashed)', gy.dashed && gy.dim);
+  ok('it says so in the tooltip', /no servo channel/i.test(gy.title), gy.title.slice(0,80));
+  ok('the count is stated under the list, not left to be noticed', gy.note);
+  ok('the first .blkchip.pc is still a wired, draggable part', gy.firstPcIsWired);
+
+  const gyDrag = await ev(()=>{
+    const seq = MSTR.sequences[EDIT.seq];
+    const before = blockList(seq).length;
+    const chip = document.querySelector('#seqblocks .blkchip.unconf');
+    const r = chip.getBoundingClientRect();
+    chip.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,clientX:r.x+4,clientY:r.y+4,pointerId:11}));
+    window.dispatchEvent(new PointerEvent('pointerup',{bubbles:true,clientX:r.x+4,clientY:r.y+4,pointerId:11}));
+    return {before, after:blockList(seq).length};
+  });
+  ok('dragging a grey chip does not create a brick that drives nothing',
+     gyDrag.before === gyDrag.after, gyDrag.before+' → '+gyDrag.after);
+  await page.waitForTimeout(120);
+  const gyOffer = await ev(()=>{
+    const d = document.querySelector('.dlgwrap');
+    const t = d ? d.textContent : '';
+    if(d){ const no = d.querySelector('.dlgno') || d.querySelector('button'); if(no) no.click(); }
+    return t;
+  });
+  ok('...it offers to go and map it instead', /map/i.test(gyOffer) && /no servo channel/i.test(gyOffer),
+     gyOffer.slice(0,100));
+
+  ok('Ready-made groups still contain only wired parts, so a shape cannot emit a dead brick', await ev(()=>{
+    const wired = blockActions().map(a=>a.act);
+    return blockGroups().every(g=>g.members.every(m=>wired.indexOf(m)>=0));
+  }));
+  ok('the compiler still refuses to emit a brick that drives nothing, and counts it', await ev(()=>{
+    const wired = blockActions()[0].act;
+    const c = MSTR.channels.find(x=>x.act===wired);
+    const name = 'Leftover probe';
+    const zero = ()=>new Array(MSTR.servoCount).fill(0);
+    const open = zero(); open[c.i] = Math.max(c.min, c.max);
+    MSTR.sequences.push({name, frames:[
+      {name:'f0',duration:300,targets:zero()},
+      {name:'f1',duration:300,targets:open},
+      {name:'f2',duration:300,targets:zero()}
+    ]});
+    const withPart = blockExplode(name, 0);
+    c.act = '';
+    const without = blockExplode(name, 0);
+    c.act = wired;
+    MSTR.sequences.pop();
+    return withPart.bricks.length > 0 && without.bricks.length === 0 && without.leftover > 0
+        && typeof blkExplodeLeftoverNote === 'function';
+  }));
+
   console.log('\n════ no page errors ════');
   ok('nothing threw', errs.length===0, errs.join(' | '));
 

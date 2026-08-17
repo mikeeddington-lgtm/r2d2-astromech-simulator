@@ -17,8 +17,13 @@ document.querySelectorAll('#tabs button').forEach(b=>{
 
 /* ---- firmware selector ---- */
 /* The firmware buttons left the header in v1.4.0 — the sketch is a build
-   answer, so it is chosen in the setup. What is left is a read-only tag so
-   you can still see at a glance which sketch is running. */
+   answer, so it is chosen in the setup. A read-only tag replaced them, and in
+   v1.45.0 that went too (Mike: "Remove the Maestro 2025 reference/image") —
+   the header no longer carries a board maker's product name. The lookup below
+   is deliberately kept: it is `if(tag)`, so it costs nothing while #fwTag is
+   absent and works again the day somebody wants the tag back, and every other
+   place that names the sketch (Setup → Firmware, the Config summary, the
+   wiring sheet) is unaffected. */
 function buildFwSelector(){
   const tag=$('fwTag');
   if(tag && typeof PROFILE!=='undefined' && PROFILE){

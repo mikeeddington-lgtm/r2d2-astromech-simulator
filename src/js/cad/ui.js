@@ -51,7 +51,9 @@ function buildModelSect(host){
     st.innerHTML = CAD.stats.parts+' parts · '+CAD.stats.tris.toLocaleString()+' triangles · '
       + CAD.stats.moving+' moving · ~'+CAD.stats.draws+' draw calls';
   }else if(cur === 'builder' && typeof MB !== 'undefined'){
-    const joints = MB.parts.filter(p=>p.type==='hinge'||p.type==='ball').length;
+    /* mbRecDriven() rather than a hinge/ball list, so a new joint type counts
+       itself (v1.45.0) — see scene/builder.js's mbJointCount() */
+    const joints = MB.parts.filter(p=>mbRecDriven(p)).length;
     st.innerHTML = MB.parts.length+' part(s) · '+joints+' joint(s) · 50 mm grid';
   }
   if(st.innerHTML) s.appendChild(st);
@@ -161,11 +163,77 @@ function buildBuilderPane(hostOuter){
   if(mbAtHardCap()) s.appendChild(el('div','mbwarn hard', MB_HARD_CAP + ' parts is the cap for one mechanism — delete one to add another.'));
 
   const h = el('div','hint prose');
-  h.innerHTML = 'Click a part on the stage to select it. New parts spawn on the base plate’s <b>50 mm grid</b>. '
-    + 'Snap one onto another to make it a child — rotate a hinge or a ball joint and everything riding on it turns with it.';
+  h.innerHTML = 'Click a part on the stage to select it, or drag it to move it.';
   s.appendChild(h);
 
+  /* USAGE, in the short version (v1.45.0, Mike: "add clear usage
+     instructions"). A first-time visitor used to get a parts bin and no hint
+     that ATTACH TO is the entire point of the feature, that a joint spends a
+     servo channel, or that the 50 mm grid is not a setting.
+
+     COLLAPSED, not hidden: a <details> is one line shut, so the bin still
+     lands above the fold, and the answer is one click away rather than in a
+     tooltip nobody hovers. Plain words only — this very pane had "fixed at
+     compile time" written out of it once already (builder.test.js pins that),
+     so there is nothing here about scene graphs or forward kinematics. */
+  const help = document.createElement('details');
+  help.className = 'mbhelp';
+  const sum = document.createElement('summary');
+  sum.textContent = 'how this works';
+  help.appendChild(sum);
+  const ul = el('ul','mbhelplist');
+  [ 'pick a part from the bin. it lands on the base plate, on the grid.',
+    '<b>attach to</b> is the point of the whole thing: put a part on another one and it becomes part of it — move or turn the one underneath and everything on top goes with it.',
+    'or just drag a part on the stage. drop it on another part and it attaches there; drop it on bare base plate and it only moves. either way you are told what happened, and <b>undo the last attach</b> puts it back.',
+    'a hinge, a plate or a ball joint is <b>driven</b>, so it spends one servo channel — a ball spends two, one each for pan and tilt. beams and discs are rigid and cost nothing.',
+    'the <b>preview</b> slider beside a channel moves the joint so you can watch the travel before you wire anything to it.',
+    'everything sits on a <b>50 mm grid</b>. that is the only spacing there is, on purpose.',
+    'twelve parts is the limit for one mechanism, and eight is a comfortable one.'
+  ].forEach(t=>{ const li = document.createElement('li'); li.innerHTML = t; ul.appendChild(li); });
+  help.appendChild(ul);
+  s.appendChild(help);
+
+  /* the drop's own undo, only while there is something to undo */
+  if(typeof MB !== 'undefined' && MB.undo){
+    const ub = el('div','conbar');
+    const bU = el('button','b','Undo the last attach');
+    bU.id = 'btnMbUndo';
+    bU.title = 'put that part back on the parent, attach point and cell it came from';
+    bU.addEventListener('click', ()=>{ mbUndoAttach(); buildCadPane(); });
+    ub.appendChild(bU);
+    s.appendChild(ub);
+  }
+
   mbPropsCard(host);
+  mbFileCard(host);
+}
+
+/* ---- the model as a file of its own (v1.45.0) ----------------------------
+   Mike asked for save and export. The buttons are setupButtons()'s pattern
+   (app/setup-io.js) one size down, and the work is scene/builder.js's
+   mbExportModel()/mbImportModelFile() — including the fileStamp() name, so
+   every saved file carries its date and time. */
+function mbFileCard(host){
+  const s = sect(host, 'Model file', MB.parts.length + ' part(s)');
+  const bar = el('div','conbar');
+  const bEx = el('button','b prim','Export model (.json)');
+  bEx.id = 'btnMbExport';
+  bEx.title = 'just this assembly — parts, joints and channels — without the rest of the droid’s setup';
+  bEx.addEventListener('click', ()=>{ mbExportModel(); });
+  const bIm = el('button','b','Import model');
+  bIm.id = 'btnMbImport';
+  bIm.title = 'load an exported model, or a whole setup .json — it replaces what is on the stage';
+  const fin = document.createElement('input');
+  fin.type = 'file'; fin.accept = '.json,application/json'; fin.style.display = 'none';
+  fin.addEventListener('change', ()=>{ if(fin.files[0]) mbImportModelFile(fin.files[0]); fin.value=''; buildCadPane(); });
+  bIm.addEventListener('click', ()=>fin.click());
+  bar.appendChild(bEx); bar.appendChild(bIm); bar.appendChild(fin);
+  s.appendChild(bar);
+  const h = el('div','hint prose');
+  h.innerHTML = 'The whole build already travels inside <b>Export setup</b> on the Config tab. This is the model on its own, '
+    + 'so you can share one mechanism, or keep dated snapshots of it, without shipping a droid config with it. '
+    + 'Importing replaces the assembly on the stage.';
+  s.appendChild(h);
 }
 
 function mbAxisRow(label, rec, field, step, fmt, onStep){
@@ -211,6 +279,50 @@ function mbChannelSelect(act){
   return sel;
 }
 
+/* Is a real board driving this channel? Then leave it alone — the same
+   respect scene/anzellan.js's anzOwned() pays its idle loop: what you see is
+   supposed to be what the hardware would do, and a preview slider fighting a
+   Maestro sequence for the same servo would be a lie about the servo. */
+function mbChanOwned(act){
+  if(typeof PROFILE === 'undefined' || !PROFILE.hasMaestro) return false;
+  if(typeof blockChan !== 'function') return false;
+  return !!blockChan(act);
+}
+/* the slider writes ACT_T, never ACT — so the joint is walked there by the
+   ordinary easing loop, at the speed the servo model says it moves. Same
+   precedent as maestro/ui-pane.js's channel sliders and the Outputs drawer in
+   app/panels.js. */
+function mbPreviewRow(host, act, label){
+  const owned = mbChanOwned(act);
+  const live = typeof ACT_T !== 'undefined' && ACT_T[act] !== undefined;
+  const r = el('div','selrow');
+  r.appendChild(el('label',null,label));
+  const wrap = el('div','mbrng');
+  const rng = document.createElement('input');
+  rng.type = 'range'; rng.min = '0'; rng.max = '1'; rng.step = '0.01';
+  const cur = live ? ACT_T[act] : 0.5;
+  rng.value = String(cur);
+  rng.disabled = owned || !live;
+  rng.title = owned ? 'a board is driving this channel' : (live ? 'drag to move the joint' : 'the builder is off the stage');
+  const out = el('span','mbval', (+cur).toFixed(2));
+  rng.addEventListener('input', ()=>{
+    const v = +rng.value;
+    out.textContent = v.toFixed(2);
+    if(!mbChanOwned(act) && typeof ACT_T !== 'undefined' && ACT_T[act] !== undefined) ACT_T[act] = v;
+  });
+  const bMid = el('button','mbstep','·');
+  bMid.title = 'back to the middle';
+  bMid.disabled = rng.disabled;
+  bMid.addEventListener('click', ()=>{
+    if(rng.disabled) return;
+    ACT_T[act] = 0.5; rng.value = '0.5'; out.textContent = '0.50';
+  });
+  wrap.appendChild(rng); wrap.appendChild(out); wrap.appendChild(bMid);
+  r.appendChild(wrap);
+  host.appendChild(r);
+  if(owned) host.appendChild(el('div','hint dim','a board is driving this channel, so the hardware has it — the preview stays out of its way.'));
+}
+
 function mbPropsCard(host){
   const rec = MB.sel ? mbFind(MB.sel) : null;
   if(!rec || rec.id === 'base'){
@@ -251,7 +363,32 @@ function mbPropsCard(host){
   r3.appendChild(attSel);
   s.appendChild(r3);
 
-  if(rec.type === 'hinge'){
+  /* WHICH attach point on that parent (v1.45.0). Every primitive describes
+     more than one now — a hinge's flag or its still body, a beam's middle or
+     either end — so the dropdown that names the PART needs a second one
+     naming the place on it. A part whose parent offers only one (the base
+     plate) gets no row at all. */
+  const parentRec = mbFind(rec.parent);
+  const socks = (parentRec && parentRec.sockets) || [];
+  if(socks.length > 1){
+    const r3b = el('div','selrow');
+    r3b.appendChild(el('label',null,'Attach point'));
+    const skSel = document.createElement('select');
+    const on = rec.socket || mbSocketId(rec.parent);
+    socks.forEach(k=>{
+      const o = document.createElement('option'); o.value = k.id; o.textContent = k.label || k.id;
+      if(on === k.id) o.selected = true;
+      skSel.appendChild(o);
+    });
+    skSel.addEventListener('change', ()=>{ mbSetAttach(rec.id, rec.parent, skSel.value); buildCadPane(); });
+    r3b.appendChild(skSel);
+    s.appendChild(r3b);
+  }
+
+  /* a 1-DOF joint chooses which of its own axes the channel turns; a ball's
+     two are fixed by its gimbal. mbJointCount() is the general test, so the
+     spin plate gets this row without it being listed here (v1.45.0) */
+  if(mbJointCount(rec.type) === 1){
     const r4 = el('div','selrow');
     r4.appendChild(el('label',null,'Axis'));
     const axSel = document.createElement('select');
@@ -265,8 +402,16 @@ function mbPropsCard(host){
     s.appendChild(r4);
   }
 
-  if(rec.type === 'hinge' || rec.type === 'ball'){
+  /* a joint-capable part carrying no channels is one saved before its type
+     could be driven — a v1.44.1 plate. Say so, rather than draw an empty
+     Channels block it can never fill (v1.45.0) */
+  if(mbJointCount(rec.type) && !mbRecDriven(rec)){
+    s.appendChild(el('div','hint prose','This one came from an older save, when a '+mbTypeLabel(rec.type).toLowerCase()
+      + ' was a rigid part — so it has no channel and does not move. Add a new '+mbTypeLabel(rec.type).toLowerCase()
+      + ' from the bin if you want a driven one.'));
+  }else if(mbRecDriven(rec)){
     s.appendChild(el('div','selgh','Channels'));
+    const labels = (MB_PRIM[rec.type] && MB_PRIM[rec.type].chan) || [];
     if(typeof PROFILE !== 'undefined' && PROFILE.hasServos){
       s.appendChild(el('div','hint',"mod2026's servo map is compiled into the sketch, so Builder joints can't be wired on this firmware."));
       const barFw = el('div','conbar');
@@ -279,7 +424,6 @@ function mbPropsCard(host){
     }else if(typeof MSTR === 'undefined' || !MSTR.loaded){
       s.appendChild(el('div','hint dim','no Maestro settings loaded — generate or import a .mstr on the Servo tab, then wire it here.'));
     }else{
-      const labels = rec.type === 'ball' ? ['Pan','Tilt'] : ['Joint'];
       rec.channels.forEach((act,i)=>{
         const r = el('div','selrow');
         r.appendChild(el('label',null,labels[i]||('Ch '+i)));
@@ -287,6 +431,13 @@ function mbPropsCard(host){
         s.appendChild(r);
       });
     }
+    /* MOVEMENT PREVIEW (v1.45.0, Mike: "add movement preview/testing
+       controls, such as sliders"). Deliberately independent of the wiring
+       above: the preview is about the MODEL, so it works on a firmware that
+       cannot wire the joint at all and before any .mstr has been loaded. */
+    rec.channels.forEach((act,i)=>{
+      mbPreviewRow(s, act, 'Preview' + (rec.channels.length > 1 ? ' — ' + String(labels[i]||('ch '+(i+1))).toLowerCase() : ''));
+    });
   }
 
   const bar = el('div','conbar');

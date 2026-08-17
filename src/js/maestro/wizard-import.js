@@ -461,3 +461,361 @@ function impwizStepDone(host){
     'library and renumber your slots.';
   host.appendChild(n3);
 }
+
+/* =====================================================================
+   WHAT DO YOU WANT TO DO? — one guided front door (v1.45.0)
+
+   Mike: "Put build/import/export/assign-panel actions in a guided
+   wizard."
+
+   The Maestro pane had grown into a wall: eleven buttons in one bar, two
+   long build-dependent paragraphs under it, a link buried in a third, and
+   four completely different jobs — building sequences, importing a
+   config, exporting one, and wiring panels to channels — with nothing to
+   tell you which button belonged to which job. Every one of them was
+   discoverable only by reading all eleven.
+
+   Mike's standing brief for the whole app applies exactly: simple by
+   default, advanced behind one explicit switch; collapse, don't hide;
+   pictures beat lists; put the job where the answer was given. So this is
+   a chooser with four doors, each of which then walks its own job, and
+   the specialist outputs (the raw .mstr, sequences.h, the whole-bench
+   backup) live behind Advanced rather than sitting beside the file most
+   people actually want.
+
+   IT IS A COPY OF impwizOpen(), NOT A THIRD PATTERN. Same overlay, same
+   .iwcard/.iwhead/.iwbody/.iwfoot furniture, same escGuard, same
+   stand-aside-for-a-dialog rule. Copying one of the two wizards this app
+   already has was the instruction and it is the right instruction: three
+   overlay idioms would be worse than eleven buttons.
+
+   NOTHING IS TAKEN AWAY. Every control that existed before still exists
+   in the pane, one disclosure click away (#maeAdvIO), and every id a test
+   or another module reaches for — #btnCfgImport, #btnAssignPanels,
+   #btnExpPca, #lnkMstrFull — is still the same element doing the same
+   thing. This is a front door, not a replacement.
+
+   The host element is created on demand rather than declared in
+   body.html: one wizard is up at a time, and a lazily built overlay is
+   one fewer edit in a file this module does not own.
+   ===================================================================== */
+
+const JOBWIZ = { open:false, job:'' };
+
+const JOBWIZ_JOBS = [
+  {id:'build',  glyph:'▦', label:'build sequences',
+   sub:'choreograph panels on a timeline, then choose what lands on slots 0–7'},
+  {id:'import', glyph:'▼', label:'import a config',
+   sub:'bring in servo travel, or somebody else\'s choreography'},
+  {id:'export', glyph:'▲', label:'export',
+   sub:'write your config out — to keep, to share, or to compile'},
+  {id:'assign', glyph:'◎', label:'assign panels to channels',
+   sub:'which servo moves which panel, part by part, with a test button'}
+];
+
+const jobwizEsc = escGuard(()=> JOBWIZ.open && !document.querySelector('.dlgwrap'), ()=>jobwizClose());
+
+/* the overlay, built the first time it is asked for */
+function jobwizHost(){
+  let h = $('jobWiz');
+  if(!h){
+    h = document.createElement('div');
+    h.id = 'jobWiz';
+    h.className = 'iwrap';
+    h.hidden = true;
+    document.body.appendChild(h);
+  }
+  return h;
+}
+function jobwizOpen(job){
+  JOBWIZ.open = true;
+  JOBWIZ.job  = job || '';
+  jobwizEsc.bind();
+  jobwizRender();
+}
+function jobwizClose(){
+  JOBWIZ.open = false;
+  jobwizEsc.unbind();
+  const h = $('jobWiz'); if(h){ h.hidden = true; h.innerHTML = ''; }
+  if(typeof rebuildMaestroUI === 'function') rebuildMaestroUI();
+}
+function jobwizGo(job){ JOBWIZ.job = job || ''; jobwizRender(); }
+
+function jobwizRender(){
+  const host = jobwizHost();
+  if(!JOBWIZ.open){ host.hidden = true; return; }
+  host.hidden = false;
+  host.innerHTML = '';
+
+  const card = el('div','iwcard');
+  const head = el('div','iwhead');
+  const job  = JOBWIZ_JOBS.find(j=>j.id === JOBWIZ.job);
+  head.appendChild(el('h2', null, job ? job.label : 'what do you want to do?'));
+  head.appendChild(el('div','iwsub', job ? job.sub
+    : (MSTR.loaded ? MSTR.fileName + ' · ' + MSTR.servoCount + ' channels'
+                   : 'nothing loaded yet — any of these four will get you started')));
+  const x = el('button','iwx','×'); x.title = 'close';
+  x.addEventListener('click', ()=>jobwizClose());
+  head.appendChild(x);
+  card.appendChild(head);
+
+  const body = el('div','iwbody');
+  if(job) ({build:jobwizStepBuild, import:jobwizStepImport,
+            export:jobwizStepExport, assign:jobwizStepAssign}[job.id])(body);
+  else jobwizStepChoose(body);
+  card.appendChild(body);
+
+  const foot = el('div','iwfoot');
+  if(job){
+    const b = el('button','b','← all four jobs');
+    b.addEventListener('click', ()=>jobwizGo(''));
+    foot.appendChild(b);
+  }
+  foot.appendChild(el('div','iwgap'));
+  const done = el('button','b','close');
+  done.addEventListener('click', ()=>jobwizClose());
+  foot.appendChild(done);
+  card.appendChild(foot);
+  host.appendChild(card);
+}
+
+/* ------------------------------------------------------- the chooser
+   Cards, not a list of links: "pictures beat lists" is Mike's rule, and
+   the glyph plus a one-line description is what makes four unlike jobs
+   scannable in one look. Same .optcard idiom the build wizard uses. */
+function jobwizStepChoose(host){
+  const p = el('p','iwp');
+  p.innerHTML = 'Four jobs live on this tab. Pick the one you came for and this walks it — '
+    + 'everything is still on the tab underneath if you would rather press the buttons yourself.';
+  host.appendChild(p);
+
+  const grid = el('div','jwgrid');
+  JOBWIZ_JOBS.forEach(j=>{
+    const c = el('div','optcard jwjob');
+    c.dataset.job = j.id;
+    c.tabIndex = 0;
+    const h = el('div','opthead');
+    h.appendChild(el('span','jwglyph', j.glyph));
+    h.appendChild(el('b', null, j.label));
+    c.appendChild(h);
+    c.appendChild(el('div','optsub', j.sub));
+    const go = ()=>jobwizGo(j.id);
+    c.addEventListener('click', go);
+    c.addEventListener('keydown', e=>{ if(e.key === 'Enter' || e.key === ' '){ e.preventDefault(); go(); } });
+    grid.appendChild(c);
+  });
+  host.appendChild(grid);
+
+  const n = el('div','note cy prose');
+  n.innerHTML = '<b>What this app reads and writes.</b> ' + xmlEsc(IO_FORMATS_SENTENCE);
+  host.appendChild(n);
+}
+
+/* one Advanced disclosure per job — the switch is explicit and it is the
+   only one, exactly as the bench's own Advanced tick is */
+function jobwizAdv(host, summary){
+  const d = document.createElement('details');
+  d.className = 'jwadv';
+  const s = document.createElement('summary');
+  s.textContent = summary;
+  d.appendChild(s);
+  host.appendChild(d);
+  return d;
+}
+function jobwizBar(host){ const b = el('div','conbar'); host.appendChild(b); return b; }
+function jobwizBtn(bar, label, title, fn, prim){
+  const b = el('button', 'b' + (prim ? ' prim' : ''), label);
+  if(title) b.title = title;
+  b.addEventListener('click', fn);
+  bar.appendChild(b);
+  return b;
+}
+
+/* ---------------------------------------------------------- build */
+function jobwizStepBuild(host){
+  const p = el('p','iwp');
+  p.innerHTML = 'The <b>sequencer</b> is where a routine gets made: drag a panel onto the timeline, '
+    + 'stretch it, and the droid plays it back. When the routine is right, the <b>builder</b> is where '
+    + 'you choose which eight land on <code>restartScript(0)</code>…<code>(7)</code> — the only slots '
+    + 'a controller button can reach.';
+  host.appendChild(p);
+  const bar = jobwizBar(host);
+  jobwizBtn(bar, 'open the sequencer', 'the bottom strip, with the brick timeline',
+    ()=>{ jobwizClose(); if(typeof setStripMode === 'function') setStripMode('seq'); }, true);
+  jobwizBtn(bar, ((typeof bldTitle === 'function') ? bldTitle() : 'build your Maestro').toLowerCase() + '…',
+    'select which sequences are on the board, set their order, validate, and generate the script',
+    ()=>{ jobwizClose(); if(typeof bldOpen === 'function') bldOpen(); });
+
+  const adv = jobwizAdv(host, 'Advanced — start from a ready-made table');
+  const abar = jobwizBar(adv);
+  [['body starter','body'],['dome starter','dome'],['frik head starter','anzellan']].forEach(([label,which])=>{
+    jobwizBtn(abar, label, 'build a named channel layout for this board, with subroutines 0–7 already lined up',
+      ()=>{ makeStarter(which); CFG.maestroSource = 'imported'; jobwizGo('build'); });
+  });
+  const h = el('div','hint prose');
+  h.innerHTML = 'A starter is a channel TABLE, not a calibration — the endpoints in it are placeholders. '
+    + 'Measure yours on the bench, or import a config, before running anything at speed.';
+  adv.appendChild(h);
+}
+
+/* --------------------------------------------------------- import */
+function jobwizStepImport(host){
+  const n = el('div','note cy prose');
+  n.innerHTML = '<b>What this app reads and writes.</b> ' + xmlEsc(IO_FORMATS_SENTENCE);
+  host.appendChild(n);
+
+  const p = el('p','iwp');
+  p.innerHTML = 'Most of the time the file you want is a <b>servo config</b> — the travel for every channel, '
+    + 'and nothing else. It replaces your endpoints and leaves your sequences and your panel wiring alone. '
+    + 'One reader takes all four formats and works out which it is from the content, so a file renamed by '
+    + 'whoever mailed it to you still lands in the right place.';
+  host.appendChild(p);
+
+  const bar = jobwizBar(host);
+  jobwizBtn(bar, 'choose a config file…',
+    'names, min, centre, max, speed — whichever of the four formats it arrived in',
+    ()=>{ if(typeof servoCfgPick === 'function') servoCfgPick(()=>jobwizGo('import')); }, true);
+
+  const g = el('div','hint prose');
+  g.innerHTML = xmlEsc(SERVO_CFG_ACCEPT_NOTE);
+  host.appendChild(g);
+
+  const story = (typeof servoCfgStory === 'function') ? servoCfgStory() : '';
+  if(story){
+    const s = el('div','note gn prose');
+    s.innerHTML = '<b>There is already a config here:</b> ' + xmlEsc(story) + '.';
+    host.appendChild(s);
+  }
+
+  const adv = jobwizAdv(host, 'Advanced — the whole file, or somebody else\'s choreography');
+  const abar = jobwizBar(adv);
+  jobwizBtn(abar, 'guided .mstr import…',
+    'the five-step walkthrough: what the file is, what is wrong with its script, channel → panel, lint',
+    ()=>{ jobwizClose(); impwizOpen(); });
+  jobwizBtn(abar, 'sequences only, from a .mstr…',
+    'take the MOVES out of somebody else\'s file and play them through YOUR endpoints — your channel table is not touched',
+    ()=>{ jobwizClose(); jobwizSeqOnlyPick(); });
+  const ah = el('div','hint prose');
+  ah.innerHTML = 'The difference is whose calibration wins. <b>Sequences only</b> re-expresses every target as a '
+    + 'fraction of your own closed→open throw, so an inverted mounting comes out right. The <b>whole file</b> '
+    + 'replaces your channel table with theirs, which is only what you want coming off your own board.';
+  adv.appendChild(ah);
+}
+/* the sequences-only picker, lifted out of buildMaestroPane so both doors
+   call the same code rather than two copies of one FileReader */
+function jobwizSeqOnlyPick(){
+  const fi = document.createElement('input');
+  fi.type = 'file'; fi.accept = '.mstr,.xml,text/xml'; fi.style.display = 'none';
+  fi.addEventListener('change', ()=>{
+    const f = fi.files && fi.files[0];
+    fi.remove();
+    if(!f) return;
+    const fr = new FileReader();
+    fr.onload = ()=>{
+      try{
+        const P = mstrParse(String(fr.result), f.name);
+        mstrAdoptSequences(P);
+        if(typeof rebuildMaestroUI === 'function') rebuildMaestroUI();
+        toast('Adopted ' + P.sequences.length + ' sequence(s) from ' + f.name
+              + ' — playing through YOUR servo settings');
+      }catch(e){
+        lg('warn','sequence import failed: ' + e.message);
+        toast('Could not read ' + f.name + ': ' + e.message, 'err');
+      }
+    };
+    fr.readAsText(f);
+  });
+  document.body.appendChild(fi);
+  fi.click();
+}
+
+/* --------------------------------------------------------- export */
+function jobwizStepExport(host){
+  const n = el('div','note cy prose');
+  n.innerHTML = '<b>What this app reads and writes.</b> ' + xmlEsc(IO_FORMATS_SENTENCE);
+  host.appendChild(n);
+
+  const p = el('p','iwp');
+  p.innerHTML = 'The file worth keeping is the <b>servo config</b>: the travel you measured, in a small file '
+    + 'that outlives everything else about a build. Every filename carries the date and the time, so two '
+    + 'exports in one afternoon are told apart by their names rather than by <code>(1)</code>.';
+  host.appendChild(p);
+
+  const bar = jobwizBar(host);
+  jobwizBtn(bar, 'export the servo config',
+    'name and travel for every channel — the file to keep, and the one the setup wizard reads back',
+    ()=>{ if(typeof servoCfgExport === 'function') servoCfgExport(); }, true);
+
+  /* THE SPECIALIST OUTPUTS. Each of these is the right answer to exactly
+     one question, and each of them is wrong for a beginner: a .mstr means
+     nothing without Control Center, sequences.h means nothing without the
+     Arduino toolchain, and the whole-setup backup carries paint and part
+     names that would overwrite somebody's droid. Behind the switch. */
+  const adv = jobwizAdv(host, 'Advanced — the specialist outputs');
+  const abar = jobwizBar(adv);
+  const bM = jobwizBtn(abar, 'export .mstr',
+    'a Pololu settings file: your channel table, every sequence, and a generated script with a top-level quit',
+    ()=>{ if(typeof exportMstr === 'function') exportMstr(); });
+  bM.disabled = !MSTR.loaded;
+  const bH = jobwizBtn(abar, 'export sequences.h',
+    'the C header for the MaestroPCA library — same loadout, same slot numbers, played on a PCA9685',
+    ()=>{ if(typeof exportPcaHeader === 'function') exportPcaHeader(); });
+  bH.disabled = !MSTR.loaded;
+  jobwizBtn(abar, 'export the whole setup',
+    'everything: profile, build answers, channel table, sequences, panel mapping, paint and groups',
+    ()=>{ if(typeof setupExport === 'function') setupExport(); });
+  const ah = el('div','hint prose');
+  ah.innerHTML = 'Both board families are written from the same channel table, and both speak '
+    + 'quarter-microseconds — but the conversion is lossy in each direction and every dropped field is '
+    + 'named in the log when you press the button, never quietly left behind.';
+  adv.appendChild(ah);
+}
+
+/* --------------------------------------------------------- assign */
+function jobwizStepAssign(host){
+  const p = el('p','iwp');
+  p.innerHTML = 'A channel number means nothing on its own — you have to see which flap moves. '
+    + 'Both doors below give you a part picker per channel and a test control beside it, so you can '
+    + 'sweep a channel, watch what opens, and name it from what you saw.';
+  host.appendChild(p);
+
+  const bar = jobwizBar(host);
+  jobwizBtn(bar, 'assign panels, part by part…',
+    'the setup\'s Panels step: one row per panel, with a Test button for each',
+    ()=>{
+      jobwizClose();
+      if(typeof wizOpen === 'function' && typeof wizStepIndex === 'function'){
+        const i = wizStepIndex('_panels');
+        if(i >= 0){ wizOpen(i); return; }
+      }
+      if(typeof wizOpen === 'function') wizOpen(0);
+    }, true);
+  jobwizBtn(bar, 'the live channel table…',
+    'the bench\'s Channels step: drive a servo, watch where it actually is, and set the part it moves',
+    ()=>{ jobwizClose(); if(typeof setupOpen === 'function') setupOpen(4); });
+
+  const mapped = MSTR.loaded ? MSTR.channels.filter(c=>c.act).length : 0;
+  const servos = MSTR.loaded ? MSTR.channels.filter(c=>/^servo/i.test(c.mode)).length : 0;
+  const t = el('div','iwtally');
+  t.innerHTML = '<b>' + mapped + '</b> of ' + servos + ' servo channels drive something on this droid.';
+  host.appendChild(t);
+
+  const adv = jobwizAdv(host, 'Advanced — match by name, or start over');
+  const abar = jobwizBar(adv);
+  jobwizBtn(abar, 'auto-map by name',
+    're-run the name matcher over every channel, including the Printed Droid shorthand (PP5, P11, HP1-1)',
+    ()=>{
+      let n = 0;
+      MSTR.channels.forEach(c=>{ const g = guessPart(c.name); if(g && g !== c.act){ c.act = g; n++; } });
+      if(typeof rebuildMaestroUI === 'function') rebuildMaestroUI();
+      lg('mae','auto-map by name — ' + n + ' channel(s) re-matched');
+      jobwizGo('assign');
+    });
+  jobwizBtn(abar, 'clear every assignment',
+    'unwire all of them — the panels stay on the droid, they just stop being driven',
+    ()=>{ MSTR.channels.forEach(c=>c.act = ''); if(typeof rebuildMaestroUI === 'function') rebuildMaestroUI(); jobwizGo('assign'); });
+  const ah = el('div','hint prose');
+  ah.innerHTML = 'One channel per panel, always. Picking a part that another channel already had moves it — '
+    + 'two channels claiming one panel is the bug that reads as "it opens twice as far".';
+  adv.appendChild(ah);
+}

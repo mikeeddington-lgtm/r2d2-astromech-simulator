@@ -42,12 +42,19 @@ account, no internet. Open the HTML and it works.
 - **A servo bench** that talks to real hardware over USB (Web Serial): a
   calibration dial you turn until the panel is where you want it, and the
   endpoint is recorded against the real linkage rather than typed from a
-  datasheet.
+  datasheet. Channels can be given the panel they drive by clicking a top-down
+  drawing of the dome instead of hunting a dropdown.
 - **A sequencer** — drag bricks on a timeline, compile to Maestro frames,
   snap to the beat of a loaded track, and drive the actual servos live.
 - **`.mstr` import and export**, so a Pololu Maestro settings file goes in and
   comes back out, plus a lint that encodes four faults paid for on a real bench.
-- **A wiring sheet** you can print, drawn from your answers.
+  A PCA9685 `servos.h`/`sequences.h` reads back in too, and anything that cannot
+  cross between the two families is named rather than silently dropped.
+- **A wiring sheet** you can print, drawn from your answers (the diagrams are
+  marked beta — check them against the board's own pinout before you cut a wire).
+- **A practice circuit** you can redraw: a top-down editor, named layouts, gates
+  and cones, per-lap timing, and barriers that space themselves to whatever
+  size of track you draw.
 - **Four models** on the stage: the MK4 astromech, an Anzellan (Babu Frik)
   puppet head, a Polar Mouse with its chariot, and a Model Builder for
   mechanisms of your own.
@@ -293,7 +300,7 @@ Issues and pull requests are welcome, with two requests:
 1. **Read `HANDOVER.md` first** — most "why on earth is it done like that?"
    questions are answered there, usually with the bench session that caused it.
 2. **Run the suites.** `./test.sh` drives a headless Chromium over both builds
-   and PCA Studio. A change that breaks one of the ~1600 assertions has broken
+   and PCA Studio. A change that breaks one of the ~1830 assertions has broken
    something somebody found the hard way.
 
 If you are fixing a bug, the house style is to make the test go **red first**

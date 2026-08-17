@@ -1,18 +1,22 @@
 'use strict';
 /* =====================================================================
-   BOARDS — the electronics, visually
+   BOARDS — what board is where, and what each channel drives
 
    Mike's build may end up with any mix: a Maestro in the dome and a
    mod2026 PCA9685 pair in the body, two Maestros, whatever. The choice
    lives in PREFS.hw (written through from the build answers), and this
-   section draws each board with CLICKABLE PINS:
-
-     click a pin  -> the part wired to it flashes and gets selected
-     click a part -> its pin lights up here
+   file is the one place that turns it into a CHANNEL LIST per location —
+   hwPins() — plus the assign/release rules that keep one channel per part.
 
    Which board is "live" (driven by the running firmware) depends on the
-   active profile; the other is shown as the planned wiring so the loom
+   active profile; the other is reported as the planned wiring so the loom
    can still be labelled from it.
+
+   It used to also DRAW the boards, as photo cards with clickable pins.
+   That section was removed in v1.45.0 — the long note further down says
+   why, and where the job went. Everything the rest of the app reads is
+   still here: config/tab.js's panel assignment, app/panels.js, the wiring
+   sheet and HW.parts() all come through these functions.
    ===================================================================== */
 const HW_CHOICES = [
   ['mod2026','PCA9685 (mod2026)'],
@@ -104,91 +108,52 @@ function hwPins(loc){
                      : 'planned layout — generate/import a matching .mstr on the Maestro tab to drive it'};
 }
 
-function buildBoardsSect(host){
-  const s = sect(host, 'Boards', 'click a pin ↔ click a part');
-  /* one card per BOARD, not per end — a shared controller is one board and
-     drawing it twice would be two lies for the price of one */
-  hwLocs().forEach(loc=>{
-    const info = hwPins(loc);
-    const card = el('div','boardcard'+(info.live?' live':''));
-    const head = el('div','bchead');
-    head.appendChild(el('b',null,info.title));
-    head.appendChild(el('span','bcnote',info.note));
-    card.appendChild(head);
+/* ===================================================================
+   THE "BOARDS" SECTION WAS HERE, AND IT IS NOT COMING BACK (v1.45.0)
 
-    /* Pololu's own labelled photo, with a clickable strip on every channel */
-    const hw = hwAt(loc);
-    if(typeof BOARD_IMG!=='undefined' && BOARD_IMG[hw]){
-      const wrap = el('div','bimgwrap');
-      const img = document.createElement('img');
-      img.src = BOARD_IMG[hw]; img.className='bimg'; img.alt = hwLabel(hw);
-      wrap.appendChild(img);
-      const pm = BOARD_PINMAP[hw];
-      if(pm) pm.banks.forEach(bank=>{
-        for(let k=0;k<bank.n;k++){
-          const ch = bank.horiz ? (bank.rev ? bank.ch0+bank.n-1-k : bank.ch0+k) : bank.ch0+k;
-          const p = info.pins[ch]; if(!p) continue;
-          const strip = el('div','pinstrip'
-            + (bank.horiz ? ' h' : '')
-            + (p.act && actCadParts(p.act).length ? ' ok' : p.name ? ' named' : ''));
-          if(bank.horiz){
-            strip.style.left  = (bank.x0 + (bank.x1-bank.x0)*k/bank.n)+'%';
-            strip.style.width = ((bank.x1-bank.x0)/bank.n)+'%';
-            strip.style.top   = bank.y+'%'; strip.style.height = bank.h+'%';
-          }else{
-            strip.style.left  = bank.x+'%'; strip.style.width = bank.w+'%';
-            strip.style.top   = (bank.y0 + (bank.y1-bank.y0)*k/bank.n)+'%';
-            strip.style.height= ((bank.y1-bank.y0)/bank.n)+'%';
-          }
-          strip.title = 'ch '+ch+(p.name? ': '+p.name : ' — unassigned')
-            + '\nclick to see the connection and change it';
-          strip.textContent = ch;
-          strip.addEventListener('click',ev=>{ ev.stopPropagation(); chPicker(loc, ch, strip); });
-          wrap.appendChild(strip);
-        }
-      });
-      const cr = el('div','bcredit','board photo: pololu.com');
-      wrap.appendChild(cr);
-      card.appendChild(wrap);
-    }
+   Mike: "Remove the non-functional Wiring 'Boards' section." It drew one
+   card per board on the setup's wiring step, each with a labelled photo,
+   a strip over every channel and a row of pin buttons: click a pin, the
+   part it drives flashes; click a part, its pin lights up.
 
-    const row = el('div','pinrow');
-    const selAct = (typeof SEL!=='undefined' && SEL.name) ? (CAD.moving.find(m=>m.name===SEL.name)||{}).act : null;
-    info.pins.forEach(p=>{
-      const b = el('button','pinbtn'
-        + (p.act && actCadParts(p.act).length ? ' ok' : p.name ? ' named' : '')
-        + (selAct && p.act===selAct ? ' sel' : ''), p.pin);
-      b.title = p.name ? (p.pin+': '+p.name + (p.act ? '  →  '+(actCadName(p.act)||p.act) : '')) : 'pin '+p.pin+' — unassigned';
-      b.addEventListener('click',ev=>{
-        if(hw!=='mod2026'){ ev.stopPropagation(); chPicker(loc, p.pin, b); return; }
-        if(!p.act){ const m=$('cadMsg'); if(m) m.textContent='Pin '+p.pin+' has nothing assigned — map it on the Maestro tab or via a part card.'; return; }
-        const parts = actCadParts(p.act);
-        if(parts.length){
-          selectPart(parts[0].name);
-          actSet(p.act, 1); setTimeout(()=>actSet(p.act, 0), 700);   // flash the real thing
-        }else{
-          const m=$('cadMsg'); if(m) m.textContent='Pin '+p.pin+' drives "'+p.name+'" — that part is not in the CAD exports, so nothing can flash.';
-        }
-      });
-      row.appendChild(b);
-    });
-    card.appendChild(row);
-    s.appendChild(card);
-  });
-  const h = el('div','hint');
-  h.innerHTML = 'Which controller lives where comes from the <b>Servos</b> answer earlier in this setup — one board for the whole droid, or mix and match (a Maestro in the dome and the mod2026 PCA9685 pair in the body is fine). '
-    + 'Green pins drive a part of the 3D model; clicking one selects it and flashes the servo. Selecting a part on the model lights its pin here.';
-  s.appendChild(h);
-}
-/* called by selectPart so the pin highlight follows the model.
-   The Boards cards moved to the Config tab on 2026-07-27 — rebuild whichever
-   pane is actually showing them, and never rebuild a pane that is not. */
+   It only ever worked for a Maestro. BOARD_IMG/BOARD_PINMAP
+   (app/board-img.js) cover the four Pololu boards and nothing else, so a
+   mod2026 or PCA9685 build — which is the DEFAULT build — got a bare
+   numeric grid with no photo; the pin buttons deliberately did not open
+   the channel picker for mod2026, because that map is compile-time
+   constants in the sketch; and the messages explaining all of this were
+   written to $('cadMsg'), an element that does not exist while the setup
+   overlay is up. So on the commonest build every click was a silent
+   no-op, which is worse than no section at all.
+
+   Removed with it: chPicker()/chPickerClose(), the popover the pin strips
+   opened. Nothing else called them. EVERYTHING ELSE IN THIS FILE STAYS —
+   hwPins(), hwLocs(), chAssign(), chFindUse(), chRelease() and the chLabel
+   family are what config/tab.js's panel assignment, app/panels.js, the
+   wiring sheet and HW.parts() read, and chPartOptions() in particular is
+   the whole of the Bench's `drives` column.
+
+   Where the job went instead: the PANELS step asks "which servo moves
+   which panel?" with a dropdown per part (config/tab.js, buildAssignSect)
+   and the wiring sheet prints every channel with its part, bearing and
+   travel — both of which work on every build, photo or no photo.
+   =================================================================== */
+
+/* Called by selectPart(), cad/ui.js and the HW host so a pin highlight could
+   follow the model. There are no pin cards left to highlight (v1.45.0 — see
+   above), so there is nothing to do.
+
+   It stays, and it stays a function: four call sites in three files this
+   module does not own call it on every selection and every channel edit, and
+   the honest way to say "that view is gone" is one no-op here rather than four
+   deletions elsewhere. It still asks where the cards are, so if anyone ever
+   builds a pin view again this keeps working the moment they do. */
 function boardVizSync(){
-  /* the cards have moved twice now (Model tab → Config tab → the setup's
-     wiring step), so ask where they actually are rather than assuming */
-  if($('startupBody') && $('startupBody').querySelector('.boardcard') && typeof buildStartup==='function') buildStartup();
-  else if($('cfgHost') && $('cfgHost').querySelector('.boardcard') && typeof buildConfig==='function') buildConfig();
-  else if($('cadHost') && $('cadHost').querySelector('.boardcard')) buildCadPane();
+  const host = ($('startupBody') && $('startupBody').querySelector('.boardcard') && typeof buildStartup==='function') ? buildStartup
+             : ($('cfgHost') && $('cfgHost').querySelector('.boardcard') && typeof buildConfig==='function') ? buildConfig
+             : ($('cadHost') && $('cadHost').querySelector('.boardcard') && typeof buildCadPane==='function') ? buildCadPane
+             : null;
+  if(host) host();
 }
 
 /* =====================================================================
@@ -311,87 +276,4 @@ function chAssign(loc, ch, act){
 function chRelease(use){
   if(!use || use.fixed) return;                           // mod2026 mapping cannot be edited
   chAssign(use.loc, use.ch, '');
-}
-function chPickerClose(){
-  const old = document.querySelector('.chpick');
-  if(old) old.remove();
-  document.removeEventListener('click', chPickerClose);
-}
-function chPicker(loc, ch, anchor){
-  chPickerClose();
-  const hw = hwGet()[loc];
-  const info = hwPins(loc);
-  const p = info.pins[ch]; if(!p) return;
-
-  const pop = el('div','chpick');
-  pop.addEventListener('click',ev=>ev.stopPropagation());
-  pop.appendChild(el('div','chpkh','ch '+ch+' — '+info.title));
-  const cur = el('div','chpkcur');
-  cur.textContent = p.act
-    ? '→ '+(actPartLabel(p.act)||p.name||p.act)
-    : (p.name ? '→ '+p.name+' (no matching CAD part)' : '— unassigned —');
-  pop.appendChild(cur);
-
-  if(hw==='mod2026'){
-    pop.appendChild(el('div','hint','This channel map is fixed by the mod2026 sketch — its assignments are compile-time constants.'));
-  }else{
-    const sel = document.createElement('select');
-    const o0 = document.createElement('option'); o0.value=''; o0.textContent='— unassigned —'; sel.appendChild(o0);
-    /* the ten placeholders group apart under their own optgroup rather than
-       sorting into the droid's own parts (chPartOptions' `other` flag) */
-    const grpOther = document.createElement('optgroup'); grpOther.label = 'Not on the model';
-    chPartOptions().forEach(op=>{
-      const o = document.createElement('option'); o.value=op.act; o.textContent=op.label;
-      /* Mike: "why do multiple say pie 5" — the CAD name lives in the
-         tooltip now, not appended to the label (see chPartOptions) */
-      if(op.cad) o.title = op.cad;
-      if(op.act===p.act) o.selected = true;
-      const use = chFindUse(op.act, loc, ch);
-      if(use){ o.textContent += '  — in use: '+chLabel(use.ch, use.name, op.act)+(use.loc===loc?'':' ('+use.loc+')'); }
-      (op.other ? grpOther : sel).appendChild(o);
-    });
-    if(grpOther.childElementCount) sel.appendChild(grpOther);
-    sel.title = 'what is plugged into channel '+ch;
-    sel.addEventListener('change',async ()=>{
-      const act = sel.value;
-      if(act){
-        const use = chFindUse(act, loc, ch);
-        if(use){
-          const msg = use.fixed
-            ? (actPartLabel(act)||act)+' is also wired to '+use.title+' ch '+use.ch+' — that sketch mapping is fixed, so it would appear on both boards. Assign it here anyway?'
-            : (actPartLabel(act)||act)+' is already on '+use.title+' ch '+use.ch+'. Move it to this channel?';
-          if(!await appConfirm(msg, {title:'Channel in use', yes:use.fixed?'Assign it':'Move it', no:'Cancel', danger:true})){
-            sel.value = p.act||''; return;
-          }
-          chRelease(use);
-        }
-      }
-      chAssign(loc, ch, act);
-      chPickerClose();
-      if(typeof buildCadPane==='function') buildCadPane();
-      lg('mae','ch '+ch+' ('+loc+') '+(act ? '→ '+(actPartLabel(act)||act) : 'cleared'));
-    });
-    pop.appendChild(sel);
-    if(!info.live) pop.appendChild(el('div','hint','planned board — this edit is saved in your prefs and used by the starter .mstr'));
-  }
-
-  const bx = el('button','b chpkx','Close');
-  bx.addEventListener('click',chPickerClose);
-  pop.appendChild(bx);
-
-  /* place it near the click, kept on screen */
-  document.body.appendChild(pop);
-  const r = anchor.getBoundingClientRect();
-  const pw = pop.offsetWidth, phh = pop.offsetHeight;
-  let x = r.right + 8, y = r.top - 4;
-  if(x + pw > innerWidth - 8)  x = Math.max(8, r.left - pw - 8);
-  if(y + phh > innerHeight - 8) y = Math.max(8, innerHeight - phh - 8);
-  pop.style.left = x+'px'; pop.style.top = y+'px';
-
-  /* show the current part on the model while the picker is open */
-  if(p.act){
-    const parts = actCadParts(p.act);
-    if(parts.length){ selectPart(parts[0].name); actSet(p.act,1); setTimeout(()=>actSet(p.act,0),700); }
-  }
-  setTimeout(()=>document.addEventListener('click', chPickerClose), 0);
 }

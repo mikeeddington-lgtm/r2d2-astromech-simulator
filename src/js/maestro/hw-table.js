@@ -159,4 +159,13 @@ function hwTableSync(){
     tick.style.display = s.active ? 'block' : 'none';
     if(us) us.textContent = q ? (q/4).toFixed(0)+' µs' : '— off';
   });
+  /* v1.45.0 — the fold-in. The setup bench grew this table's live half
+     (drive / position / move) when the duplicate #hwWrap surface was folded
+     into it, and those cells need exactly the same heartbeat: one pass per
+     frame, never a DOM rebuild. It is called from here rather than given a
+     clock of its own because "whatever clock the host runs" already arrives
+     at this function (hw-host.js's hwTick) and two clocks for one engine is
+     the ripple v1.31.1 fixed. Guarded — a host may load this file without
+     the bench (and Studio's own page table is the caller above). */
+  if(typeof setupLiveSync === 'function') setupLiveSync();
 }

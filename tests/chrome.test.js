@@ -96,9 +96,24 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
   ok('A+ works from inside the menu and keeps it open', await ev(()=>
     PREFS.uiScale===1.05 && $('uiScaleLbl').textContent==='105%' && !$('appMenu').hidden));
   await ev(()=>applyUiScale(1.0));
+  /* v1.45.0 — the frame boots LIGHT now (Mike: "Default to light mode"), so
+     the first press of this button goes light → dark rather than the other
+     way. What the assertion is actually about is the BUTTON: it swaps the
+     theme and renames itself to the one you would go to next. So it is
+     checked in both directions, from wherever the app happened to start,
+     which is also what stops it silently depending on the default again. */
+  const was = await ev(()=>({theme:PREFS.theme, label:$('btnTheme').textContent}));
+  ok('the button offers the theme you are NOT in', was.label===(was.theme==='light'?'Dark':'Light'),
+     was.theme+' → "'+was.label+'"');
   await page.click('#btnTheme');
-  ok('the theme toggle works from the menu', await ev(()=>
-    document.body.classList.contains('light') && $('btnTheme').textContent==='Dark'));
+  const flipped = await ev(()=>({theme:PREFS.theme, light:document.body.classList.contains('light'),
+                                 label:$('btnTheme').textContent}));
+  ok('the theme toggle works from the menu', flipped.theme!==was.theme
+     && flipped.light===(flipped.theme==='light')
+     && flipped.label===(flipped.theme==='light'?'Dark':'Light'), JSON.stringify(flipped));
+  await page.click('#btnTheme');
+  ok('...and back again, from the same button', await page.evaluate(t=>
+    PREFS.theme===t && document.body.classList.contains('light')===(t==='light'), was.theme));
   await ev(()=>applyTheme('dark'));
   await page.keyboard.press('Escape');
   ok('Esc closes the menu', await ev(()=>$('appMenu').hidden));

@@ -84,6 +84,45 @@ const EDIT = {
 
 /* ------------------------------------------------------------- helpers */
 const DEFAULT_MIN=4000, DEFAULT_MAX=8000, DEFAULT_NEUTRAL=6000;
+
+/* ============================== WHERE A CHANNEL RESTS (v1.45.0)
+   Mike: "Panels should be closed by default in the simulator; investigate the
+   half-open Pi panels."
+
+   They were half open because a channel with nothing measured into it rests at
+   DEFAULT_NEUTRAL — mid-travel — and five separate places seeded the pose with
+   `c.home || c.neutral || DEFAULT_NEUTRAL`. Mid-travel is the right answer for
+   a gimbal and the WRONG answer for a door: a pie panel parked at 6000 is a
+   pie panel standing half open, on the model, before anybody has touched it.
+   `makeStarter()` already knew this (its mapped channels are created with
+   `home:DEFAULT_MIN` precisely "so doors rest shut") — nothing else did.
+
+   So the resting pose is a question about the ACTUATOR, not about the number:
+     · an explicit Goto home is obeyed, always — somebody measured that
+     · a bipolar actuator (a holo pan/tilt, a head gimbal, a builder joint)
+       rests centred, because both ends are travel away from its middle
+     · everything else — pies, side panels, doors, the drawer, the arms —
+       rests at 0, which is shut
+   `homemode` Off/Ignore means the board does not drive the channel at power-up
+   at all, so there is no number to obey and the actuator's own answer wins.
+   One reader, `chanRest(c)`, in quarter-µs, so the model and the board agree. */
+const ACT_CENTRED = /(pan|tilt|nod|spin|rot|wag)/i;
+function actRestNorm(act){
+  if(!act) return null;                 // board-only channel: nothing on screen to rest
+  if(typeof anzIsAct === 'function' && anzIsAct(act) && typeof anzHome === 'function') return anzHome(act);
+  if(typeof mbIsAct === 'function' && mbIsAct(act)) return 0.5;   // a builder joint is bipolar
+  return ACT_CENTRED.test(act) ? 0.5 : 0;
+}
+function chanRest(c){
+  if(!c) return DEFAULT_NEUTRAL;
+  if(/^goto$/i.test(c.homemode || '') && c.home !== undefined && c.home !== null) return c.home;
+  const r = actRestNorm(c.act);
+  if(r === null) return (c.home !== undefined && c.home !== null) ? c.home : (c.neutral || DEFAULT_NEUTRAL);
+  const lo = Math.min(c.min, c.max), hi = Math.max(c.min, c.max);
+  const t = c.invert ? 1 - r : r;
+  return Math.round(lo + t * (hi - lo));
+}
+
 function qus(v){ return (v/4).toFixed(0)+' us'; }
 function xmlEsc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function niceName(s){ return String(s).replace(/\s+/g,'_').replace(/[^a-z0-9_]/gi,''); }

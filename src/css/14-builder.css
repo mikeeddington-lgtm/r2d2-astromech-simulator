@@ -41,6 +41,38 @@
 .mbstep:hover{background:var(--btnBg2);border-color:var(--ctaD)}
 .mbval{font-family:var(--mono);font-size:10.5px;color:var(--cy);min-width:44px;text-align:center}
 
+/* ---- usage instructions (v1.45.0) -------------------------------------
+   Collapsed by default in the markup, so the parts bin stays above the fold —
+   these rules only have to keep the shut state to one quiet line. */
+.mbhelp{margin:2px 0 8px}
+.mbhelp>summary{
+  font-family:var(--sans);font-size:10.5px;color:var(--cy);
+  cursor:pointer;list-style:none;padding:3px 0;user-select:none;
+}
+.mbhelp>summary::-webkit-details-marker{display:none}
+.mbhelp>summary::before{content:'▸ ';color:var(--dimmer)}
+.mbhelp[open]>summary::before{content:'▾ '}
+.mbhelp>summary:hover{text-decoration:underline}
+.mbhelp>summary:focus-visible{outline:2px solid var(--focus);outline-offset:1px}
+.mbhelplist{
+  font-family:var(--sans);font-size:10.5px;line-height:1.55;color:var(--dim);
+  margin:4px 0 0;padding:0 0 0 15px;
+}
+.mbhelplist li{margin:0 0 4px}
+.mbhelplist b{color:var(--txt)}
+
+/* ---- movement preview: a range plus its readout (v1.45.0). 05-controls.css
+   styles the app's other ranges; the .mbpane rule below is selects and text
+   fields only, so a range in this pane needs its own. ---- */
+.mbrng{display:flex;align-items:center;gap:6px;flex:1;min-width:0}
+.mbpane input[type=range]{
+  flex:1;min-width:70px;height:16px;accent-color:var(--cy);
+  background:transparent;cursor:pointer;
+}
+.mbpane input[type=range]:disabled{opacity:.4;cursor:not-allowed}
+.mbpane input[type=range]:focus-visible{outline:2px solid var(--focus);outline-offset:1px}
+.mbstep:disabled{opacity:.4;cursor:not-allowed}
+
 /* ---- channel / attach-to selects and the name field, inside .selrow ---- */
 .mbpane select,.mbpane input[type=text]{
   font-family:var(--mono);font-size:10.5px;background:var(--ink);color:var(--cy);

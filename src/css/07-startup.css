@@ -208,20 +208,11 @@ body.wizsplit #stage{border-left:1px solid var(--line2)}
 .maerow .mv.ok{color:var(--gn)}
 .maerow .mv.no{color:var(--rd)}
 
-/* boards + pins */
-.boardcard{background:var(--surf);border:1px solid var(--brdIn);border-radius:4px;padding:8px;margin-bottom:8px}
-.boardcard.live{border-color:var(--ctaD)}
-.bchead{display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin-bottom:6px}
-.bchead b{font-family:var(--mono);font-size:10.5px;color:var(--txt)}
-.bcnote{font-family:var(--mono);font-size:9.5px;color:var(--dimmer)}
-.boardcard.live .bcnote{color:var(--cy)}
-.pinrow{display:grid;grid-template-columns:repeat(8,1fr);gap:4px}
-.pinbtn{font-family:var(--mono);font-size:10px;padding:5px 0;text-align:center;cursor:pointer;
-  background:var(--ink);color:var(--dimmer);border:1px solid var(--line2);border-radius:3px}
-.pinbtn.named{color:var(--am);border-color:var(--amDark)}
-.pinbtn.ok{color:var(--gn);border-color:var(--gn)}
-.pinbtn.sel{background:var(--cta);color:var(--onCta);border-color:var(--cta);font-weight:700}
-.pinbtn:hover{border-color:var(--cta)}
+/* boards + pins — the Boards SECTION went in v1.45.0 (see the note in
+   js/app/boards.js for why), and with it .boardcard/.bchead/.bcnote/
+   .pinrow/.pinbtn, the board photo strips and the channel-picker popover.
+   Nothing renders any of them any more; a live rule for markup that cannot
+   appear is an invitation to build the broken thing again. */
 /* selection card port row */
 .selport{font-family:var(--mono);font-size:10px;color:var(--gn)}
 .selport.dim{color:var(--dimmer)}
@@ -254,28 +245,6 @@ body.wizsplit #stage{border-left:1px solid var(--line2)}
 .favsw.met{border-radius:50%}
 .favlab{font-family:var(--mono);font-size:9.5px;color:var(--dimmer);margin-left:4px;text-transform:uppercase;letter-spacing:.08em}
 .favedit{width:34px;height:26px;padding:0;border:1px solid var(--line2);border-radius:3px;background:none;cursor:pointer}
-
-/* board photo (Pololu's labelled top view) with clickable channel strips */
-.bimgwrap{position:relative;margin:4px 0 2px;max-width:340px}
-.bimg{width:100%;display:block;border-radius:4px;border:1px solid var(--brdIn)}
-.bcredit{font-size:9px;color:var(--dim);text-align:right;margin-top:2px}
-.pinstrip{position:absolute;display:flex;align-items:center;justify-content:flex-start;padding-left:3px;
-  font-family:var(--mono);font-size:8px;color:#fff;text-shadow:0 0 3px #000;
-  border:1px dashed rgba(255,255,255,.35);border-radius:3px;
-  cursor:pointer;background:rgba(255,255,255,.04)}
-.pinstrip.h{justify-content:center;padding:0;align-items:flex-end}
-.pinstrip:hover{border-color:var(--cta);background:rgba(62,111,196,.22)}
-.pinstrip.ok{border-color:rgba(80,220,140,.6)}
-.pinstrip.named{border-color:rgba(242,166,60,.5)}
-
-/* channel picker popover */
-.chpick{position:fixed;z-index:60;background:var(--surf);border:1px solid var(--ctaD);border-radius:6px;
-  padding:10px;min-width:230px;max-width:320px;box-shadow:0 8px 28px rgba(0,0,0,.45)}
-.chpkh{font-weight:600;font-size:12px;margin-bottom:4px}
-.chpkcur{font-family:var(--mono);font-size:11px;color:var(--cy);margin-bottom:8px}
-.chpick select{width:100%;margin-bottom:8px}
-.chpick .hint{margin:0 0 8px}
-.chpkx{width:100%}
 
 /* ================================================================
    v1.4.0 — bigger setup, environments, lessons, lap list
@@ -837,3 +806,104 @@ svg.flow{width:auto;max-width:100%;height:auto;display:block}
 .wiznextdoor:hover{border-color:var(--cta);background:var(--surf2)}
 .wiznextdoor b{font-size:12.5px;color:var(--txt)}
 .wiznextdoor span{font-family:var(--sans);font-size:var(--fs-body);color:var(--dim);line-height:1.4}
+
+/* ================================================================
+   v1.45.0 — Mike's five look changes on the setup screens
+
+     · one size for every rail chip
+     · the controller step's photos, meaningfully bigger
+     · a BETA marker on the wiring diagrams
+     · the servo step's family cards
+     · the "one board / two boards" pair
+
+   Everything here re-points existing tokens; no new colours.
+   ================================================================ */
+
+/* ------------------------------------------- rail chips, all one size
+   Mike: "Make setup-stage selection bubbles consistent in size."
+
+   Three separate things made fifteen chips fifteen sizes: a chip with an
+   answer line is two lines tall and one without is one line tall; the
+   active chip goes font-weight:700, which reflows the label and made it
+   both wider AND taller than the one it replaced; and every chip was as
+   wide as its own text, so the row re-flowed as you walked the setup.
+
+   So: ONE box, stated once, in the units the chips are actually laid out
+   in. Height is fixed and the answer line's slot is reserved whether the
+   chip has an answer or not; width is fixed so bold cannot push it and a
+   long answer ellipsises instead. The label centres itself in the box when
+   there is no second line, which is what makes a one-line chip and a
+   two-line chip read as the same object.
+
+   Fixed WIDTH rather than a min/max band is deliberate: 'Dome lighting ·
+   AstroPixels' and 'Sound' are the same question in the same list, and the
+   rail is a progress bar, not a set of labels that happen to sit in a row.
+   The longest title ('Controller board') fits at this size in both themes. */
+.raildot{
+  box-sizing:border-box;
+  width:178px;height:44px;
+  padding:5px 11px;
+  justify-content:center;
+  gap:2px;
+  overflow:hidden;
+}
+/* the label is one line, always — clipped with an ellipsis rather than
+   allowed to wrap the chip taller than its neighbours */
+.raillab{max-width:100%;min-width:0;overflow:hidden}
+.raillab .railttl{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+/* the answer slot is reserved on EVERY question chip, so ticking one does
+   not make it grow — and a step that is a place rather than a question
+   (Wiring, Colours…) still gets the same box from the height above */
+.railans{min-height:13px;line-height:13px}
+
+/* ------------------------------------ the controller step's big photos
+   Mike: "Enlarge the Xbox 360 wireless image."
+
+   Growing img.optphoto everywhere would have grown all twenty-one board
+   cards with it and broken the row rhythm those depend on. The controller
+   step has THREE options and the whole width of the screen, so the size
+   belongs to the step: wizard.js puts `bigpic` on that grid (WIZ_BIG_PIC),
+   and any other roomy step can have it by being named there.
+
+   The card gets wider as well as taller on purpose — a 230px-tall photo in
+   a 300px column is a stamp with margins, and a controller is a wide
+   object. */
+.optgrid.bigpic{grid-template-columns:repeat(auto-fit,minmax(400px,1fr));gap:16px}
+.optgrid.bigpic .optpic{min-height:170px;padding:10px}
+.optgrid.bigpic img.optphoto{height:250px}
+.optgrid.bigpic svg.optart{max-height:190px}
+
+/* -------------------------------------------- BETA, on the diagrams
+   The badge itself is drawn into the SVG (app/wiring.js) so it travels
+   into the exported sheet. This is the prose line above it: an ordinary
+   amber .note, plus the same chip shape the option cards use so the word
+   reads as a label rather than as shouting. --am, no new token. */
+.betachip{
+  font-family:var(--mono);font-size:8.5px;letter-spacing:.12em;text-transform:uppercase;
+  border:1px solid currentColor;border-radius:9px;padding:1px 6px;white-space:nowrap;
+  margin-right:4px;
+}
+
+/* --------------------------------------- the servo family, as pictures
+   Mike: "Make Servo Hardware image-led: choose Maestro or PCA9685 first,
+   then show relevant options." Same shape as the model cards — a picture
+   box on top, the name, then what choosing it means, whole card clickable
+   — so the two picture questions in the setup look like one idea. The
+   photos are the real board photos through config/board-art.js, which is
+   why this only sets the box and lets .optpic/.optphoto do the rest. */
+.famgrid{grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px}
+.famgrid img.optphoto{height:170px}
+.famgrid svg.optart{max-height:140px}
+/* the count pair (one board / two boards) is a flow-card question with two
+   answers — narrower than the arrangement grid so the two sit side by side
+   on a normal window instead of stacking */
+.flowgrid.pair{grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}
+/* one explicit switch, Mike's standing brief — the detail below it is
+   COLLAPSED, not hidden, and the answer stays answerable either way */
+.svadv{
+  display:flex;align-items:center;gap:7px;cursor:pointer;margin:10px 0 2px;
+  font-family:var(--mono);font-size:10px;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--dimmer);
+}
+.svadv:hover{color:var(--txt)}
+.svadv input{accent-color:var(--cta)}

@@ -294,3 +294,72 @@
   border-radius:0 0 4px 4px; cursor:pointer;
 }
 #faultPop .fpser:hover{color:var(--txt); background:var(--hoverBg)}
+
+/* =====================================================================
+   v1.45.0 — Mike: "Show every moving panel in the sequencer; render
+   unconfigured ones in muted grey."
+
+   A panel with no servo channel is now IN the brick library rather than
+   absent from it, so it needs to look unmistakably not-yet-wired at a
+   glance. The precedent is `.blkchip.seq.off` in 07-startup.css (a
+   sequence that is not on the board): dimmed and dashed. Same language,
+   plus a grey rail instead of a part colour — there is no part colour
+   to show, because there is no channel to derive one from.
+   ===================================================================== */
+.blkchip.off.unconf{
+  opacity:.55; border-style:dashed; border-left-color:var(--dimmer);
+  color:var(--dim); background:none; cursor:not-allowed;
+}
+.blkchip.off.unconf:hover{border-color:var(--line2); background:var(--hoverBg); opacity:.8}
+
+/* =====================================================================
+   v1.45.0 — "what do you want to do?" (maestro/wizard-import.js).
+
+   The guided front door for the four jobs that had grown into a wall of
+   buttons. It reuses the import wizard's own overlay furniture (.iwrap,
+   .iwcard, .iwhead, .iwbody, .iwfoot above) and the build wizard's
+   .optcard, so there is nothing new here except the chooser grid, the
+   glyph, and the one Advanced disclosure per job.
+   ===================================================================== */
+.jwgrid{
+  display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr));
+  gap:10px; margin:4px 0 12px;
+}
+.jwjob{display:flex; flex-direction:column; gap:5px}
+.jwjob .opthead{justify-content:flex-start}
+.jwglyph{
+  font-size:15px; line-height:1; color:var(--ctaHi);
+  width:20px; text-align:center; flex:0 0 auto;
+}
+.jwjob .optsub{color:var(--dim); font-size:var(--fs-body)}
+
+/* ONE explicit switch per job, and it looks like a switch. Mike's rule is
+   "collapse, don't hide": the summary always names what is inside, so the
+   specialist outputs are visibly present rather than merely absent. */
+.jwadv{
+  margin-top:12px; border:1px solid var(--line); border-radius:5px;
+  background:var(--surf); padding:0 12px;
+}
+.jwadv > summary{
+  cursor:pointer; padding:9px 0; list-style:none;
+  font-family:var(--mono); font-size:10px; letter-spacing:.1em;
+  text-transform:uppercase; color:var(--dim);
+}
+.jwadv > summary::-webkit-details-marker{display:none}
+.jwadv > summary::before{content:'▸ '; color:var(--ctaHi)}
+.jwadv[open] > summary::before{content:'▾ '}
+.jwadv > summary:hover{color:var(--txt)}
+.jwadv[open]{padding-bottom:10px}
+
+/* the same disclosure in the sidebar pane, where the eleven original
+   buttons now live (maestro/ui-pane.js #maeAdvIO) */
+.advio{margin-top:6px}
+.advio > summary{
+  cursor:pointer; list-style:none; padding:4px 0;
+  font-family:var(--mono); font-size:9.5px; letter-spacing:.1em;
+  text-transform:uppercase; color:var(--dim);
+}
+.advio > summary::-webkit-details-marker{display:none}
+.advio > summary::before{content:'▸ '; color:var(--ctaHi)}
+.advio[open] > summary::before{content:'▾ '}
+.advio > summary:hover{color:var(--txt)}

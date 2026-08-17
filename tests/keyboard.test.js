@@ -41,17 +41,32 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
       if(!a || a===document.body || !a.matches(':focus-visible')) return null;
       const cs = getComputedStyle(a);
       return {tag:a.tagName, cls:String(a.className), w:cs.outlineWidth,
-              style:cs.outlineStyle, col:cs.outlineColor, off:cs.outlineOffset};
+              style:cs.outlineStyle, col:cs.outlineColor, off:cs.outlineOffset,
+              /* v1.45.0 — the ring is a TOKEN, and the app boots light now
+                 (Mike: "Default to light mode"), so which colour is correct
+                 depends on the theme it was measured in */
+              theme:PREFS.theme};
     });
   }
+  const RING = {light:'rgb(12, 125, 139)', dark:'rgb(67, 217, 232)'};
   ok('Tab reaches a control and it matches :focus-visible', !!hit, JSON.stringify(hit));
   /* the first Tab stop is now a workspace button (v1.17.0), whose ring is
      deliberately INSET (outline-offset:-2px): #viewsel{overflow:hidden}
      would clip an outside ring. Everything else keeps the 2px offset. */
   ok('the ring is the 2px solid --focus outline (inset on a .wsbtn)', !!hit &&
-     hit.w==='2px' && hit.style==='solid' && hit.col==='rgb(67, 217, 232)'
+     hit.w==='2px' && hit.style==='solid' && hit.col===RING[hit.theme]
      && hit.off===(/\bwsbtn\b/.test(hit.cls) ? '-2px' : '2px'),
-     hit ? hit.cls+' · '+hit.w+' '+hit.style+' '+hit.col+' '+hit.off : '');
+     hit ? hit.theme+' · '+hit.cls+' · '+hit.w+' '+hit.style+' '+hit.col+' '+hit.off : '');
+  ok('...and the app boots into the light theme, where it is the teal',
+     !!hit && hit.theme==='light' && hit.col===RING.light, hit && hit.col);
+  /* the same ring on the same control in the other theme — the token moves,
+     the shape does not */
+  ok('...and it repaints from the dark token without changing shape', await ev(()=>{
+    applyTheme('dark');
+    const a = document.activeElement, cs = getComputedStyle(a);
+    return a.matches(':focus-visible') && cs.outlineWidth==='2px'
+        && cs.outlineStyle==='solid' && cs.outlineColor==='rgb(67, 217, 232)';
+  }));
   ok('the light theme repoints the token at its teal', await ev(()=>{
     applyTheme('light');
     const v = getComputedStyle(document.body).getPropertyValue('--focus').trim();

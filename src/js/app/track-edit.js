@@ -42,8 +42,10 @@ uiModalOpen = function(){
    =================================================================== */
 function teClampM(v){ return Math.max(-7, Math.min(7, v)); }
 
+/* one answer to "which sample is this gate on", shared with app/track.js
+   so the preview and the built circuit cannot land a gate anywhere else */
 function teSampleIndex(t, N){
-  return Math.round(((t % 1 + 1) % 1) * N) % N;
+  return trackSampleIndex(t, N);
 }
 
 function teHitPoint(x, z){
@@ -155,21 +157,31 @@ function teDrawScaleBar(ctx){
   ctx.restore();
 }
 function teDrawCurve(ctx, viol){
-  const {pts, bad} = viol;
-  const normal = teToken('--cta'), badC = teToken('--rd');
+  const {pts, bad, tight} = viol;
+  const normal = teToken('--cta'), badC = teToken('--rd'), tightC = teToken('--am');
   ctx.save(); ctx.lineWidth = 3; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
   for(let i=0;i<pts.length;i++){
     const a = pts[i], b = pts[(i+1)%pts.length];
+    const j = (i+1)%pts.length;
     const [ax,ay] = teWorldToPx(a.x,a.z), [bx,by] = teWorldToPx(b.x,b.z);
-    ctx.strokeStyle = (bad.has(i) || bad.has((i+1)%pts.length)) ? badC : normal;
+    /* red = two passes too close (the 2.4 m rule); amber = a corner
+       tighter than the barrier ring, where the furniture squeezes to fit
+       (v1.45.0). Neither blocks anything. */
+    ctx.strokeStyle = (bad.has(i) || bad.has(j)) ? badC
+      : ((tight && (tight.has(i) || tight.has(j))) ? tightC : normal);
     ctx.beginPath(); ctx.moveTo(ax,ay); ctx.lineTo(bx,by); ctx.stroke();
   }
   ctx.restore();
 }
+/* the start/finish is gate 0's sample, not pts[0] — the same rule
+   trackBuild() paints it by (v1.45.0), so the picture and the timing line
+   agree wherever the gates have been dragged to */
 function teDrawStartLine(ctx, pts){
-  const p = pts[0];
-  const [x0,y0] = teWorldToPx(p.x+p.nx*TRACK_HALF, p.z+p.nz*TRACK_HALF);
-  const [x1,y1] = teWorldToPx(p.x-p.nx*TRACK_HALF, p.z-p.nz*TRACK_HALF);
+  const gs = TE.gates.slice().sort((a,b)=>a-b);
+  const p = pts[teSampleIndex(gs.length ? gs[0] : 0, pts.length)];
+  const hA = trackHalfAt(p, 1), hB = trackHalfAt(p, -1);
+  const [x0,y0] = teWorldToPx(p.x+p.nx*hA, p.z+p.nz*hA);
+  const [x1,y1] = teWorldToPx(p.x-p.nx*hB, p.z-p.nz*hB);
   ctx.save();
   ctx.strokeStyle = teToken('--txt'); ctx.lineWidth = 3; ctx.setLineDash([4,3]);
   ctx.beginPath(); ctx.moveTo(x0,y0); ctx.lineTo(x1,y1); ctx.stroke();
@@ -222,9 +234,11 @@ function teRedraw(){
   teDrawPoints(ctx);
   teDrawScaleBar(ctx);
   const violating = viol.bad.size > 0;
+  const tight = viol.tight && viol.tight.size > 0;
   TE.warnEl.textContent = violating
-    ? 'two passes closer than 2.4 m here — barriers may overlap (allowed)' : '';
-  TE.warnEl.classList.toggle('on', violating);
+    ? 'two passes closer than 2.4 m here — the lane will feel tight (allowed)'
+    : (tight ? 'a corner here is tighter than the barriers — they squeeze in to fit (allowed)' : '');
+  TE.warnEl.classList.toggle('on', violating || tight);
 }
 
 /* ===================================================================
@@ -240,7 +254,112 @@ function teResetDefault(){
   if(!TE) return;
   const d = trackDefaultData();
   TE.shape = d.shape; TE.gates = d.gates; TE.cones = d.cones; TE.dragIdx = -1;
+  TE.dirty = true;
   teRedraw();
+}
+
+/* ===================================================================
+   THE LAYOUT LIBRARY, in the editor (v1.45.0) — Mike: "allow Save as New
+   Track and loading an existing track", and "keep it simple: the editor
+   should not become a file manager". So: ONE list (a dropdown), the
+   active layout selected in it, and Save a copy is one click.
+
+   The list is the only place a layout is chosen; app/track.js owns the
+   store, the stock lap's read-only-ness and the quota check. Everything
+   here is the door onto those functions.
+   =================================================================== */
+function teLibRefresh(){
+  if(!TE || !TE.libSel) return;
+  const lib = trackLibLoad();
+  TE.libId = lib.active;
+  const sel = TE.libSel;
+  sel.innerHTML = '';
+  trackLibNames(lib).forEach(e=>{
+    const o = document.createElement('option');
+    o.value = e.id; o.textContent = e.name + (e.active ? ' — on stage' : '');
+    sel.appendChild(o);
+  });
+  sel.value = lib.active;
+  const stock = lib.active === TRACK_STOCK_ID;
+  TE.libBtns.rename.disabled = stock;
+  TE.libBtns.del.disabled = stock;
+  /* the stock lap can never be written over, so SAVE forks it — say which
+     it is going to do rather than let the button lie */
+  TE.libBtns.save.textContent = stock ? 'Save as a copy' : 'Save';
+  TE.libBtns.save.title = stock
+    ? 'the stock circuit is never overwritten — this keeps your edit as a new layout'
+    : 'write these changes back into "'+(trackLibNames(lib).find(e=>e.active)||{}).name+'"';
+}
+/* LOAD — one click in the list. An unsaved edit is worth a question. */
+async function teLoadLayout(id){
+  if(!TE) return false;
+  if(TE.dirty && typeof appConfirm === 'function'){
+    if(!await appConfirm('Load "'+((trackLibNames().find(e=>e.id===id)||{}).name||id)
+        +'"? The changes you have not saved go.',
+        {title:'Load a layout', yes:'Load it', no:'Keep editing'})){
+      if(TE) teLibRefresh();                 // put the list back on the active one
+      return false;
+    }
+  }
+  if(!TE) return false;
+  const r = trackLibSelect(id);
+  if(!r.ok){ teLibRefresh(); return false; }
+  const d = trackShapeData();
+  TE.shape = d.shape; TE.gates = d.gates; TE.cones = d.cones;
+  TE.dragIdx = -1; TE.dirty = false;
+  teLibRefresh(); teRedraw();
+  lg('sys','track builder: loaded '+((trackLibNames().find(e=>e.active)||{}).name||id));
+  return true;
+}
+/* SAVE AS NEW — the copy button */
+async function teSaveAsNew(){
+  if(!TE) return null;
+  const suggest = 'layout '+(trackLibLoad().list.length+1);
+  const name = (typeof appPrompt === 'function')
+    ? await appPrompt('A name for this layout.', {title:'Save as new track', value:suggest, yes:'Save'})
+    : suggest;
+  if(name === null || !TE) return null;
+  const r = trackLibAdd(name, {shape:TE.shape, gates:TE.gates, cones:TE.cones});
+  if(!r.ok) return null;                     // trackLibPersist() already said why
+  lg('sys','track builder: saved as new track "'+r.name+'" — '+TE.shape.length+' points, '
+    +TE.gates.length+' gates, '+TE.cones.length+' cones');
+  trackEditClose();
+  return r.id;
+}
+async function teRenameLayout(){
+  if(!TE) return false;
+  const lib = trackLibLoad();
+  const cur = trackLibEntry(lib, lib.active);
+  if(!cur) return false;                     // the stock lap has no name to change
+  const name = (typeof appPrompt === 'function')
+    ? await appPrompt('A new name for this layout.', {title:'Rename track', value:cur.name, yes:'Rename'})
+    : cur.name;
+  if(name === null || !TE) return false;
+  const r = trackLibRename(lib.active, name);
+  if(r.ok){ teLibRefresh(); lg('sys','track builder: renamed to "'+r.name+'"'); }
+  return r.ok;
+}
+async function teDeleteLayout(){
+  if(!TE) return false;
+  const lib = trackLibLoad();
+  const cur = trackLibEntry(lib, lib.active);
+  if(!cur) return false;                     // the stock lap is never deletable
+  if(typeof appConfirm === 'function'){
+    if(!await appConfirm('Delete "'+cur.name+'"? The stock circuit and your other layouts stay.',
+        {title:'Delete track', yes:'Delete it', no:'Keep it', danger:true})) return false;
+  }
+  if(!TE) return false;
+  const r = trackLibDelete(cur.id);
+  if(!r.ok) return false;
+  /* whatever the store fell back to is what the editor now edits — the
+     active layout can never be left pointing at something that is gone */
+  const d = trackShapeData();
+  TE.shape = d.shape; TE.gates = d.gates; TE.cones = d.cones;
+  TE.dragIdx = -1; TE.dirty = false;
+  teLibRefresh(); teRedraw();
+  lg('sys','track builder: deleted "'+cur.name+'" — now editing '
+    +((trackLibNames().find(e=>e.active)||{}).name||'the stock circuit'));
+  return true;
 }
 function teBindCanvas(){
   const c = TE.canvas;
@@ -264,11 +383,13 @@ function teBindCanvas(){
       const hit = teHitGate(x,z,pts);
       if(hit >= 0){ if(TE.gates.length > 1) TE.gates.splice(hit,1); }
       else TE.gates.push(teNearestGateT(x,z));
+      TE.dirty = true;
       teRedraw();
     }else if(TE.mode === 'cones'){
       const hit = teHitCone(x,z);
       if(hit >= 0) TE.cones.splice(hit,1);
       else TE.cones.push([Math.round(teClampM(x)*100)/100, Math.round(teClampM(z)*100)/100]);
+      TE.dirty = true;
       teRedraw();
     }
     e.preventDefault();
@@ -277,6 +398,7 @@ function teBindCanvas(){
     if(TE.dragIdx < 0) return;
     const [x,z] = teEventWorld(e);
     TE.shape[TE.dragIdx] = [teClampM(x), teClampM(z)];
+    TE.dirty = true;
     teRedraw();
   });
   const endDrag = e=>{
@@ -300,6 +422,7 @@ function teBindCanvas(){
       const near = teNearestShapeSegment(x,z);
       TE.shape.splice(near.segIdx+1, 0, [Math.round(near.x*100)/100, Math.round(near.z*100)/100]);
     }
+    TE.dirty = true;
     teRedraw();
   });
 }
@@ -308,10 +431,11 @@ function teBindCanvas(){
    open / close / save / cancel
    =================================================================== */
 /* the escGuard (core/dialog.js) half of Esc — see the fuller comment
-   where TE.onKey wraps this, below. No dialog can open over the track
-   editor today, so unlike the other five sites this isOpen has nothing
-   to yield to; it only confirms the editor is still the thing open. */
-const trackEditEsc = escGuard(()=> !!TE, trackEditCancel);
+   where TE.onKey wraps this, below. Since v1.45.0 the layout list DOES
+   open appConfirm/appPrompt over the editor (load, rename, delete), so
+   this now yields to a .dlgwrap like the other five sites do: otherwise
+   Esc'ing out of "delete this layout?" would also throw the editor away. */
+const trackEditEsc = escGuard(()=> !!TE && !document.querySelector('.dlgwrap'), trackEditCancel);
 function trackEditOpen(){
   if(TE) return;
   /* never stack over another full-page overlay, and never open under a
@@ -326,7 +450,7 @@ function trackEditOpen(){
     shape: data.shape.map(p=>p.slice()),
     gates: data.gates.slice(),
     cones: data.cones.map(p=>p.slice()),
-    mode: 'draw', dragIdx: -1,
+    mode: 'draw', dragIdx: -1, dirty: false,
     size: 600
   };
   TE.scale = TE.size/14; TE.cx0 = TE.size/2; TE.cy0 = TE.size/2;
@@ -339,6 +463,26 @@ function trackEditOpen(){
   head.appendChild(el('div','tesub',
     'drag a point to move it · right-click the curve to add a point, right-click a point to remove it (min 4) · ±7 m'));
   card.appendChild(head);
+
+  /* the layout row — one list, the active layout selected in it, and the
+     three things you can do to a saved one. It sits above the drawing
+     tools because it answers "which track am I editing" (v1.45.0). */
+  const libBar = el('div','tetools');
+  libBar.appendChild(el('span','tesub','track'));
+  const libSel = document.createElement('select');
+  libSel.id = 'teLayout'; libSel.className = 'msel'; libSel.style.width = 'auto';
+  libSel.title = 'the saved layouts — pick one to load it onto the stage';
+  libBar.appendChild(libSel);
+  const bNew = el('button','b','Save as new'); bNew.id = 'teSaveAs';
+  bNew.title = 'keep what is on the canvas as a new layout, leaving the current one alone';
+  bNew.addEventListener('click', teSaveAsNew);
+  const bRen = el('button','b','Rename'); bRen.id = 'teRename';
+  bRen.addEventListener('click', teRenameLayout);
+  const bDel = el('button','b danger','Delete'); bDel.id = 'teDelete';
+  bDel.addEventListener('click', teDeleteLayout);
+  libBar.appendChild(el('div','tegap'));
+  libBar.appendChild(bNew); libBar.appendChild(bRen); libBar.appendChild(bDel);
+  card.appendChild(libBar);
 
   const toolbar = el('div','tetools');
   const modeBtns = {};
@@ -379,6 +523,9 @@ function trackEditOpen(){
 
   TE.root = wrap; TE.canvas = canvas; TE.ctx = canvas.getContext('2d');
   TE.modeBtns = modeBtns; TE.warnEl = warn;
+  TE.libSel = libSel; TE.libBtns = {save:bSave, rename:bRen, del:bDel};
+  libSel.addEventListener('change', ()=>teLoadLayout(libSel.value));
+  teLibRefresh();
 
   teBindCanvas();
 
@@ -417,15 +564,25 @@ function trackEditCancel(){
 function trackEditSave(){
   if(!TE) return;
   const violating = trackSpacingViolations(TE.shape).bad.size > 0;
-  PREFS.track = {
+  const data = {
     shape: TE.shape.map(p=>p.slice()),
-    gates: TE.gates.slice(),
+    /* gates are SORTED into track order here (v1.45.0). They used to keep
+       the order they were clicked in, and trackTick() demands
+       gates[TRACK.next] in sequence — so a gate added on the start
+       straight became the last one you had to cross (Mike). */
+    gates: TE.gates.slice().sort((a,b)=>a-b),
     cones: TE.cones.map(p=>p.slice())
   };
-  prefsSave();
-  trackRebuild();     // updates the stage immediately if the circuit is on
-  lg('sys','track builder: saved — '+TE.shape.length+' points, '+TE.gates.length+' gates, '
-    +TE.cones.length+' cones'+(violating ? ' (spacing warning noted — not blocked)' : ''));
+  const lib = trackLibLoad();
+  /* the stock circuit is never overwritten, so saving on top of it forks
+     a copy instead — trackLibAdd/Update persist, verify and rebuild */
+  const r = trackLibEntry(lib, lib.active)
+    ? trackLibUpdate(lib.active, data)
+    : trackLibAdd('my track', data);
+  if(!r.ok) return;                          // storage said no — the editor stays open
+  lg('sys','track builder: saved "'+r.name+'" — '+TE.shape.length+' points, '+TE.gates.length
+    +' gates (sorted into track order), '+TE.cones.length+' cones'
+    +(violating ? ' (spacing warning noted — not blocked)' : ''));
   trackEditClose();
 }
 

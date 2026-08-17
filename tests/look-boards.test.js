@@ -21,6 +21,33 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
   const ev = f => page.evaluate(f);
   await ev(()=>{ window.__r2draw0 = SIM.draw; });
 
+  /* ================================================================
+     v1.45.0 — Mike: "Default to light mode." This has to be asserted
+     FIRST, before anything in this suite touches the theme or writes a
+     preference: it is a statement about the first run, and the first run
+     is the only moment the default is observable.
+     ================================================================ */
+  console.log('\n════ a first run opens light ════');
+  ok('this page really is a first run — nothing seen, nothing configured', await ev(()=>
+    !PREFS.seenStartup && !buildConfigured()));
+  ok('...so the default theme is light, frame and all', await ev(()=>
+    PREFS.theme==='light' && document.body.classList.contains('light')));
+  ok('...the stage follows it rather than holding dark', await ev(()=>
+    PREFS.stageTheme==='follow' && scene.fog.color.getHex()===THEME_3D.light.fog));
+  ok('...and the header button offers the way back to dark', await ev(()=>
+    $('btnTheme').textContent==='Dark'));
+  ok('a saved DARK choice still beats the light default on load', await ev(()=>{
+    /* the whole of "someone who chose dark keeps dark": the store is written
+       by applyTheme() and read back over the defaults by prefsLoad() */
+    applyTheme('dark');
+    const stored = JSON.parse(localStorage.getItem('r2sim.prefs.v1')).theme==='dark';
+    PREFS.theme = 'light';                      // as a fresh boot would start
+    prefsLoad();
+    const back = PREFS.theme==='dark';
+    applyTheme('light');
+    return stored && back;
+  }));
+
   console.log('\n════ setup wizard ════');
   ok('opens by itself when the droid has not been configured', await ev(()=>$('startup').classList.contains('on') && !buildConfigured()));
   /* v1.32.0 — the first question is what is ON THE STAGE; the nine hardware

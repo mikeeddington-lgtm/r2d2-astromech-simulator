@@ -29,6 +29,44 @@
    Maestro while running mod2026) is drawn dashed and labelled, rather
    than left off — it is still a wire you have to run.
    ===================================================================== */
+
+/* =====================================================================
+   BETA (v1.45.0) — Mike: "Mark wiring images as Beta."
+
+   Both diagrams are DERIVED: the buses come from whichever sketch is
+   loaded and the channels from the build answers, so they are right about
+   the sim and only as right about your droid as the answers you gave.
+   Nobody should find that out with a stripped wire in their hand — so the
+   badge goes on the picture itself, in the app AND in the exported sheet
+   (which is the copy that ends up printed on a bench, away from any of
+   this UI), with one plain sentence saying what beta means here.
+
+   Amber is --am, the warning token that already exists (01-tokens.css);
+   the SVG asks for it with a hard fallback because the exported sheet is a
+   standalone file with none of the app's tokens in it.
+   ===================================================================== */
+const WIRING_BETA_WHY = 'the picture is a guide, not a datasheet — check it against '
+  + 'the board\'s own pinout before you cut a wire.';
+const WIRING_BETA_AM = 'var(--am,#f2a63c)';
+/* THE BADGE, top right. Right-anchored because both diagrams put a title and
+   a profile line down the left, and those grow with the sketch's filename. */
+function wiringBetaBadge(rightX, y){
+  const w = 46, h = 16;
+  return '<g class="wdbeta">'
+    + '<rect x="'+(rightX-w)+'" y="'+y+'" width="'+w+'" height="'+h+'" rx="4" fill="none" stroke="'+WIRING_BETA_AM+'" stroke-width="1.4"/>'
+    + '<text x="'+(rightX-w/2)+'" y="'+(y+11.5)+'" font-size="9.5" font-weight="700" letter-spacing=".12em" '
+    + 'text-anchor="middle" fill="'+WIRING_BETA_AM+'">BETA</text></g>';
+}
+/* AND THE SENTENCE, on a line of its own at the foot of the picture. It went
+   under the badge first, which put it straight through the profile line on any
+   build whose sketch has a long filename — and a warning you cannot read is
+   not a warning. Its own row, left-aligned with everything else, above the
+   legend. Both diagrams reserve WIRING_BETA_H for it. */
+const WIRING_BETA_H = 18;
+function wiringBetaLine(x, y){
+  return '<text class="wdbeta" x="'+x+'" y="'+y+'" font-size="9.5" fill="'+WIRING_BETA_AM+'">'
+    + WIRING_BETA_WHY.replace(/&/g,'&amp;').replace(/</g,'&lt;') + '</text>';
+}
 function systemLinks(){
   const b = (typeof buildGet === 'function') ? buildGet() : null;
   const p = (typeof PROFILE !== 'undefined' && PROFILE) ? PROFILE : null;
@@ -133,7 +171,7 @@ function systemDiagramSvg(){
   const chained = links.some(k => k.chain);
   const chainX = 990, chainW = 300;
   const W = chained ? (chainX + chainW + 30) : 980;
-  const H = top + links.length*rowH + 26;
+  const H = top + links.length*rowH + 26 + WIRING_BETA_H;   // v1.45.0 — room for the beta line
   const mcuX = 30, mcuW = 190;
   const boxX = 560, boxW = 390;
   const midX = 380;
@@ -146,6 +184,7 @@ function systemDiagramSvg(){
   s += '<text x="'+mcuX+'" y="38" font-size="10" fill="#777">'
      + esc((typeof PROFILE!=='undefined'&&PROFILE) ? PROFILE.name+' · '+PROFILE.file : '')
      + ' — signal and ground only, no V+ lines</text>';
+  s += wiringBetaBadge(W-24, 10);                     // v1.45.0 — see WIRING_BETA_WHY
   s += '<rect x="'+mcuX+'" y="'+mcuY+'" width="'+mcuW+'" height="'+mcuH+'" rx="8" fill="#1c4d2e" stroke="#333" stroke-width="1.5"/>';
   s += '<text x="'+(mcuX+mcuW/2)+'" y="'+(mcuY+mcuH/2-4)+'" font-size="12" fill="#e8f2ea" text-anchor="middle">'+esc(mcu)+'</text>';
   s += '<text x="'+(mcuX+mcuW/2)+'" y="'+(mcuY+mcuH/2+12)+'" font-size="9" fill="#9dc3ab" text-anchor="middle">4 hardware UARTs · USB host</text>';
@@ -180,6 +219,7 @@ function systemDiagramSvg(){
       s += '<text x="'+(chainX+10)+'" y="'+(y+11)+'" font-size="8.5" fill="#777">'+esc(clip(k.chain.sub, 44))+'<title>'+esc(k.chain.bus)+'</title></text>';
     }
   });
+  s += wiringBetaLine(mcuX, H-26);
   s += '<g font-size="9.5"><line x1="'+mcuX+'" y1="'+(H-8)+'" x2="'+(mcuX+28)+'" y2="'+(H-8)+'" stroke="#2a7" stroke-width="1.8"/>'
      + '<text x="'+(mcuX+34)+'" y="'+(H-5)+'">driven by this sketch</text>'
      + '<line x1="'+(mcuX+190)+'" y1="'+(H-8)+'" x2="'+(mcuX+218)+'" y2="'+(H-8)+'" stroke="#999" stroke-width="1.3" stroke-dasharray="5 4"/>'
@@ -308,7 +348,7 @@ function wiringDiagramSvg(rows){
   const wired = rows.filter(r=>r.board).sort((a,b)=>(a.ch===''?99:a.ch)-(b.ch===''?99:b.ch));
   if(!wired.length) return '';
   const rowH = 34, top = 46, W = 980;
-  const H = top + wired.length*rowH + 40;
+  const H = top + wired.length*rowH + 40 + WIRING_BETA_H;  // v1.45.0 — room for the beta line
   const boardX = 40, boardW = 190;
   const boardH = Math.max(90, wired.length*rowH*0.75);
   const boardY = top + (wired.length*rowH - boardH)/2;
@@ -318,6 +358,7 @@ function wiringDiagramSvg(rows){
   let s = '<svg class="wd" viewBox="0 0 '+W+' '+H+'" xmlns="http://www.w3.org/2000/svg" font-family="ui-monospace,Consolas,monospace">';
   s += '<text x="'+boardX+'" y="24" font-size="14" font-weight="700">'+ (wired[0].board||'') +'</text>';
   s += '<text x="'+boardX+'" y="38" font-size="10" fill="#777">signal + ground only — power distribution is your build\'s business</text>';
+  s += wiringBetaBadge(W-24, 10);                     // v1.45.0 — see WIRING_BETA_WHY
   s += '<rect x="'+boardX+'" y="'+boardY+'" width="'+boardW+'" height="'+boardH+'" rx="8" fill="#1c4d2e" stroke="#333" stroke-width="1.5"/>';
   s += '<text x="'+(boardX+boardW/2)+'" y="'+(boardY+boardH/2)+'" font-size="11" fill="#cde" text-anchor="middle">'+ (wired[0].board||'controller') +'</text>';
   const gndBusX = sx + 40;
@@ -342,13 +383,14 @@ function wiringDiagramSvg(rows){
   const busTop = top + rowH/2 + 8, busBot = top + (wired.length-1)*rowH + rowH/2 + 8;
   s += '<path d="M'+gndBusX+' '+busTop+' V '+Math.max(busBot, boardY+boardH-10)+' H '+(sx+4)+'" fill="none" stroke="#555" stroke-width="1.6"/>';
   s += '<text x="'+(gndBusX+5)+'" y="'+(busTop-6)+'" font-size="9" fill="#555">GND bus → board GND</text>';
+  s += wiringBetaLine(boardX, H-32);
   // legend
   s += '<g font-size="9.5">'
     + '<line x1="'+boardX+'" y1="'+(H-14)+'" x2="'+(boardX+30)+'" y2="'+(H-14)+'" stroke="'+hue(0)+'" stroke-width="1.6"/><text x="'+(boardX+36)+'" y="'+(H-11)+'">signal</text>'
     + '<line x1="'+(boardX+100)+'" y1="'+(H-14)+'" x2="'+(boardX+130)+'" y2="'+(H-14)+'" stroke="#555" stroke-width="1.1" stroke-dasharray="4 3"/><text x="'+(boardX+136)+'" y="'+(H-11)+'">ground</text>'
     + '<text x="'+(boardX+220)+'" y="'+(H-11)+'" fill="#b00">no V+ lines shown — fuse and distribute servo power per your own plan</text></g>';
   s += '</svg>';
-  return '<h2>Wiring diagram — signal &amp; ground</h2>' + s;
+  return '<h2>Wiring diagram — signal &amp; ground <span class="bmark">beta</span></h2>' + s;
 }
 
 function wiringHtml(){
@@ -403,17 +445,26 @@ function wiringHtml(){
   table.bld th{text-align:left;width:130px;border-bottom:1px solid #eee;text-transform:none;font-size:11px;color:#333}
   table.bld td{font-size:11px}
   .park{color:#b26b00;font-size:10px;border:1px solid #e8c37a;border-radius:3px;padding:0 4px}
+  /* v1.45.0 — the diagrams are beta, and this is the copy that gets printed
+     and taken to the bench, so it says so here as well as on screen */
+  .bmark{color:#b26b00;font-family:ui-monospace,Consolas,monospace;font-size:9px;letter-spacing:.12em;
+     text-transform:uppercase;border:1px solid #e8c37a;border-radius:9px;padding:1px 6px;vertical-align:2px}
+  .note.beta{background:#fff4e2;border-left-color:#b26b00}
   @media print{ body{margin:0;max-width:none} .note{background:none} tr:nth-child(even) td{background:none} }
 </style></head><body>
 <h1>R2-D2 MK4 — wiring reference</h1>
 <div class="sub">${esc(PROFILE.name)} &middot; ${esc(PROFILE.file || '')} &middot; generated ${stamp}</div>
+
+<p class="note beta"><span class="bmark">beta</span> <b>The two diagrams below are beta.</b>
+They are drawn from the sketch that is loaded and the answers you gave in the setup, so
+${esc(WIRING_BETA_WHY)} The tables are the part you can trust to the channel.</p>
 
 ${typeof buildSummaryRows === 'function' ? `<h2>The build</h2>
 <table class="bld"><tbody>
 ${buildSummaryRows().map(r=>`<tr><th>${esc(r.title)}</th><td>${esc(r.label)}${r.sim==='park'?' <span class="park">not simulated</span>':''}</td><td class="w">${esc(r.note)}</td></tr>`).join('\n')}
 </tbody></table>` : ''}
 
-${typeof systemDiagramSvg === 'function' ? '<h2>Control signals</h2>' + systemDiagramSvg() : ''}
+${typeof systemDiagramSvg === 'function' ? '<h2>Control signals <span class="bmark">beta</span></h2>' + systemDiagramSvg() : ''}
 
 <p class="note"><b>Two naming systems.</b> <b>CAD name</b> is from the Fusion model
 (MrBaddeley MK4) and is what the printed part is called. <b>Actuator</b> is the
@@ -464,7 +515,11 @@ function downloadWiring(kind){
   const blob = new Blob([text], {type: csv ? 'text/csv' : 'text/html'});
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = 'R2-wiring-' + (PROFILE.id || 'profile') + (csv ? '.csv' : '.html');
+  /* v1.45.0 — Mike: "Add date and time, without seconds, to saved/exported
+     filenames." A wiring sheet is a bench document you re-export every time
+     the loom changes, so which one is on the printer matters; fileStamp()
+     (core/util.js) is local time to the minute. */
+  a.download = 'R2-wiring-' + (PROFILE.id || 'profile') + '-' + fileStamp() + (csv ? '.csv' : '.html');
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(()=>URL.revokeObjectURL(a.href), 4000);
   const rows = wiringRows();

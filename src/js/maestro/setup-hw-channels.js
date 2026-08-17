@@ -49,9 +49,342 @@ function setupPartCell(i, c, on){
     + ' title="the panel this channel moves. Picking one that another channel already has moves it here — a part has exactly one channel.">'
     + o + '</select></td>';
 }
+/* ===================================================== ONE COLUMN TABLE
+   v1.45.0. Mike: "Keep Configure Servo visible; order columns: board pin,
+   use, name, configure, drives."
+
+   The `configure…` button was the LAST of sixteen columns, off the right
+   edge of a horizontally-scrolling table — his screenshot shows it clipped
+   to "co…". It is the most important control on the screen: it is the door
+   onto the dial, which is the only honest way to find an endpoint on a
+   printed droid. So it moves up beside the name, and the identity columns
+   (who this channel is) are PINNED, so they stay put while the numeric half
+   scrolls. "Keep it visible" is a layout promise, not a column order.
+
+   And the headers and the cells are ONE list now. They used to be two
+   independent strings a hundred lines apart, paired only by position — so
+   reordering one without the other silently shifted every value one column
+   sideways, which reads as data corruption rather than a layout bug. A
+   column is a header and a cell together or it is a trap.
+
+   `when` is how a column can be absent altogether: `drives` is a SIM idea
+   (HW.parts()), and PCA Studio has no droid and must not grow an empty
+   dropdown for one — see setupParts(). Absent means absent, header and
+   cell, which is the only way the pairing survives. */
+function setupChCols(){
+  /* a pulse-width cell: µs in, quarter-µs stored, banded */
+  const us = (k, r, q)=>{
+    const cls = r.on ? pwClass(q) : '';
+    return '<td class="pw"><input type="number" data-k="'+k+'" value="'+(r.on&&q?(q/4).toFixed(0):'')+'"'
+      + ' min="300" max="2700" step="1" class="'+cls+'"'+(r.on?'':' disabled')
+      + ' title="'+(r.on&&q?pwTitle(q):'')+'"></td>';
+  };
+  const cols = [
+    /* ---- identity: pinned, in Mike's order ---- */
+    {cst:true,
+     th:x=>'<th><input type="checkbox" data-k="pickall"'+(x.picked && x.picked===x.usable?' checked':'')
+        + ' title="select every channel in use"></th>',
+     td:r=>'<td>'+(r.on?'<input type="checkbox" data-k="pick"'+(r.chosen?' checked':'')
+        + ' title="include this channel when you apply a setting below">':'')+'</td>'},
+    {cst:true,
+     th:()=>'<th title="the channel number every sequence, export and serial frame uses">#</th>',
+     /* clicking the number SELECTS the row — the dome map assigns to
+        whichever channel is selected, so there has to be a way to say
+        which one without opening the dial (v1.45.0) */
+     td:r=>'<td class="pin selpin" title="click to select this channel — the dome map places the selected one">'+r.i+'</td>'},
+    {cst:true,
+     th:()=>'<th title="which PCA9685 and which of its sixteen outputs — the thing you count along the header to find">board·pin</th>',
+     td:r=>'<td class="pin">'+(r.i>>4)+'·'+(r.i&15)+'</td>'},
+    {cst:true,
+     th:()=>'<th title="is anything plugged into this pin?">use</th>',
+     td:r=>'<td><input type="checkbox" data-k="use"'+(r.on?' checked':'')+' title="is anything plugged into this pin?"></td>'},
+    {cst:true,
+     th:()=>'<th>name</th>',
+     td:r=>'<td><input type="text" data-k="name" value="'+(r.c?String(r.c.name).replace(/"/g,'&quot;'):'')
+        + '" placeholder="not used"'+(r.on?'':' disabled')+'></td>'},
+    {cst:true,
+     th:()=>'<th title="drive this servo with a dial and set its ends, its centre and its direction against the real linkage">configure</th>',
+     td:r=>'<td><button class="mini" data-k="cal"'+(r.on?'':' disabled')
+        + ' title="drive this servo with a dial and set its ends, its centre and its direction against the real linkage">configure…</button></td>'},
+    /* ---- which part, when the host has parts at all ---- */
+    {when:()=>!!setupParts().length,
+     th:()=>'<th title="which panel, door or arm this channel actually moves on the droid">drives</th>',
+     td:r=>setupPartCell(r.i, r.c, r.on)},
+    /* ---- the numbers ----
+       the unit is wrapped because the header's text-transform:uppercase
+       turns µ into Greek capital Mu — "MIN ΜS", which reads as milliseconds */
+    {th:()=>'<th title="the pulse width at one end of the travel">min <span class="u">µs</span></th>',
+     td:r=>us('minUs', r, r.on?r.c.min:0)},
+    {th:()=>'<th title="the pulse width it rests at — and goes to at power-up when boot is ticked">centre <span class="u">µs</span></th>',
+     td:r=>us('ctrUs', r, r.on?r.c.home:0)},
+    {th:()=>'<th title="the pulse width at the other end of the travel">max <span class="u">µs</span></th>',
+     td:r=>us('maxUs', r, r.on?r.c.max:0)},
+    {th:()=>'<th title="tick if the linkage runs the other way">rev</th>',
+     td:r=>'<td><input type="checkbox" data-k="rev"'+(r.rev?' checked':'')+(r.on?'':' disabled')
+        + ' title="the linkage runs the other way — ticking swaps this channel’s two ends, unticking puts them back"></td>'},
+    {th:()=>'<th title="go to centre at power-up, or stay limp">boot</th>',
+     td:r=>'<td><input type="checkbox" data-k="boot"'+(r.boot?' checked':'')+(r.on?'':' disabled')
+        + ' title="at power-up, drive to the centre above. Unticked = no pulses at all, so the servo is limp and a panel does not buzz."></td>'},
+    {th:()=>'<th>speed</th>',
+     td:r=>'<td><input type="number" data-k="speed" value="'+(r.on?r.c.speed:0)+'" min="0" max="16000"'+(r.on?'':' disabled')+'></td>'},
+    {th:()=>'<th>accel</th>',
+     td:r=>'<td><input type="number" data-k="acceleration" value="'+(r.on?r.c.acceleration:0)+'" min="0" max="255"'+(r.on?'':' disabled')+'></td>'},
+    {th:()=>'<th>ease</th>',
+     td:r=>'<td><select data-k="ease"'+(r.on?'':' disabled')+' title="'+EASE_TIP+'">'
+        + EASE_KINDS.map(x=>'<option value="'+x.id+'"'+((r.on&&(r.c.ease||'none')===x.id)?' selected':'')
+            + ' title="'+x.hint+'">'+x.id+'</option>').join('')
+        + '</select></td>'},
+    {th:()=>'<th>sleep when idle</th>',
+     td:r=>'<td><label class="tiny"><input type="checkbox" data-k="sleep"'+((r.on&&r.c.releaseMs)?' checked':'')+(r.on?'':' disabled')
+        + ' title="stop pulsing once it has settled — silent, cool, no current"> after '
+        + '<input type="number" data-k="sleepMs" value="'+((r.on&&r.c.releaseMs)||1200)+'" min="100" max="60000" step="100"'
+        + ((r.on&&r.c.releaseMs)?'':' disabled')+'> ms</label></td>'},
+    /* ---- the live half, folded in from the old #hwWrap bench (v1.45.0)
+       Mike: "Remove or merge the duplicated Servo Bench into Servo Setup."
+       These three columns are the ONLY thing that overlay had which this
+       one did not, and every one of them can move a real servo — so they
+       come across rather than being deleted with the surface that held
+       them. Same engine, same wire, same arithmetic the co-processor runs.
+       Their ids are `s`-prefixed because PCA Studio draws hw-table.js's
+       version of them on its own page at the same time, and two elements
+       with one id is a bug that only shows up in one of the two apps. ---- */
+    {th:()=>'<th title="drag to move this servo now — through the engine, so its speed, acceleration and your endpoints all apply">drive</th>',
+     td:r=>{
+       const lo = r.on ? Math.min(r.c.min,r.c.max) : 0, hi = r.on ? Math.max(r.c.min,r.c.max) : 1;
+       return '<td><input type="range" data-k="slide" min="'+lo+'" max="'+hi+'" value="'
+         + (r.on ? (r.c.home || lo) : 0)+'" step="1" style="width:120px"'+(r.on?'':' disabled')+'></td>';
+     }},
+    {th:()=>'<th title="where it actually is — the servo if a board is plugged in, the engine’s model of it if not. The tick is where it has been told to go, so the two separate while it travels.">position</th>',
+     td:r=>'<td><div class="poswrap" id="spw'+r.i+'"><div class="postick" id="spt'+r.i+'"></div>'
+        + '<div class="posbar" id="spb'+r.i+'"></div></div><span class="us" id="sus'+r.i+'"></span></td>'},
+    {th:()=>'<th title="jump this channel somewhere without the dial">move</th>',
+     td:r=>'<td class="drvcell">'
+        + '<button class="mini" data-k="soff"'+(r.on?'':' disabled')+' title="stop pulses — this channel goes limp">off</button> '
+        + '<button class="mini" data-k="slo"'+(r.on?'':' disabled')+'>min</button> '
+        + '<button class="mini" data-k="smid"'+(r.on?'':' disabled')+'>mid</button> '
+        + '<button class="mini" data-k="shi"'+(r.on?'':' disabled')+'>max</button></td>'}
+  ];
+  return cols.filter(c=>!c.when || c.when());
+}
+
+/* A pinned column wears `cst` on BOTH halves — the header, which the offset
+   is measured off, and the cell that has to line up under it. The class is
+   spliced into whatever tag the builder produced rather than being written
+   into each of them, because which columns are pinned is a layout decision
+   and none of the twelve builders needs to hold an opinion about it. */
+function setupCst(html){
+  const m = /^<(th|td)(\s+class=")/.exec(html);
+  if(m) return '<' + m[1] + ' class="cst ' + html.slice(m[0].length);
+  const bare = /^<(th|td)/.exec(html);
+  return bare ? '<' + bare[1] + ' class="cst"' + html.slice(bare[0].length) : html;
+}
+
+/* The pinned columns' left offsets are MEASURED, not declared: `name` is
+   elastic and the theme's font is not ours to assume, so a hard-coded
+   `left:284px` would overlap or gap the moment either changed. One pass
+   over the header row after every render, and every row's matching cell
+   gets the same offset. */
+function setupStickyFit(){
+  const body = $('setBody'); if(!body) return;
+  const t = body.querySelector('table.chtab'); if(!t || !t.rows.length) return;
+  const head = t.rows[0];
+  const lefts = [];
+  let x = 0;
+  for(let k=0;k<head.cells.length;k++){
+    const cell = head.cells[k];
+    if(!cell.classList.contains('cst')) break;
+    cell.style.left = x + 'px';
+    lefts.push(x);
+    x += cell.getBoundingClientRect().width;
+  }
+  if(!lefts.length) return;
+  for(let r=1;r<t.rows.length;r++){
+    const row = t.rows[r];
+    for(let k=0;k<lefts.length;k++) if(row.cells[k]) row.cells[k].style.left = lefts[k] + 'px';
+  }
+}
+
+/* the moving parts of the live half — bar, target tick, µs readout. Called
+   from whatever clock the host runs (hwTableSync, hw-table.js), so it never
+   rebuilds the DOM: a slider stays under the pointer while it is dragged. */
+function setupLiveSync(){
+  if(typeof SETUP === 'undefined' || !SETUP.open) return;
+  const step = SETUP_STEPS[SETUP.step];
+  if(!step || step.key !== 'channels') return;
+  const E = HW.engine(); if(!E) return;
+  const n = setupChannels();
+  for(let i=0;i<n;i++){
+    const wrap = document.getElementById('spw'+i); if(!wrap) continue;
+    const c = HW.channels()[i], s = E.st[i];
+    if(!c || !s) continue;
+    const bar = document.getElementById('spb'+i), tick = document.getElementById('spt'+i),
+          usEl = document.getElementById('sus'+i);
+    const lo = Math.min(c.min,c.max), hi = Math.max(c.min,c.max);
+    const span = (hi - lo) || 1;
+    const q = pcaPos(E, i);
+    wrap.classList.toggle('posoff', !s.active);
+    if(bar)  bar.style.width = s.active ? ((q-lo)/span*100).toFixed(1)+'%' : '0%';
+    if(tick){ tick.style.left = s.active ? ((s.target-lo)/span*100).toFixed(1)+'%' : '0%';
+              tick.style.display = s.active ? 'block' : 'none'; }
+    if(usEl) usEl.textContent = q ? (q/4).toFixed(0)+' µs' : '— off';
+  }
+}
+
+/* ================================================== THE DOME, ON THE BENCH
+   v1.45.0. Mike: "Add dome-view panel selection for servo-channel
+   assignments" and "Add the dome map to Servo Setup as well as Panels."
+
+   The same diagram the build wizard's Panels step and the .mstr import
+   wizard's Map step already draw (dome-map.js), bound to the LIVE channel
+   table. "P11" means nothing until you can see where P11 is, and the
+   `drives` dropdown is forty options long — so clicking the panel is the
+   honest gesture and the dropdown stays for the body parts a dome drawing
+   cannot show.
+
+   buildDomeMap is deliberately caller-owns-the-write: it never touches a
+   channel, so the write below is HW.setPart, which is the one place the
+   one-part-one-channel rule lives.
+
+   GUARDED like the `drives` column, and for the same reason: PCA Studio
+   loads this file but NOT dome-map.js, has no droid, no CAD and no parts.
+   A host that cannot answer "which panels are there" is not a host with no
+   panels; it is a host the question does not apply to. */
+function setupDomeReady(){
+  return typeof buildDomeMap === 'function' && typeof domeMapCovers === 'function'
+      && !!setupParts().length && !!(typeof HW !== 'undefined' && HW.setPart);
+}
+/* the next servo channel nothing is mapped to, wrapping — so placing a
+   whole dome is click, click, click without going back to the table */
+function setupDomeNext(from){
+  const ch = HW.channels(), n = ch.length;
+  for(let k=1;k<=n;k++){
+    const i = (Math.max(-1,from)+k+n) % n;
+    const c = ch[i];
+    if(c && /^servo/i.test(c.mode||'') && !c.act) return i;
+  }
+  return -1;
+}
+function setupDomeOpen(){
+  if(!setupDomeReady()) return;
+  SETUP.dome = {open:true, hover:''};
+  const cur = HW.channels()[SETUP.sel];
+  /* start on something worth placing: the selected row if it is a servo
+     that still has no part, otherwise the next one that has none */
+  if(!(cur && /^servo/i.test(cur.mode||'') && !cur.act)){
+    const next = setupDomeNext(-1);
+    if(next >= 0) SETUP.sel = next;
+  }
+  setupRender();
+}
+function setupDomeClose(){ SETUP.dome = null; setupRender(); }
+
+/* The DIAGRAM's own name for a part — PP1, P7, HP2 pan. The list beside the
+   drawing has to speak the drawing's language: the CAD mesh behind panel P1
+   is called "Panel13", so a table saying "Panel13" beside a picture saying
+   "P1" gives one flap three names and makes the reader do the join. The
+   dropdown's own label rides along after it, so the row still matches the
+   `drives` column. */
+function setupDomeLabel(key){
+  let m = /^pie(\d+)$/.exec(key);       if(m) return 'PP' + (+m[1] + 1);
+  m = /^panel(\d+)$/.exec(key);         if(m) return 'P'  + (+m[1] + 1);
+  m = /^hp(\d+)(Pan|Tilt)$/.exec(key);  if(m) return 'HP' + m[1] + ' ' + m[2].toLowerCase();
+  return key;
+}
+
+/* what the dropdown says, said on the diagram: who claims what, and which
+   channels the drawing cannot place at all */
+function setupDomeRender(){
+  const host = $('domeWrap'); if(!host) return;
+  if(!(SETUP.dome && SETUP.dome.open) || !setupDomeReady()){ host.innerHTML = ''; return; }
+  const chans = HW.channels();
+  /* the DROPDOWN's word for a part, so the two surfaces agree. Empty when
+     nobody has a better word than the key itself — the diagram already
+     labels that panel (setupDomeLabel), and "PP6 pie5" is a raw key printed
+     twice rather than information. */
+  const label = k=>{
+    const p = setupParts().find(x=>x.act===k);
+    if(p) return p.label;
+    const a = (typeof actPartLabel === 'function') ? actPartLabel(k) : '';
+    return (a && a !== k) ? a : '';
+  };
+  const esc = s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;');
+  const selC = (SETUP.sel >= 0 && chans[SETUP.sel] && /^servo/i.test(chans[SETUP.sel].mode||''))
+             ? chans[SETUP.sel] : null;
+  const servos = chans.filter(c=>c && /^servo/i.test(c.mode||''));
+  const placed = servos.filter(c=>c.act && domeMapCovers(c.act));
+  /* the parts the diagram DOES draw, and who has them — the "(ch 7)" the
+     dropdown puts beside a taken option, as a list you can read at once */
+  const claimed = domeMapKeys().map(k=>({k, own:chans.filter(c=>c && c.act===k && /^servo/i.test(c.mode||''))}))
+                               .filter(x=>x.own.length);
+  /* and the ones it cannot: a dataport door is a real mapping and a real
+     servo, it is just not on the dome. Saying so is the difference between
+     "the map is incomplete" and "the map is lying". */
+  const strays = servos.filter(c=>c.act && !domeMapCovers(c.act));
+  const unmapped = servos.filter(c=>!c.act).length;
+
+  host.innerHTML = '<div class="dompanel">'
+    + '<div class="calhead"><b>Dome map</b>'
+    + '<span class="stat">click a channel’s <b>#</b> in the table, then click its panel here</span>'
+    + '<span class="sp" style="flex:1"></span>'
+    + '<button class="mini" data-dome="next" title="jump to the next channel that has no part yet">next unmapped</button>'
+    + '<button class="mini" data-dome="close" title="close the map — the bench stays where it is">close</button>'
+    + '</div>'
+    + '<div class="dombody iwsplit">'
+    + '<div class="iwdome"><div class="iwcue">'
+    + (selC
+        ? 'Placing <b>ch '+selC.i+' · '+esc(selC.name||'')+'</b> — click its panel.'
+          + (selC.act ? ' It already drives <b>'+esc(label(selC.act) || setupDomeLabel(selC.act))+'</b>; clicking moves it.' : '')
+        : 'No channel selected. Click a channel’s <b>#</b> in the table, or press <b>next unmapped</b>.')
+    + '</div><div id="domeSvg"></div>'
+    + '<div class="iwkey"><span class="k has"></span>mapped <span class="k dup"></span>two channels'
+    + ' <span class="k lit"></span>lighting on the reference <span class="k"></span>free</div></div>'
+    + '<div class="iwchans">'
+    + '<div class="iwtally"><b>'+placed.length+'</b> of '+servos.length+' servo channel'
+    + (servos.length===1?'':'s')+' placed on the dome'
+    + (unmapped ? ' · <b>'+unmapped+'</b> with no part at all' : '')+'.</div>'
+    + (claimed.length
+        ? '<table class="settab domtab"><tr><th>part</th><th>channel</th></tr>'
+          + claimed.map(x=>'<tr'+(x.own.length>1?' class="dup"':'')+'><td><b>'+esc(setupDomeLabel(x.k))
+              + '</b> '+esc(label(x.k))+'</td><td>'
+              + x.own.map(c=>'ch '+c.i+' ('+esc(c.name||'')+')').join(', ')
+              + (x.own.length>1 ? ' — two channels on one part' : '')+'</td></tr>').join('')
+          + '</table>'
+        : '<div class="setnote">Nothing on the dome is mapped yet. Every panel below is free.</div>')
+    + (strays.length
+        ? '<div class="setnote warn"><b>'+strays.length+' channel'+(strays.length===1?'':'s')
+          + ' this diagram cannot place</b> — '
+          + strays.map(c=>'ch '+c.i+' → '+esc(label(c.act) || c.act)).join(', ')
+          + '. They are mapped and they work; they are just not on the dome. Use the <b>drives</b> column for those.</div>'
+        : '')
+    + '</div></div></div>';
+
+  buildDomeMap($('domeSvg'), {
+    channels: chans,
+    selected: SETUP.sel,
+    hoverKey: SETUP.dome.hover,
+    onPick: (key)=>{
+      if(!selC){ HW.say('select a channel first — click its # in the table','warn'); return; }
+      HW.setPart(selC.i, key);
+      setupTouched();
+      HW.say('channel '+selC.i+' drives '+(label(key) || setupDomeLabel(key))+' — placed on the dome map');
+      /* HW.setPart clears the part off whatever channel had it, so the
+         re-render is not cosmetic: another row's dropdown just changed */
+      SETUP.sel = setupDomeNext(selC.i);
+      setupRender();
+    }
+  });
+
+  host.onclick = e=>{
+    const b = e.target.closest('[data-dome]'); if(!b) return;
+    if(b.dataset.dome === 'close'){ setupDomeClose(); return; }
+    if(b.dataset.dome === 'next'){ const i = setupDomeNext(SETUP.sel); if(i>=0){ SETUP.sel = i; setupRender(); } }
+  };
+}
+
 function setupStepChannels(){
   const n = setupChannels();
   const pick = SETUP.pick || (SETUP.pick = []);
+  const cols = setupChCols();
   let rows = '', usable = 0, picked = 0;
   for(let i=0;i<n;i++){
     const c = HW.channels()[i];
@@ -59,36 +392,16 @@ function setupStepChannels(){
     const sel = (i === SETUP.sel);
     const chosen = on && pick.indexOf(i) >= 0;
     if(on){ usable++; if(chosen) picked++; }
-    const rev = on && c.min > c.max;
-    const boot = on && !/off|ignore/i.test(c.homemode);
-    /* a pulse-width cell: µs in, quarter-µs stored, banded */
-    const us = (k, q)=>{
-      const cls = on ? pwClass(q) : '';
-      return '<td class="pw"><input type="number" data-k="'+k+'" value="'+(on&&q?(q/4).toFixed(0):'')+'"'
-        + ' min="300" max="2700" step="1" class="'+cls+'"'+(on?'':' disabled')
-        + ' title="'+(on&&q?pwTitle(q):'')+'"></td>';
-    };
+    const r = {i, c, on, sel, chosen,
+               rev: on && c.min > c.max,
+               boot: on && !/off|ignore/i.test(c.homemode)};
     rows += '<tr data-ch="'+i+'" class="'+(on?'on':'off')+(sel?' sel':'')+'">'
-      + '<td>'+(on?'<input type="checkbox" data-k="pick"'+(chosen?' checked':'')+' title="include this channel when you apply a setting below">':'')+'</td>'
-      + '<td class="pin">'+i+'</td><td class="pin">'+(i>>4)+'·'+(i&15)+'</td>'
-      + '<td><input type="checkbox" data-k="use"'+(on?' checked':'')+' title="is anything plugged into this pin?"></td>'
-      + '<td><input type="text" data-k="name" value="'+(c?String(c.name).replace(/"/g,'&quot;'):'')+'" placeholder="not used"'+(on?'':' disabled')+'></td>'
-      + setupPartCell(i, c, on)
-      + us('minUs', on?c.min:0) + us('ctrUs', on?c.home:0) + us('maxUs', on?c.max:0)
-      + '<td><input type="checkbox" data-k="rev"'+(rev?' checked':'')+(on?'':' disabled')
-        + ' title="the linkage runs the other way — ticking swaps this channel’s two ends, unticking puts them back"></td>'
-      + '<td><input type="checkbox" data-k="boot"'+(boot?' checked':'')+(on?'':' disabled')
-        + ' title="at power-up, drive to the centre above. Unticked = no pulses at all, so the servo is limp and a panel does not buzz."></td>'
-      + '<td><input type="number" data-k="speed" value="'+(on?c.speed:0)+'" min="0" max="16000"'+(on?'':' disabled')+'></td>'
-      + '<td><input type="number" data-k="acceleration" value="'+(on?c.acceleration:0)+'" min="0" max="255"'+(on?'':' disabled')+'></td>'
-      + '<td><select data-k="ease"'+(on?'':' disabled')+' title="'+EASE_TIP+'">'
-        + EASE_KINDS.map(x=>'<option value="'+x.id+'"'+((on&&(c.ease||'none')===x.id)?' selected':'')
-            + ' title="'+x.hint+'">'+x.id+'</option>').join('')
-        + '</select></td>'
-      + '<td><label class="tiny"><input type="checkbox" data-k="sleep"'+((on&&c.releaseMs)?' checked':'')+(on?'':' disabled')
-        + ' title="stop pulsing once it has settled — silent, cool, no current"> after '
-        + '<input type="number" data-k="sleepMs" value="'+((on&&c.releaseMs)||1200)+'" min="100" max="60000" step="100"'+((on&&c.releaseMs)?'':' disabled')+'> ms</label></td>'
-      + '<td><button class="mini" data-k="cal"'+(on?'':' disabled')+' title="drive this servo with a dial and set its ends, its centre and its direction against the real linkage">configure…</button></td>'
+      + cols.map((col,k)=>{
+          const html = col.td(r);
+          /* the pinned columns wear the class on BOTH halves — the header
+             and the cell — because the offset is measured off the header */
+          return col.cst ? setupCst(html) : html;
+        }).join('')
       + '</tr>';
   }
   const audit = pwAudit();
@@ -104,11 +417,31 @@ function setupStepChannels(){
 
   return '<h3>Which channels are in use, and what are they?</h3>'
     + setupLinkBar()
-    + '<p class="setp">Tick a pin, name it, then set its three pulse widths — type them here, or press '
-    + '<b>configure…</b> to drive the servo with a dial and record where it actually stops. '
-    + '<b>Centre</b> is also where the channel goes at power-up, if <b>boot</b> is ticked; unticked it stays limp. '
+    /* the sim's fuller link row — the rate, the serial monitor and the
+       fixed element ids serial-link.js binds — rendered by hw-ui.js into
+       here. Studio's page carries those ids itself, so it must NOT get a
+       second copy of them: no hwLinkRender, no host div (v1.45.0). */
+    + (typeof hwLinkRender === 'function' ? '<div id="hwLink"></div>' : '')
+    /* THE TABLE IS THE POINT OF THE SCREEN (v1.45.0)
+       Everything below used to be four paragraphs of standing prose, and on a
+       laptop that left three channel rows visible under it: you arrived at the
+       screen whose whole job is a table and had to scroll to find the table.
+       Mike's standing brief is simple by default with the detail one
+       deliberate click away, so the one sentence that says what to DO stays,
+       and the reference — what centre and boot mean, the Maestro's units, the
+       live half, what each ease does — folds into a disclosure. Collapsed, not
+       removed: the words were right, they were just always on. */
+    + '<p class="setp">Tick a pin, name it, give it a part to drive, then press '
+    + '<b>configure…</b> to drive the servo with a dial and record where it actually stops '
+    + '— or type the three pulse widths straight in.</p>'
+    + '<details class="setwhat"><summary>what the other columns mean</summary>'
+    + '<p class="setp"><b>Centre</b> is also where the channel goes at power-up, if <b>boot</b> is ticked; unticked it stays limp. '
     + 'Speed and acceleration are the Maestro’s units: speed in 0.25 µs per 10 ms, acceleration per 80 ms, '
-    + 'and <b>0 means unlimited</b>, which on a panel means it slams.</p>'
+    + 'and <b>0 means unlimited</b>, which on a panel means it slams. '
+    + 'Scroll right for the <b>live half</b>: drag <b>drive</b> and the <b>position</b> bar shows where that '
+    + 'servo actually is — the engine’s model of the board with nothing plugged in, the servo itself once '
+    + 'something is. The first six columns stay pinned while you scroll, so the channel you are moving and '
+    + 'its <b>configure</b> button never leave the screen.</p>'
     + '<p class="setp"><b>Ease</b> is the shape of a move, not its speed. '
     + '<b>none</b> is the plain one — get up to speed, hold it, stop dead on the number. '
     + '<b>soft</b> brings the acceleration itself in over the first 80 ms, so the part breathes into motion '
@@ -116,23 +449,29 @@ function setupStepChannels(){
     + '<b>overshoot</b> deliberately aims about a twelfth of the way past the target and settles back, '
     + 'which is what makes a pie panel read as <i>snapping</i> open rather than arriving. It only does it on '
     + 'moves worth more than an eighth of the channel’s travel, and never past your endpoints — so a brick '
-    + 'that already drives to MIN or MAX looks identical to <b>none</b>.</p>'
+    + 'that already drives to MIN or MAX looks identical to <b>none</b>.</p></details>'
     + '<div class="setrow"><button class="mini" data-act="allon">tick all</button>'
     + '<button class="mini" data-act="alloff">untick all</button>'
     + '<span class="stat" id="setChCount"></span>'
     + flag + '</div>'
+    /* the row that moves hardware, kept away from the row that ticks boxes.
+       Both buttons came off the old #hwWrap bar (v1.45.0) — nothing that
+       could drive a real servo was allowed to disappear with it. */
+    + '<div class="setrow drvrow">'
+    + (setupDomeReady()
+        ? '<button class="mini'+((SETUP.dome && SETUP.dome.open)?' prim':'')+'" data-act="dome"'
+          + ' title="place channels on a top-down drawing of the dome instead of hunting the drives dropdown">'
+          + '🗺 dome map…</button>'
+        : '')
+    + '<span class="sp" style="flex:1"></span>'
+    + '<button class="mini" data-act="drvhome" title="drive every channel in use to its centre">all home</button>'
+    + '<button class="mini danger" data-act="drvoff" title="stop pulsing every channel — everything goes limp">all off</button>'
+    + '</div>'
     + '<div class="setscroll"><table class="settab chtab">'
-    + '<tr><th><input type="checkbox" data-k="pickall"'+(picked && picked===usable?' checked':'')+' title="select every channel in use"></th>'
-    + '<th>#</th><th>board·pin</th><th>use</th><th>name</th>'
-    + (setupParts().length ? '<th title="which panel, door or arm this channel actually moves on the droid">drives</th>' : '')
-    /* the unit is wrapped because the header's text-transform:uppercase
-       turns µ into Greek capital Mu — "MIN ΜS", which reads as milliseconds */
-    + '<th title="the pulse width at one end of the travel">min <span class="u">µs</span></th>'
-    + '<th title="the pulse width it rests at — and goes to at power-up when boot is ticked">centre <span class="u">µs</span></th>'
-    + '<th title="the pulse width at the other end of the travel">max <span class="u">µs</span></th>'
-    + '<th title="tick if the linkage runs the other way">rev</th>'
-    + '<th title="go to centre at power-up, or stay limp">boot</th>'
-    + '<th>speed</th><th>accel</th><th>ease</th><th>sleep when idle</th><th></th></tr>'
+    + '<tr>' + cols.map(col=>{
+        const html = col.th({picked, usable});
+        return col.cst ? setupCst(html) : html;
+      }).join('') + '</tr>'
     + rows + '</table></div>'
     + '<div class="setrow applybar">'
     + '<span class="stat">Apply</span><select id="apField">'
@@ -145,7 +484,8 @@ function setupStepChannels(){
     + '<span class="stat">'+(picked ? '' : 'tick the left-hand column to choose which channels')+'</span>'
     + '</div>'
     + setupAskHtml('table')
-    + '<div id="calWrap"></div>';
+    + '<div id="calWrap"></div>'
+    + '<div id="domeWrap"></div>';
 }
 
 function setupBindSimple(){
@@ -186,13 +526,20 @@ function setupBindSimple(){
       if(typeof servoCfgPick === 'function') servoCfgPick(()=>{ setupTouched(); setupRender(); });
       return;
     }
+    /* v1.45.0: setupDownload, not a bare download() — that helper exists
+       only in PCA Studio, so in the sim these two buttons threw
+       ReferenceError the moment Mike pressed them. And the names carry the
+       moment they were written, because four files called servos.h in one
+       Downloads folder is four files you have to open to tell apart. */
     if(b.dataset.act === 'expjson'){
-      download('servo-setup.json', setupJson(), 'application/json');
-      HW.say('setup exported — boards, wiring answers and every channel'); return;
+      const f = setupFileName('servo-setup','json');
+      setupDownload(f, setupJson(), 'application/json');
+      HW.say('setup exported — '+f+': boards, wiring answers and every channel'); return;
     }
     if(b.dataset.act === 'exph'){
-      download('servos.h', setupServosH(), 'text/x-c');
-      HW.say('servos.h exported — the channel table alone. Endpoints are yours; regenerate it whenever you recalibrate, not when you change a sequence.','warn');
+      const f = setupFileName('servos','h');
+      setupDownload(f, setupServosH(), 'text/x-c');
+      HW.say(f+' exported — the channel table alone. Endpoints are yours; regenerate it whenever you recalibrate, not when you change a sequence.','warn');
       return;
     }
     if(b.dataset.act === 'copycfg'){
@@ -264,6 +611,9 @@ function setupBindChannels(){
     if(el2) el2.textContent = n + ' channel' + (n===1?'':'s') + ' in use of ' + setupChannels();
   };
   count();
+  /* the pinned columns' offsets are measured off the header, so this runs
+     after every render of this step (v1.45.0) */
+  setupStickyFit();
   body.oninput = e=>{
     const k0 = e.target.dataset.k;
     /* the header tick and the apply bar sit outside any row */
@@ -281,6 +631,12 @@ function setupBindChannels(){
 
     const tr = e.target.closest('tr[data-ch]'); if(!tr) return;
     const i = +tr.dataset.ch, k = e.target.dataset.k, c = setupEnsure(i);
+    /* the live half (v1.45.0): dragging IS driving, so it goes straight to
+       HW.drive and NOTHING is saved — a slider position is where the servo
+       happens to be standing, not a setting. It must also return before the
+       generic `c[k] = +value` fall-through below, which would otherwise
+       invent a channel field called `slide`. */
+    if(k === 'slide'){ HW.drive(i, +e.target.value); return; }
     if(k === 'use'){ setupUse(i, e.target.checked); setupRender(); return; }
     if(k === 'part'){
       /* HW.setPart clears the part off whatever channel had it, so the
@@ -328,6 +684,15 @@ function setupBindChannels(){
     HW.save();
   };
   body.onclick = e=>{
+    /* selecting a row is not a button press, so it is answered before the
+       button guard below. The dome map places whichever channel is
+       selected, and until v1.45.0 the only thing that ever set SETUP.sel
+       was pressing `configure` — which opens the dial you did not want. */
+    const pinCell = e.target.closest('td.selpin');
+    if(pinCell){
+      const row = pinCell.closest('tr[data-ch]');
+      if(row){ SETUP.sel = +row.dataset.ch; setupRender(); return; }
+    }
     const b = e.target.closest('button'); if(!b) return;
     if(b.dataset.ask){
       const a = SETUP.ask;
@@ -339,6 +704,31 @@ function setupBindChannels(){
       for(let i=0;i<setupChannels();i++) setupUse(i, b.dataset.act === 'allon');
       if(b.dataset.act === 'alloff') SETUP.pick = [];
       HW.save(); setupRender(); return;
+    }
+    /* the door onto the dome map — a toggle, because the map is a panel on
+       this step and not a place you leave the bench for (v1.45.0) */
+    if(b.dataset.act === 'dome'){
+      setupAskClear();
+      if(SETUP.dome && SETUP.dome.open) setupDomeClose(); else setupDomeOpen();
+      return;
+    }
+    /* the two things off the old #hwWrap bar that move real hardware. They
+       are DELIBERATELY not behind a confirm: "all off" is the thing you
+       press when a panel is straining, and a dialog in front of it is the
+       reason a gear strips (v1.45.0). */
+    if(b.dataset.act === 'drvhome'){
+      let n = 0;
+      HW.channels().forEach((c,i)=>{
+        if(c && /^servo/i.test(c.mode||'') && c.home){ HW.drive(i, c.home); n++; }
+      });
+      HW.say(n+' channel'+(n===1?'':'s')+' driven to centre');
+      return;
+    }
+    if(b.dataset.act === 'drvoff'){
+      let n = 0;
+      HW.channels().forEach((c,i)=>{ if(c && /^servo/i.test(c.mode||'')){ HW.drive(i, 0); n++; } });
+      HW.say('all pulses stopped — '+n+' channel'+(n===1?'':'s')+' limp. Anything holding a loaded panel has let go.','warn');
+      return;
     }
     if(b.dataset.act === 'applysel'){
       const list = setupPicked();
@@ -361,7 +751,16 @@ function setupBindChannels(){
     }
     const tr = e.target.closest('tr[data-ch]'); if(!tr) return;
     const i = +tr.dataset.ch;
-    if(b.dataset.k === 'cal'){ SETUP.sel = i; setupAskClear(); setupCalOpen(i); }
+    if(b.dataset.k === 'cal'){ SETUP.sel = i; setupAskClear(); setupCalOpen(i); return; }
+    /* the four quick moves, carried across from the old bench (v1.45.0).
+       min/mid/max read Math.min/Math.max of the pair, so a reversed channel
+       still goes where the label says rather than where the field is. */
+    const c = HW.channels()[i]; if(!c) return;
+    const lo = Math.min(c.min,c.max), hi = Math.max(c.min,c.max);
+    if(b.dataset.k === 'soff') HW.drive(i, 0);
+    if(b.dataset.k === 'slo')  HW.drive(i, lo);
+    if(b.dataset.k === 'smid') HW.drive(i, (lo+hi)>>1);
+    if(b.dataset.k === 'shi')  HW.drive(i, hi);
   };
 }
 

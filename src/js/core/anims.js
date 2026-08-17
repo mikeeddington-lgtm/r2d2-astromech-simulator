@@ -43,15 +43,22 @@ const ANIMS = {
                     [0,'smallDoor',0],[150,'doorRR',0],[280,'doorRL',0],[410,'doorR',0],[540,'doorL',0]]},
   ports_open:   {label:'Dataport + chargebay open',  dur:800, steps:[[0,'dataport',1],[190,'chargebay',1]]},
   ports_close:  {label:'Dataport + chargebay close', dur:800, steps:[[0,'chargebay',0],[190,'dataport',0]]},
+  /* v1.45.0 — these two were the only pie animations that stopped at 11 while
+     every other one covers PIE_COUNT (12), so "Everything close" left pie11
+     standing open in the Outputs table for the rest of the session. One count,
+     from actuators.js, for all of them. (pie11 drives nothing on either model:
+     the procedural dome has 11 panels and the MK4 CAD rigs 5 — it exists as an
+     actuator so a channel wired to it can still be named and sequenced, the
+     same reason the holoprojector axes are in ACT_KEYS.) */
   all_open:     {label:'Everything open',  dur:3000, steps:(()=>{
                     const s=[[0,'doorL',1],[120,'doorR',1],[240,'doorRL',1],[360,'doorRR',1],
                              [500,'smallDoor',1],[640,'dataport',1],[760,'chargebay',1],
                              [900,'utilUp',1],[1020,'utilLo',1],[1160,'drawer',1]];
-                    for(let i=0;i<11;i++) s.push([1300+i*70,'pie'+i,1]);
+                    for(let i=0;i<PIE_COUNT;i++) s.push([1300+i*70,'pie'+i,1]);
                     return s; })()},
   all_close:    {label:'Everything close', dur:3000, steps:(()=>{
                     const s=[];
-                    for(let i=10;i>=0;i--) s.push([(10-i)*70,'pie'+i,0]);
+                    for(let i=PIE_COUNT-1;i>=0;i--) s.push([(PIE_COUNT-1-i)*70,'pie'+i,0]);
                     s.push([820,'drawer',0],[940,'utilLo',0],[1060,'utilUp',0],
                            [1200,'chargebay',0],[1320,'dataport',0],[1460,'smallDoor',0],
                            [1600,'doorRR',0],[1720,'doorRL',0],[1840,'doorR',0],[1960,'doorL',0]);

@@ -266,7 +266,7 @@ function mstrApply(P){
   /* the file's own sequence order already IS its subroutine order, so
      everything it carries starts out loaded onto the board */
   loadoutReset();
-  EDIT.live = channels.map(c=>c.home||c.neutral||DEFAULT_NEUTRAL);
+  EDIT.live = channels.map(c=>chanRest(c));   // v1.45.0 — see chanRest() in maestro/boards.js
   EDIT.seq = 0; EDIT.frame = -1;
 
   lg('mae',`imported ${MSTR.fileName}: ${servoCount} channels, ${sequences.length} sequence(s), ${subs.length} subroutine(s)`);
@@ -377,4 +377,244 @@ function mstrAdoptSequences(P){
      + (unmatched.length ? ' · dropped source channel(s) '+unmatched.join(', ')+' (no match on your droid)' : ''));
   if(dropped) lg('mae','  per-frame speed/accel rows discarded — your channel settings govern the motion');
   return {added, how, unmatched, cat};
+}
+
+/* =====================================================================
+   A PCA9685 CONFIGURATION, READ BACK IN (v1.45.0)
+
+   Mike: "Support importing and converting Maestro and PCA9685
+   configurations, then exporting to either format."
+
+   WHAT "A PCA9685 CONFIGURATION" IS. A PCA9685 is a dumb 16-channel PWM
+   chip; it has no settings file, no names, no endpoints and nothing to
+   save. So the phrase can only mean the file that the SKETCH driving one
+   carries — and this project already defines that file twice over, in
+   `arduino/MaestroPCA`: the `MpcaChannelDef` table (board, pin, min, max,
+   home, speed, acceleration, releaseMs, ease) and the `MPCA_SEQ*` frame
+   tables. `pca-gen.js` writes it as `sequences.h`, the bench writes the
+   channel half of it as `servos.h` (setup-hw.js setupServosH), and both
+   speak quarter-microseconds exactly as a Maestro does.
+
+   So this reader reads back what we write. That is the only definition
+   that can be tested against something real rather than guessed at, it
+   closes the square (either family in, either family out), and it makes
+   the pair of generators honest: a field that cannot survive a round trip
+   through them is a field we are entitled to name out loud.
+
+   WHAT IT DELIBERATELY DOES NOT ATTEMPT
+     · Any OTHER project's PCA9685 sketch. There is no standard — every
+       library invents its own struct — and a parser that guessed would
+       land a stranger's numbers on real linkages. A file we do not
+       recognise is refused with the reason, not half-read.
+     · `#define SERVO_HZ` / `OSC_HZ` / `PCA_BOARDS`. They are real and they
+       matter on the wire, but nothing in the sim's channel table has
+       anywhere to keep them, and inventing a field to hold a number
+       nothing reads is worse than saying we dropped it. Reported by name.
+     · The oscillator/wander generator sequences (MPCA_SEQ_OSC,
+       MPCA_SEQ_WANDER). They are five-number entries, not frames; the
+       shape is readable but the sim's sequence model has no home for a
+       generator that arrived from outside. Counted and reported, skipped.
+     · Arduino C in general. This is not a compiler: it finds two known
+       table shapes by name and refuses everything else.
+   ===================================================================== */
+
+/* the file, not the extension — a header renamed .txt is still a header,
+   and a .h full of somebody else's struct is not one of ours */
+function pcaHeaderLooksLike(text){
+  const t = String(text || '');
+  if(t.charAt(0) === '<') return false;                     // XML: the .mstr reader's business
+  return /MpcaChannelDef\s+\w+\s*\[/.test(t) || /MPCA_CHANNEL_TABLE|SERVO_TABLE/.test(t);
+}
+
+/* every row of a `const MpcaChannelDef NAME[...] PROGMEM = { … };` table */
+const PCA_ROW_RE = /\{\s*(\d+)\s*,\s*(\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*MPCA_EASE_(\w+)\s*\}\s*,?[ \t]*(?:\/\*([\s\S]*?)\*\/)?/g;
+
+/* the trailing `/* ch 3 Btn — Input, unused *​/` comment is where the NAME
+   lives — the struct itself has no room for one, so the generator puts it
+   in the only place a C table can carry text. Both generators write the
+   same shape (pca-gen.js and setup-hw.js setupServosH); setupServosH says
+   "(not used)" where pca-gen.js says "— Input, unused". */
+function pcaRowMeta(comment, i){
+  const raw = String(comment || '').trim();
+  const m = /^ch\s*(\d+)\s*(.*)$/i.exec(raw);
+  let rest = m ? m[2].trim() : raw;
+  let mode = '';
+  const um = /^(.*?)\s*[—-]\s*([A-Za-z]+)\s*,\s*unused\s*$/.exec(rest);
+  if(um){ rest = um[1].trim(); mode = um[2]; }
+  if(/^\(not used\)$/i.test(rest)){ rest = ''; mode = mode || 'Input'; }
+  return {name: rest, mode: mode};
+}
+
+function pcaHeaderParse(text, fileName){
+  const t = String(text || '');
+  if(!pcaHeaderLooksLike(t))
+    throw new Error('that is not a MaestroPCA header — no MpcaChannelDef channel table in it');
+
+  /* ------------------------------------------------------- the channels */
+  const tbl = /(?:MpcaChannelDef)\s+\w+\s*\[[^\]]*\]\s*(?:PROGMEM\s*)?=\s*\{([\s\S]*?)\n\s*\};/.exec(t);
+  if(!tbl) throw new Error('the MpcaChannelDef table is there but its rows could not be read');
+  const dNeutral = (typeof DEFAULT_NEUTRAL === 'number') ? DEFAULT_NEUTRAL : 6000;
+  const channels = [];
+  let row;
+  PCA_ROW_RE.lastIndex = 0;
+  while((row = PCA_ROW_RE.exec(tbl[1])) !== null){
+    const i = channels.length;
+    const pin = +row[2];
+    const meta = pcaRowMeta(row[10], i);
+    const servo = pin !== 255;
+    const named = !!meta.name;
+    channels.push({
+      i, name: named ? meta.name : ('Channel ' + i), autoName: !named,
+      mode: servo ? 'Servo' : (meta.mode || 'Input'),
+      min: servo ? +row[3] : (typeof DEFAULT_MIN === 'number' ? DEFAULT_MIN : 4000),
+      max: servo ? +row[4] : (typeof DEFAULT_MAX === 'number' ? DEFAULT_MAX : 8000),
+      /* home 0 in the table means "do not drive it home on boot" — which is
+         a Maestro `homemode` of Off, and is indistinguishable from Ignore */
+      home: (servo && +row[5]) ? +row[5] : dNeutral,
+      homemode: (servo && +row[5]) ? 'Goto' : 'Off',
+      neutral: dNeutral, range: 1905,
+      speed: servo ? +row[6] : 0,
+      acceleration: servo ? +row[7] : 0,
+      releaseMs: servo ? +row[8] : 0,
+      ease: String(row[9] || 'NONE').toLowerCase(),
+      act: (typeof guessPart === 'function') ? guessPart(named ? meta.name : '') : '',
+      invert: false
+    });
+  }
+  if(!channels.length) throw new Error('the MaestroPCA channel table is empty');
+  const declared = /#define\s+(?:MPCA_CHANNELS|SERVO_COUNT)\s+(\d+)/.exec(t);
+  const servoCount = channels.length;
+
+  /* ------------------------------------------------------ the sequences */
+  const sequences = [];
+  let generators = 0;
+  const stride = servoCount + 1;
+  const seqRe = /static\s+const\s+uint16_t\s+MPCA_SEQ(\d+)\s*\[\]\s*(?:PROGMEM\s*)?=\s*\{[ \t]*(?:\/\*([\s\S]*?)\*\/)?([\s\S]*?)\n\};/g;
+  let sm;
+  while((sm = seqRe.exec(t)) !== null){
+    const label = String(sm[2] || '').trim();
+    const body  = String(sm[3] || '');
+    /* a generator table is five numbers per ENTRY, not a frame — its own
+       header comment says so, and pca-gen.js writes exactly that line */
+    if(/\bch\s*,\s*lo\s*,\s*hi\s*,\s*period/i.test(body)){ generators++; continue; }
+    const nums = body.replace(/\/\*[\s\S]*?\*\//g,'').replace(/\/\/[^\n]*/g,'')
+                     .split(/[\s,]+/).filter(x=>/^-?\d+$/.test(x)).map(Number);
+    const frames = [];
+    for(let k=0; k + stride <= nums.length; k += stride){
+      frames.push({name:'Frame '+frames.length, duration:nums[k],
+                   targets:nums.slice(k+1, k+stride)});
+    }
+    /* the name lost its spaces on the way out (pcaCName), so the comment is
+       the only place the routine's real name survives */
+    sequences.push({name: label || ('Sequence '+sequences.length), frames});
+  }
+  /* MPCA_SEQ_TABLE carries the flags — loop and background are real
+     sequence properties in this app, so they come back */
+  const flagRe = /\{\s*MPCA_SEQ(\d+)\s*,\s*\d+\s*,\s*([^}]*?)\}/g;
+  let fm;
+  while((fm = flagRe.exec(t)) !== null){
+    const q = sequences[+fm[1]];
+    if(!q) continue;
+    if(/MPCA_SEQ_LOOP/.test(fm[2]))       q.loop = true;
+    if(/MPCA_SEQ_BACKGROUND/.test(fm[2])) q.background = true;
+  }
+
+  /* --------------------------------------------- what did NOT come across
+     Mike's rule, already modelled by mstrAdoptSequences/mstrMatchChannels
+     and pinned by mstr-share.test.js: nothing is discarded in silence. */
+  const nonServo = channels.filter(c=>!/^servo/i.test(c.mode)).map(c=>c.i);
+  const offHome  = channels.filter(c=>c.homemode === 'Off').length;
+  const dropped = [
+    {field:'neutral', n:servoCount,
+     why:'a PCA9685 header has no neutral — it is a Maestro 8-bit protocol scaling value. Set to the default ' + dNeutral + ' quarter-µs on every channel.'},
+    {field:'range', n:servoCount,
+     why:'same: the Maestro range that pairs with neutral. Defaulted to 1905, which is what Control Center writes.'},
+    {field:'homemode', n:offHome,
+     why:'the header keeps a home TARGET only, so Off and Ignore both arrive as home 0 and cannot be told apart. ' + offHome + ' channel(s) read back as Off.'},
+    {field:'invert', n:servoCount,
+     why:'inverted travel is a simulator display setting with no column in the header. Every channel arrives un-inverted; check any panel that opens the wrong way.'},
+    {field:'serial settings', n:0,
+     why:'baud rate, device number, CRC and timeout are Maestro board settings. A .mstr exported from this config gets this app\'s defaults, not the original board\'s.'},
+    {field:'frame speed/acceleration', n:0,
+     why:'a MaestroPCA frame is one duration and one target per channel. Any per-frame speed row the original had was already gone before the file was written; your channel table governs the motion.'}
+  ];
+  if(/#define\s+(?:SERVO_HZ|OSC_HZ|PCA_BOARDS)/.test(t))
+    dropped.push({field:'oscillator and PWM frequency', n:0,
+      why:'SERVO_HZ / OSC_HZ / PCA_BOARDS are real and they matter on the wire, but the channel table has nowhere to keep them. Keep the original header beside your sketch.'});
+  if(generators)
+    dropped.push({field:'generator sequences', n:generators,
+      why:generators + ' oscillator/wander table(s) skipped: those are five-number entries rather than frames, and a generator that arrived from outside has no home in the sequence library.'});
+  if(declared && +declared[1] !== servoCount)
+    dropped.push({field:'declared channel count', n:+declared[1],
+      why:'the file says ' + declared[1] + ' channels but ' + servoCount + ' rows were readable. The rows win; check the file was not truncated.'});
+
+  const board = (typeof boardForCount === 'function') ? boardForCount(servoCount).id : 'mini24';
+  const report = {
+    fileName: fileName || 'sequences.h',
+    board, servoCount,
+    family: 'pca',
+    seqInFile: sequences.length, seqRecovered: 0,
+    /* a MaestroPCA header carries no Maestro script, and never could — the
+       co-processor answers restartScript(n) by slot number instead. The
+       .mstr exporter generates a real script on the way out. */
+    scriptEmpty: true, scriptLoop: false, scriptFallThrough: false,
+    seqSubs: [], frameSubs: 0,
+    blankNames: channels.filter(c=>/^servo/i.test(c.mode) && c.autoName).length,
+    dupNames: (function(){
+      const seen = {}, dup = [];
+      channels.forEach(c=>{ if(!/^servo/i.test(c.mode)) return;
+        const k = (c.name||'').trim().toLowerCase(); if(!k) return;
+        if(seen[k] !== undefined && dup.indexOf(seen[k]) < 0) dup.push(seen[k]);
+        if(seen[k] !== undefined) dup.push(c.i); else seen[k] = c.i; });
+      return dup;
+    })(),
+    nonServo,
+    mapped: channels.filter(c=>c.act).length,
+    dropped
+  };
+  /* xmlText is deliberately null: there is no Pololu file behind this
+     config, so buildMstrText() must GENERATE the whole .mstr rather than
+     regex-patching one (export.js genFullMstr). */
+  return { fileName: fileName || 'sequences.h', xmlText: null, servoCount,
+           channels, sequences, subs: [], scriptText: '', header: {}, board,
+           report, dropped };
+}
+
+/* ------------------------------------------- the other direction's losses
+   Maestro table → PCA9685 header. Asymmetric with the list above, and the
+   asymmetry is the point: speed and acceleration DO cross (the header has
+   columns for them), while a channel's mode and homemode do not. */
+function pcaExportDrops(channels, sequences){
+  const list = Array.isArray(channels) ? channels : [];
+  const seqs = Array.isArray(sequences) ? sequences : [];
+  const servo = c => /^servo/i.test((c && c.mode) || '');
+  const notGoto = list.filter(c=>servo(c) && /off|ignore/i.test(c.homemode || '')).length;
+  const nonServo = list.filter(c=>c && !servo(c)).length;
+  const inverted = list.filter(c=>c && c.invert).length;
+  let saFrames = 0;
+  seqs.forEach(q=>(q.frames||[]).forEach(f=>{ if(f.speeds || f.accels) saFrames++; }));
+  return [
+    {field:'homemode', n:notGoto,
+     why:'the header carries a home TARGET only. Off and Ignore both become home 0, and the distinction is gone — ' + notGoto + ' channel(s) affected.'},
+    {field:'neutral', n:list.length,
+     why:'a Maestro 8-bit protocol scaling value with no PCA9685 equivalent. Not written.'},
+    {field:'range', n:list.length,
+     why:'the value that pairs with neutral. Not written.'},
+    {field:'mode', n:nonServo,
+     why:nonServo + ' channel(s) are Input or Output. A PCA9685 pin cannot read anything, so they keep their row (frame targets index by channel number) with pin 255 = unused, and their travel is written as zero.'},
+    {field:'invert', n:inverted,
+     why:'inverted travel is a simulator display setting. ' + inverted + ' channel(s) carry it and the header does not — flip the linkage or the endpoints instead.'},
+    {field:'frame speed/acceleration', n:saFrames,
+     why:saFrames + ' frame(s) carry their own speed/acceleration rows. A MaestroPCA frame is a duration and a target per channel, so the channel table\'s speed and acceleration govern the motion instead.'},
+    {field:'the Maestro script', n:0,
+     why:'a Maestro answers restartScript(n) by running a subroutine; the co-processor answers the same call by slot number. The script is not written, and does not need to be.'}
+  ];
+}
+/* one sentence, names first — the shape Mike reads */
+function pcaExportDropNote(list){
+  const l = (list || pcaExportDrops(
+    (typeof MSTR !== 'undefined' && MSTR.channels) || [],
+    (typeof loadoutSeqs === 'function') ? loadoutSeqs() : []));
+  return 'not carried into a PCA9685 header: ' + l.map(d=>d.field).join(', ')
+       + ' — the log says what each one means.';
 }

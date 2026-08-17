@@ -200,3 +200,85 @@ body.light{
 .setlinkstate b{color:var(--tx)}
 .setlink.on .setlinkstate b{color:var(--gn)}
 .setlink.mon .setlinkstate b{color:var(--am)}
+
+/* ============================================ THE CHANNEL TABLE, PINNED
+   v1.45.0. Mike: "Keep Configure Servo visible; order columns: board pin,
+   use, name, configure, drives."
+
+   Nineteen columns fight for width on this table and the browser resolves
+   that fight by scrolling, so any column can end up off the right-hand edge
+   — which is how `configure…` came to be clipped to "co…" in his
+   screenshot. Reordering alone would only move the problem to whichever
+   column landed last, so the six IDENTITY columns (who this channel is, and
+   the button that measures it) are pinned instead: the numeric and live
+   halves scroll underneath them and you can always see which channel you
+   are looking at and reach its dial.
+
+   `left` is set from JS (setupStickyFit) because `name` is elastic — a
+   hard-coded offset here would overlap or gap the moment the font, the
+   theme or the width of a name changed. Everything that does NOT depend on
+   the measurement lives here. */
+.chtab .cst{position:sticky; left:0; background:var(--bg); z-index:1}
+.chtab th.cst{z-index:3}                          /* the corner, over both */
+/* the row states have to survive the pin, or a selected or unused row would
+   go plain grey for its first six cells */
+.chtab tr.sel .cst{background:var(--selBg)}
+.chtab tr.off .cst{opacity:1}
+.chtab tr.off .cst > *{opacity:.5}
+/* a shadow on the LAST pinned column, so the seam reads as an edge rather
+   than as a rendering fault when the numeric half slides under it. It is
+   nth-child(6) — `configure`, the column Mike asked to keep visible — and
+   not :last-of-type, which in a row means the last cell of all nineteen. */
+.chtab th.cst:nth-child(6), .chtab td.cst:nth-child(6){box-shadow:2px 0 6px -2px var(--scrim,rgba(0,0,0,.5))}
+/* the identity half must not collapse: a pinned column narrower than its
+   content overlaps the one beside it */
+.chtab .cst input[type=text]{min-width:110px}
+.chtab td:nth-child(2), .chtab td:nth-child(3){white-space:nowrap}
+
+/* the row that moves hardware, kept clear of the row that ticks boxes */
+.drvrow{margin-top:4px}
+:where(#setupWrap) button.danger{color:var(--rd);border-color:var(--rd)}
+:where(#setupWrap) button.danger:hover{background:var(--rd);color:var(--onCta);border-color:var(--rd)}
+/* the four quick moves read as one control, not four widths */
+.settab td.drvcell{white-space:nowrap}
+.settab td.drvcell button{min-width:34px}
+/* the live half's readout sits beside its bar in one cell rather than
+   spending a nineteenth column on four characters */
+.settab .poswrap{display:inline-block;vertical-align:-3px}
+.settab .us{font-size:11px;width:60px}
+
+/* ================================================= THE DOME MAP PANEL
+   v1.45.0. Mike: "Add the dome map to Servo Setup as well as Panels."
+
+   Same furniture as the calibration dial — a panel that opens INSIDE the
+   step, below the table, rather than another overlay on top of an overlay.
+   The diagram, the cue and the key are the import wizard's own classes
+   (.iwsplit / .iwdome / .iwcue / .iwkey, 08-import.css): it is literally the
+   same drawing bound to the live channel table, so it should not grow a
+   second skin. Those classes exist only in the sim, which is also the only
+   app where the panel can appear — PCA Studio has no droid, no parts and no
+   dome-map.js, so setupDomeReady() is false there and none of this is ever
+   drawn. */
+.dompanel{margin-top:14px;background:var(--panel);border:1px solid var(--cta);
+  border-radius:8px;overflow:hidden}
+.dompanel .calhead{border-bottom:1px solid var(--line)}
+.dombody{padding:14px 16px 16px}
+.dompanel .iwcue b{color:var(--cta)}
+.dompanel .iwtally{color:var(--dim);font-size:12.5px;margin-bottom:8px}
+.dompanel .iwtally b{color:var(--tx)}
+.dompanel .domtab{margin-top:0}
+.dompanel .domtab tr.dup td{color:var(--am2)}
+.dompanel .setnote{margin:10px 0 0}
+
+/* v1.45.0 — the Channels step's reference prose, folded away. Four paragraphs
+   of standing text left three channel rows visible on a laptop; the sentence
+   that says what to DO stays, the rest is one click. Styled as a quiet line,
+   not a button: it is documentation, not an action. */
+.settab .setwhat{ margin:2px 0 8px; }
+.settab .setwhat > summary{
+  cursor:pointer; font:11px var(--mono); text-transform:uppercase;
+  letter-spacing:.04em; color:var(--ink); opacity:.75; padding:2px 0;
+}
+.settab .setwhat > summary:hover{ opacity:1; color:var(--cy); }
+.settab .setwhat[open] > summary{ opacity:1; }
+.settab .setwhat .setp{ margin:6px 0; }

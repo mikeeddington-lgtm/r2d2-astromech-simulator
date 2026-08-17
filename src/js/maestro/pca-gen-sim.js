@@ -26,11 +26,25 @@ function exportPcaHeader(){
   const blob = new Blob([text], {type:'text/x-c'});
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = (MSTR.fileName||'sequences').replace(/\.mstr$/i,'') + '-sequences.h';
+  /* v1.45.0 — Mike: "Add date and time, without seconds, to saved/exported
+     filenames." Iterating on a loadout means writing this file half a dozen
+     times in an afternoon, and `-sequences (3).h` next to the sketch is how
+     the wrong header gets compiled. */
+  a.download = (MSTR.fileName||'sequences').replace(/\.mstr$/i,'') + '-sequences-' + fileStamp() + '.h';
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(()=>URL.revokeObjectURL(a.href), 4000);
   const nSeq = loadoutSeqs().length;
   lg('mae','exported '+a.download+' — '+MSTR.channels.length+' channels, '+nSeq+' sequences for MaestroPCA');
+  /* v1.45.0 — Mike's rule for crossing between the two families: every
+     dropped field is named, never merely counted. Going out to a PCA9685
+     header loses a different set from coming in (import.js pcaExportDrops
+     explains each one), so the log carries the whole list and the receipt
+     carries the names. */
+  if(typeof pcaExportDrops === 'function'){
+    const lost = pcaExportDrops(MSTR.channels, loadoutSeqs());
+    lg('warn','  '+pcaExportDropNote(lost));
+    lost.forEach(d=>lg('mae','  '+d.field+' — '+d.why));
+  }
   toast('Exported '+a.download+' — pair it with the MaestroPCA library. Calibrate the PCA9685 oscillator before trusting endpoints.', 'warn');
   const m=$('maeMsg'); if(m){ m.innerHTML='Exported <b>'+a.download+'</b> for the <b>MaestroPCA</b> library (the cheap PCA9685 route). '
     +'Slot numbers match this loadout, so the sketch\'s restartScript(n) calls are identical to the Maestro build. '

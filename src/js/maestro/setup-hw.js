@@ -53,6 +53,10 @@ const SETUP = {
   hw: null,
   /* calibration */
   cal: null,      /* {ch, saveMin, saveMax, saveHome, min, max, home, wide} */
+  /* the dome map panel on the Channels step (v1.45.0) — null when shut.
+     Its own state, not config/wizard.js's DMAP: that file is not loaded in
+     PCA Studio, and one global namespace means one name per idea. */
+  dome: null,     /* {open, hover} */
   sel: 0,
   pick: [],       /* channels ticked in the left-hand column, for apply-to-selected */
   ask: null,      /* the inline confirm strip: {msg, yes, fn, where} */
@@ -165,12 +169,17 @@ function setupDefaults(){
 }
 
 /* Esc, via escGuard (core/dialog.js): while the calibration dial is out it
-   cancels the dial and stays on the bench; otherwise it closes the bench.
-   Both branches still preventDefault+stopPropagation (escGuard's contract) —
-   only which action runs differs, exactly as the two explicit branches did
-   before. */
+   cancels the dial and stays on the bench; while the dome map is out it
+   shuts the map; otherwise it closes the bench. Every branch still
+   preventDefault+stopPropagation (escGuard's contract) — only which action
+   runs differs, exactly as the two explicit branches did before.
+
+   The order is innermost first, and it matters more than it looks now that
+   closing the bench also puts the hardware down (setupExitHardware): Esc
+   out of a dome map must not disconnect a board. */
 const setupEsc = escGuard(()=> SETUP.open, ()=>{
   if(SETUP.cal){ setupCalCancel(); setupRender(); }
+  else if(SETUP.dome && SETUP.dome.open && typeof setupDomeClose === 'function') setupDomeClose();
   else setupClose();
 });
 
@@ -184,8 +193,58 @@ function setupOpen(step, opts){
   setupEsc.bind();
   setupRender();
 }
+/* =============================================== PUT THE HARDWARE DOWN
+   v1.45.0. Mike: "Disconnect hardware on exit from Servo Setup."
+
+   Same class of mistake v1.39.4 fixed for the sequencer's live-drive arm: a
+   connection you can no longer see is a connection you have forgotten. This
+   bench is where the port gets opened — the dial is only honest with a real
+   servo on the end of it — and walking out of it used to leave the link up
+   with nothing on screen saying so. The next thing that streams then drives
+   a real droid nobody is watching.
+
+   Two rules it must not break:
+
+     · The servos are NOT released. A limp servo holding a heavy panel open
+       drops it, which is exactly why live-drive.js refuses to cut pulses on
+       disarm. So nothing is driven to 0 and nothing is snapped home: they
+       hold whatever position they are standing in, and the receipt says so.
+     · Stepping between the bench's own steps is not leaving it, and neither
+       is cancelling the dial. This is called from setupClose() and nowhere
+       else, and setupClose() is the one function every real way out — the ×,
+       Esc, and Finish — already went through.
+
+   WHOSE PORT IS IT? A seam question, so the host answers it. In the sim the
+   bench is the door onto the link and owns it (hw-ui.js). In PCA Studio the
+   port belongs to the PAGE: the connect button is in its header, its monitor
+   outlives this overlay, and closing a wizard there must not hang up on the
+   board. Studio simply does not define the predicate, so the answer is no —
+   the same shape as setupParts() and HW.setPart. */
+function setupOwnsLink(){
+  return typeof hwSetupOwnsLink === 'function' && hwSetupOwnsLink();
+}
+function setupExitHardware(){
+  if(!setupOwnsLink()) return;
+  const wasLive = (typeof LIVE !== 'undefined') && !!LIVE.on;
+  const wasOn   = (typeof SER  !== 'undefined') && !!SER.port;
+  if(!wasLive && !wasOn) return;          /* nothing was plugged in — say nothing */
+  /* disarm BEFORE hanging up: an arm left standing over a dropped port is
+     an arm that starts driving again the moment anything reconnects */
+  if(wasLive && typeof liveSet === 'function')
+    liveSet(false, {why:'live drive disarmed — you left the servo bench'});
+  if(wasOn && typeof serialDisconnect === 'function') serialDisconnect();
+  const what = [];
+  if(wasOn)   what.push('the board is disconnected');
+  if(wasLive) what.push('live drive is disarmed');
+  HW.say('servo setup closed — '+what.join(' and ')+'. Every servo holds where it is: '
+       + 'nothing was released and nothing was snapped home, so a loaded panel cannot drop on the way out.');
+}
+
 function setupClose(){
   setupCalCancel();
+  /* the map is a panel on a step that is about to stop existing */
+  SETUP.dome = null;
+  setupExitHardware();
   SETUP.open = false;
   setupEsc.unbind();
   const h = $('setupWrap'); if(h){ h.classList.add('hide'); h.innerHTML=''; }
@@ -277,7 +336,17 @@ function setupRender(){
      back if one is open — otherwise ticking any other control silently shut
      it AND left the channel's min/max at the wide working range setupCalOpen
      installs, because only cancel and commit restore them. */
-  if(step.key === 'channels'){ setupBindLink(); setupBindChannels(); if(SETUP.cal) setupCalRender(); }
+  /* The dome map lives in #domeWrap for the same reason and with the same
+     hazard: this rebuild just emptied it, and a map that vanished on the
+     next keystroke would read as a crash (v1.45.0). The sim's fuller link
+     row is put back here too — Studio has no hwLinkRender and therefore no
+     #hwLink to fill. */
+  if(step.key === 'channels'){
+    setupBindLink(); setupBindChannels();
+    if(typeof hwLinkRender === 'function' && $('hwLink')) hwLinkRender();
+    if(SETUP.cal) setupCalRender();
+    if(SETUP.dome && SETUP.dome.open && typeof setupDomeRender === 'function') setupDomeRender();
+  }
   if(step.key === 'wiring' || step.key === 'expander') setupBindSimple();
   if(step.key === 'board' || step.key === 'sketch' || step.key === 'done') setupBindSimple();
 }
@@ -364,6 +433,13 @@ function setupStepExpander(){
 function setupLinkBar(){
   const on  = (typeof SER !== 'undefined') && !!SER.port;
   const mon = on && SER.blocked;
+  /* v1.45.0 — the fold-in. In the sim this step now also carries the OLD
+     bench's link row (hw-ui.js's hwLinkRender: the pulse rate, the serial
+     monitor and the chip). It deliberately does NOT bring a second connect
+     button with it: two identical connect buttons an inch apart is exactly
+     the duplication Mike asked to be rid of, and THIS is the one to keep,
+     because it is the one with the sentence beside it saying whether the
+     dial is measuring a servo or a model. */
   return '<div class="setlink'+(on ? (mon ? ' mon' : ' on') : '')+'" id="setLink">'
     + '<button class="'+(on?'mini':'prim')+'" id="bSetConnect">'
     + (on ? '⚡ Disconnect' : '⚡ Connect hardware') + '</button>'
@@ -378,14 +454,16 @@ function setupLinkBar(){
     + '</span></div>';
 }
 function setupBindLink(){
-  const b = $('bSetConnect'); if(!b) return;
-  b.onclick = async ()=>{
+  const b = $('bSetConnect');
+  if(b) b.onclick = async ()=>{
     if(typeof SER === 'undefined'){ return; }
     if(SER.port) await serialDisconnect(); else await serialConnect();
     setupRender();
   };
   /* repaint when the link changes under us — an unplugged cable, or the
-     Bench tab's own button */
+     header chip's own button. Registered whether or not the button above
+     exists (v1.45.0): the SENTENCE has to follow the link's state even on a
+     host where the button belongs to the row below it. */
   if(typeof serialUiRegister === 'function') serialUiRegister(setupLinkSync);
 }
 function setupLinkSync(){
@@ -744,6 +822,40 @@ function setupStepExports(){
       + '<span class="stat">a backup of this page rather than a servo config — boards, wiring, power, pulse rate '
       + 'and the channel table together.</span></div>';
   return s;
+}
+
+/* ------------------------------------------------------ writing a file out
+   v1.45.0. The two buttons below called a bare `download()` — a helper that
+   exists ONLY in PCA Studio (pca-studio/src/js/00-core.js). Both apps load
+   this file, so in the sim `servos.h` and the bench .json threw
+   ReferenceError the moment Mike pressed them: the only two exports in the
+   app that did nothing at all, on the screen whose whole output they are.
+
+   So the helper lives here, where both apps can reach it, and prefers the
+   host's own when there is one — Studio's `download` is these same six
+   lines and is what the rest of that app already uses, so nothing there
+   changes behaviour. */
+function setupDownload(name, text, mime){
+  if(typeof download === 'function'){ download(name, text, mime); return name; }
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], {type:mime || 'text/plain'}));
+  a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 4000);
+  return name;
+}
+/* ...and the names carry the moment they were written. `servos.h` and
+   `servo-setup.json` are regenerated every time a calibration changes, so
+   four of them pile up in one Downloads folder as servos.h, servos(1).h,
+   servos(2).h — and which one holds the endpoints you measured after lunch
+   is not a question a file name should make you open the file to answer.
+   fileStamp() is the sim's (core/util.js, '2026-08-17-1532'); Studio has no
+   clock helper of its own and gets the same shape from Date. */
+function setupFileName(base, ext){
+  const s = (typeof fileStamp === 'function')
+    ? fileStamp()
+    : new Date().toISOString().slice(0,16).replace('T','-').replace(':','');
+  return base + '-' + s + '.' + ext;
 }
 
 /* ---------------------------------------------------------- the exports */

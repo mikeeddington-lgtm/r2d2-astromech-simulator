@@ -28,7 +28,15 @@
          extra classes on the chips: hud.js rewrites className and text on
          every UI tick, and all the styling keys off #hdrBezel descent. -->
     <div id="hdrBezel">
-      <span class="fwtag" id="fwTag" title="the sketch this build runs — change it in Setup"></span>
+      <!-- v1.45.0 — Mike: "Remove the Maestro 2025 reference/image." The
+           read-only firmware tag lived here and spelled the active sketch's
+           short name across the title bar — MAESTRO 2025 on his build, which
+           is a Pololu product name sitting in the chrome of a project that is
+           not Pololu's, on every screenshot he takes. The sketch is still a
+           build answer and still says which one it is where it is chosen
+           (Setup → Firmware) and in the Config tab's "This droid" summary;
+           it no longer brands the header. panels.js's buildFwSelector() finds
+           no #fwTag and skips it, which is why nothing else had to change. -->
       <div class="chip bad" id="chFault" style="display:none"><span class="dot"></span><span>fault</span></div>
       <div class="chip" id="chGamepad"><span class="dot"></span><span>No pad</span></div>
       <div class="chip" id="chDrive"><span class="dot"></span><span>Drive off</span></div>
@@ -82,7 +90,7 @@
     </div>
   </div>
 
-  <div id="dropzone">drop a .mstr, a sketch .ino, an .r2m model, an audio track, the sound-pack zip or a setup .json anywhere</div>
+  <div id="dropzone">drop a maestro .mstr or .xml, a servo config .json, a whole-setup .json, a PCA9685 servos.h or sequences.h, a sketch .ino, an .r2m model, an audio track or the sound-pack zip anywhere</div>
 
   <div id="startup">
     <div class="stpcard">
@@ -357,8 +365,11 @@
 <!-- ============ BUILD YOUR MAESTRO (overlay) ============ -->
 <div id="bldWiz" class="iwrap" hidden></div>
 
-<!-- ============ SERVO HARDWARE (overlay) ============ -->
-<div id="hwWrap" class="iwrap" hidden></div>
+<!-- v1.45.0 — Mike: "Remove or merge the duplicated Servo Bench into Servo
+     Setup." #hwWrap was the second bench; its live columns, its board link
+     and its all-home/all-off are on the setup bench's Channels step now
+     (hw-ui.js, setup-hw-channels.js), so there is nothing left to draw here
+     and an empty overlay is just a door to nowhere. -->
 
 <!-- ============ SET UP YOUR SERVO HARDWARE (overlay) ============ -->
 <div id="setupWrap" class="hide"></div>
