@@ -287,7 +287,10 @@ function groupToSequences(id){
   });
   if(!chans.length) return {error:'no Maestro channel drives any part of this group — map channels on the Maestro tab first'};
   const base = new Array(MSTR.servoCount).fill(0);
-  MSTR.channels.forEach(c=>{ if(/^servo/i.test(c.mode)) base[c.i]=c.home; });
+  /* 2026-08-18 — chanRest(), not c.home: the base frame parks a door SHUT
+     and a gimbal centred; a home µs carrying a real-world offset must not
+     become the pose every generated sequence returns to. */
+  MSTR.channels.forEach(c=>{ if(/^servo/i.test(c.mode)) base[c.i]=chanRest(c); });
   /* v1.46.0 — max IS the open end, directed, whatever the numbers are; see
      chanEnds() in maestro/playback.js. `invert` is retired. */
   const openOf  = c => (typeof chanEnds === 'function') ? chanEnds(c).open : c.max;

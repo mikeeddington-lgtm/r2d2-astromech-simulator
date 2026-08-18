@@ -84,7 +84,10 @@ function buildMaestroPane(){
   const bAdd=el('button','b','+ Sequence');
   bAdd.addEventListener('click',()=>{
     const base = new Array(MSTR.servoCount).fill(0);
-    MSTR.channels.forEach(c=>{ if(/^servo/i.test(c.mode)) base[c.i]=c.home; });
+    /* 2026-08-18 — chanRest(), not c.home: a new sequence starts from the
+       rest pose (doors shut, gimbals centred), never from a home µs whose
+       offset belongs to the real linkage. */
+    MSTR.channels.forEach(c=>{ if(/^servo/i.test(c.mode)) base[c.i]=chanRest(c); });
     MSTR.sequences.push({name:'Sequence '+MSTR.sequences.length, frames:[{name:'Frame 0',duration:500,targets:base}]});
     EDIT.seq=MSTR.sequences.length-1; EDIT.frame=0; reindexSubs(); rebuildMaestroUI();
   });

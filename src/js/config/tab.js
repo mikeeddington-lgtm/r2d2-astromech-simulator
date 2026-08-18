@@ -107,8 +107,9 @@ function assignTest(act, cur){
   if(assignWillDriveHw(cur) && typeof HW !== 'undefined' && HW.channels){
     const c = HW.channels()[cur.ch];
     if(c){
-      const open = (typeof blockOpen === 'function') ? blockOpen(c) : Math.max(c.min, c.max);
-      const home = (typeof blockClosed === 'function') ? blockClosed(c) : (c.home || open);
+      /* fallbacks follow the directed pair too — min shut, max open (v1.46.0) */
+      const open = (typeof blockOpen === 'function') ? blockOpen(c) : c.max;
+      const home = (typeof blockClosed === 'function') ? blockClosed(c) : c.min;
       HW.drive(cur.ch, open);
       setTimeout(()=>HW.drive(cur.ch, home), 900);
       return;

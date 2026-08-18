@@ -884,6 +884,66 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
      tv.frameOpen.norm===1 && tv.frameOpen.sent.join()==='4000',
      JSON.stringify([tv.frameShut, tv.frameOpen]));
 
+  console.log('\n════ closed/open come from the directed pair, never home or neutral (2026-08-18) ════');
+  /* Mike: "The panels on the model should not match the settings within the
+     user's Servo settings — they are used for approximation not exact ... a
+     user may have weird offsets to make it work in their model." Two leaks
+     survived v1.46.0: blockClosed() read `home || neutral || 6000`, so a
+     bench-made channel (home:0, no neutral) compiled every routine's rest
+     pose at MID-TRAVEL — every panel on the model standing half open — and
+     chanRest() obeyed a Goto home even when it parked a mapped door ajar. */
+  const co = await ev(()=>{
+    const mk = o => Object.assign({i:0, name:'probe', mode:'Servo', act:'pie0',
+      min:4000, max:8000, home:0, homemode:'Off',
+      speed:0, acceleration:0, invert:false}, o);
+    const bench     = mk({});                              // the bench's own shape: home 0, no neutral
+    const gotoMid   = mk({home:6000, homemode:'Goto', neutral:6000});   // a stale pre-v1.45 starter
+    const reversed  = mk({min:8000, max:4000});            // the bench's reversal — the pair's order
+    const boardOnly = mk({act:'', home:6600, homemode:'Goto'});         // nothing on screen
+    return {
+      bench:    {closed:blockClosed(bench),    open:blockOpen(bench),    rest:chanRest(bench)},
+      gotoMid:  {closed:blockClosed(gotoMid),  open:blockOpen(gotoMid),  rest:chanRest(gotoMid)},
+      reversed: {closed:blockClosed(reversed), open:blockOpen(reversed), rest:chanRest(reversed)},
+      boardOnly:{rest:chanRest(boardOnly)}
+    };
+  });
+  ok('a bench channel (home 0, no neutral) closes at its SHUT end, not at 6000',
+     co.bench.closed===4000 && co.bench.open===8000 && co.bench.rest===4000, JSON.stringify(co.bench));
+  ok('a Goto home mid-travel no longer parks a mapped DOOR half open on the model',
+     co.gotoMid.closed===4000 && co.gotoMid.open===8000 && co.gotoMid.rest===4000, JSON.stringify(co.gotoMid));
+  ok('a reversed pair closes at ITS shut end and opens at the other — never "furthest from home"',
+     co.reversed.closed===8000 && co.reversed.open===4000 && co.reversed.rest===8000, JSON.stringify(co.reversed));
+  ok('a board-only channel (no part on screen) still rests at its measured Goto home',
+     co.boardOnly.rest===6600, JSON.stringify(co.boardOnly));
+  /* end to end: the stale-store scenario. Give the real pie0 channel the old
+     starter's Goto/6000 shape, compile a one-brick routine, and the rest
+     frames must park it SHUT — then the pose the store restores agrees. */
+  const co2 = await ev(()=>{
+    const act = blockActions()[0].act;
+    const c = blockChan(act);
+    const keep = {home:c.home, homemode:c.homemode, neutral:c.neutral};
+    c.home = 6000; c.homemode = 'Goto'; c.neutral = 6000;
+    EDIT.seq = blockNewRoutine('Stale Goto rest test');
+    const seq = MSTR.sequences[EDIT.seq];
+    blockAdd(seq, 'act', act, 0, {dur:1000, rise:200, fall:200});
+    const out = {
+      shut:  chanEnds(c).shut,
+      /* the first frame is the first ramp step — mid-ramp values are fine.
+         What must never happen again: the HOME frame and the rest pose
+         copying a stale Goto/6000 out of the settings. */
+      end:   seq.frames[seq.frames.length-1].targets[c.i],
+      endName: seq.frames[seq.frames.length-1].name,
+      rest:  chanRest(c), restNorm: chanNorm(c, chanRest(c))
+    };
+    c.home = keep.home; c.homemode = keep.homemode; c.neutral = keep.neutral;
+    MSTR.sequences.splice(EDIT.seq, 1); EDIT.seq = 0; EDIT.frame = -1;
+    if(typeof reindexSubs === 'function') reindexSubs();
+    return out;
+  });
+  ok('a routine compiled against a stale Goto/6000 channel still lands its home frame SHUT',
+     co2.end===co2.shut && co2.endName==='home' && co2.rest===co2.shut && co2.restNorm===0,
+     JSON.stringify(co2));
+
   console.log('\n════ no page errors ════');
   ok('nothing threw', errs.length===0, errs.join(' | '));
 

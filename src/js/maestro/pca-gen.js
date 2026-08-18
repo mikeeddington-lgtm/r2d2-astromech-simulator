@@ -139,5 +139,18 @@ function pcaGenHeader(channels, sequences, meta){
     used[id] = true;
     s += '#define '+id+' '+k+'\n';
   });
+  /* v1.48.0 — the bricks ride along as a comment the compiler ignores, so
+     importing this file back gives EDITABLE routines when the endpoints
+     still agree (blocksPack()/blocksTryAttach(), maestro/blocks.js).
+     base64: `* /` cannot occur, so the comment cannot end early. */
+  const packed = (typeof blocksPack === 'function') ? blocksPack(sequences) : '';
+  if(packed) s += '\n/* r2sim:blocks '+packed+' */\n';
+  /* v1.48.1 — and the part mapping, for the same reason and by the same
+     means: a MaestroPCA table has no column for "which panel", so without
+     this a wholesale import re-derives it with guessPart(name) and re-wires
+     a droid whose channel names disagree with the CAD's numbering
+     (export.js mstrActsComment carries the whole argument). */
+  const packedActs = (typeof actsPack === 'function') ? actsPack(channels) : '';
+  if(packedActs) s += '\n/* r2sim:acts '+packedActs+' */\n';
   return s;
 }

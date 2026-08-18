@@ -109,9 +109,26 @@ function applyLivePose(){
     if(typeof liveWrite === 'function') liveWrite(c, EDIT.live[c.i]);
   }
 }
-/* a sequence being played back — used by restartScript() and by the editor */
+/* a sequence being played back — used by restartScript() and by the editor.
+   v1.48.0 — the slot remembers which LIBRARY routine its frames belong to,
+   by identity: an unwired brick cannot ride the compiled frames (it has no
+   channel index), so DURING any playback — the pad, a loadout slot, the
+   sequencer preview — its envelope is laid straight onto the model
+   (blockFreeAt, maestro/blocks.js). Model only, never the wire: liveWrite()
+   still sees exactly the frames. Mike, 2026-08-18: unmapped panels "should
+   'Work' on the sim", wherever the sim plays them. */
 function seqStart(slotKey, frames, label){
-  MAESTRO.slot[slotKey] = {kind:'seq', frames, i:-1, t:0, label:label||'sequence'};
+  MAESTRO.slot[slotKey] = {kind:'seq', frames, i:-1, t:0, label:label||'sequence',
+    seq: (typeof MSTR !== 'undefined' && MSTR.sequences)
+       ? MSTR.sequences.find(q=>q && q.frames === frames) : null};
+}
+function seqFreeOverlay(s, done){
+  const q = s.seq;
+  if(!q || !q.blocks || typeof blockFreeAt !== 'function' || typeof ACT_T === 'undefined') return;
+  let t = s.t || 0;
+  for(let i=0; i<s.i && i<s.frames.length; i++) t += s.frames[i].duration;
+  const free = blockFreeAt(q, done ? -1 : t);   // -1 = outside every brick → parked shut,
+  for(const a in free) ACT_T[a] = free[a];      //     the free lanes' own "home frame"
 }
 function seqStepPlayback(slotKey, s, dtms){
   if(s.i<0){ s.i=0; s.t=0; if(s.frames[0]) applyFrameTargets(s.frames[0].targets); }
@@ -121,6 +138,7 @@ function seqStepPlayback(slotKey, s, dtms){
     s.i++;
     if(s.frames[s.i]) applyFrameTargets(s.frames[s.i].targets);
   }
-  if(!s.frames[s.i]) delete MAESTRO.slot[slotKey];
+  if(!s.frames[s.i]){ seqFreeOverlay(s, true); delete MAESTRO.slot[slotKey]; }
+  else seqFreeOverlay(s, false);
 }
 function seqTotal(seq){ return seq.frames.reduce((a,f)=>a+f.duration,0); }

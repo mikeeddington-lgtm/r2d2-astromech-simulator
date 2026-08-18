@@ -106,6 +106,30 @@ function blkMultiDuplicate(seq, ids){
   blockSync(seq);
   buildSequencer();
 }
+/* Mike, 2026-08-18: "select multiple and copy, delete and extend the run
+   time and even bulk change if its an open, open and close or just close".
+   Duplicate and Remove already existed; these write the run time and the
+   motion mode across the whole selection — one undo snapshot per gesture,
+   selection kept, same model fields the single-brick inspector writes. */
+function blkMultiDur(seq, ids, v){
+  if(!seq || !ids || !ids.length) return;
+  v = Math.max(200, Math.min(8000, Math.round(+v || 0)));
+  blockHistPush(seq);
+  ids.forEach(id=>{ const b = blockFind(seq, id); if(b) b.dur = v; });
+  blockSync(seq);
+  buildSequencer();
+}
+function blkMultiMode(seq, ids, mode){
+  if(!seq || !ids || !ids.length) return;
+  blockHistPush(seq);
+  ids.forEach(id=>{
+    const b = blockFind(seq, id);
+    if(!b || b.kind === 'seq') return;          // a nested sequence has no motion of its own
+    if(mode === 'oc') delete b.mode; else b.mode = mode;   // same contract as the single dropdown
+  });
+  blockSync(seq);
+  buildSequencer();
+}
 
 function blkSeq(){ return MSTR.loaded ? MSTR.sequences[EDIT.seq] : null; }
 function blkX(ms){ return ms * BLK.pxms; }
@@ -337,9 +361,17 @@ function blkTimeline(seq){
   const lanes = blockLanes(seq);
   const total = blkTotal(seq);
 
-  /* ruler — time ticks plus the beat grid when music is loaded */
+  /* ruler — time ticks plus the beat grid when music is loaded.
+     The corner cell IS the snap picker (Mike, 2026-08-18: "there should be
+     a selector for Snap to nearest auto-snap next to the timeline timming
+     line" — it had lived in the transport bar since v1.12.0, where he
+     never found it; the control belongs beside the line it governs). */
   const rulerRow = el('div','tlrow hdr');
-  rulerRow.appendChild(el('div','blklane hdr','time'));
+  const corner = el('div','blklane hdr');
+  corner.id = 'sqSnapWrap';
+  corner.title = 'how dragged bricks snap onto the timing line — to neighbouring bricks and the grid, and to the beat when music is loaded';
+  if(typeof buildSnapPicker === 'function') buildSnapPicker(corner);
+  rulerRow.appendChild(corner);
   const ruler = el('div','blkruler');
   ruler.style.width = blkX(total)+'px';
   for(let t=0; t<=total; t+=500){
@@ -431,9 +463,9 @@ function blkBrick(seq, b){
   d.appendChild(el('span','blkdur', wired ? (b.dur/1000).toFixed(1)+'s' : 'not wired'));
   if(!wired){
     d.dataset.unwired = '1';
-    d.title = label + ' has no servo channel yet, so this brick moves nothing and is left out of the '
-            + 'compiled frames. Give the panel a channel and it starts working — the brick keeps its '
-            + 'timing in the meantime.';
+    d.title = label + ' has no servo channel yet, so this brick moves the MODEL only and is left out '
+            + 'of the compiled frames. Give the panel a channel and it drives the real droid too — '
+            + 'the brick keeps its timing in the meantime.';
   }
   /* the ramps, drawn — you can see the open and close speeds */
   if(b.kind !== 'seq'){
@@ -643,7 +675,7 @@ function blkActionLib(seq){
     const c = el('div','blkchip off unconf', m.label);
     c.dataset.act = m.act;
     c.title = m.label + ' has no servo channel yet — drag it in anyway and the brick stays grey '
-            + 'until you map it; it moves nothing and compiles to nothing until then.'
+            + 'until you map it; it moves the model in previews but compiles to nothing until then.'
             + (m.lit ? '\nprinted droid lists this one as ' + m.lit + ' rather than a servo; plenty of builds differ.' : '')
             + (m.cad ? '\nCAD: ' + m.cad : '');
     chipDrop(c, m.act, m.label);
@@ -763,6 +795,50 @@ function blkInspectorMulti(seq, ids){
   bDel.addEventListener('click',()=>blkMultiRemove(seq, ids));
   bar.appendChild(bDup); bar.appendChild(bDel);
   host.appendChild(bar);
+
+  /* the two bulk edits (Mike, 2026-08-18) — run time for every selected
+     brick, and the motion shape for every selected act brick */
+  const bricks = ids.map(id=>blockFind(seq, id)).filter(Boolean);
+  const durs = bricks.map(b=>b.dur);
+  const durUniform = durs.length && durs.every(d=>d===durs[0]);
+  const dr = el('div','blkfield');
+  const dl = el('label',null,'Runs for');
+  dl.title = 'set how long EVERY selected brick lasts, in one go';
+  dr.appendChild(dl);
+  const di = document.createElement('input');
+  di.type='number'; di.min=200; di.max=8000; di.step=50;
+  di.dataset.multi = 'dur';
+  di.value = durUniform ? durs[0] : Math.max(...durs);
+  di.addEventListener('change',()=>{ blkMultiDur(seq, ids, +di.value); });
+  dr.appendChild(di);
+  dr.appendChild(el('span','blkval', durUniform ? 'ms' : 'ms · mixed'));
+  host.appendChild(dr);
+
+  const actBricks = bricks.filter(b=>b.kind !== 'seq');
+  if(actBricks.length){
+    const modes = actBricks.map(b=>b.mode || 'oc');
+    const modeUniform = modes.every(m=>m===modes[0]);
+    const mr = el('div','blkfield');
+    const ml = el('label',null,'Motion');
+    ml.title = 'what every selected brick does inside its own window — opens, opens then closes, or just closes';
+    mr.appendChild(ml);
+    const ms = document.createElement('select'); ms.className = 'blksel';
+    ms.dataset.multi = 'mode';
+    if(!modeUniform){
+      const o = document.createElement('option');
+      o.value=''; o.textContent='— mixed —'; o.disabled=true; o.selected=true;
+      ms.appendChild(o);
+    }
+    BLK_MOTION_MODES.forEach(([v,l])=>{
+      const o = document.createElement('option'); o.value = v; o.textContent = l;
+      if(modeUniform && modes[0]===v) o.selected = true;
+      ms.appendChild(o);
+    });
+    ms.addEventListener('change',()=>{ if(ms.value) blkMultiMode(seq, ids, ms.value); });
+    mr.appendChild(ms);
+    host.appendChild(mr);
+  }
+
   const h = el('div','blkinsphint');
   h.textContent = 'Shift+click (or Ctrl+click) another brick to add it to the selection. '
     + 'A plain click, or Esc, drops back to one.';
@@ -1073,6 +1149,25 @@ function blkTick(){
     let t = slot.t || 0;
     for(let i=0; i<slot.i && i<slot.frames.length; i++) t += slot.frames[i].duration;
     blkPlayheadFollow(t);
+    /* unwired bricks preview on the MODEL (2026-08-18) — the compiled
+       frames the slot is playing cannot carry them (no channel index),
+       so the follow loop lays their envelope over ACT_T at the same
+       instant. Model only: nothing here can reach liveWrite. */
+    const seq = blkSeq();
+    if(seq && blockIsRoutine(seq) && typeof blockFreeAt === 'function' && typeof ACT_T !== 'undefined'){
+      const free = blockFreeAt(seq, t);
+      let any = false;
+      for(const a in free){ ACT_T[a] = free[a]; any = true; }
+      BLK.freeLive = any ? seq : null;
+    }
+  } else if(BLK.freeLive){
+    /* the preview ended — the home frame parks every WIRED channel shut;
+       park the free lanes the same way, once */
+    const seq = BLK.freeLive; BLK.freeLive = null;
+    if(typeof blockFreeAt === 'function' && typeof ACT_T !== 'undefined'){
+      const free = blockFreeAt(seq, -1);        // outside every brick = closed
+      for(const a in free) ACT_T[a] = free[a];
+    }
   }
   BLK.raf = requestAnimationFrame(blkTick);
 }

@@ -263,7 +263,7 @@ function makeStarter(which, boardId){
   }});
   MSTR.loaded = true;
   MSTR.fileName = (board==='dome') ? 'R2-dome-maestro-starter.mstr' : (board==='anzellan') ? 'R2-anzellan-maestro-starter.mstr' : 'R2-body-maestro-starter.mstr';
-  EDIT.live = channels.map(c=>c.home);
+  EDIT.live = channels.map(c=>chanRest(c));   // 2026-08-18 — the one seeding that still read c.home
   EDIT.seq=0; EDIT.frame=-1;
   /* v1.43.0 — keep it. A starter that is not stored is a starter that gets
      regenerated on the next boot, over the top of whatever was done to it

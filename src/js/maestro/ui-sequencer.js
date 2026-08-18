@@ -77,7 +77,8 @@ function buildSequencer(){
        + '  ·  ' + (seqTotal(seq)/1000).toFixed(1) + 's'
        + (BLK.adv ? '  ·  sub ' + niceName(seq.name) : ''))
     : 'no settings file — the Maestro tab can generate a starter';
-  buildSnapPicker();
+  /* the snap picker is built by blkTimeline() into the ruler's corner cell
+     (v1.47.0) — no separate call needed here */
   if(typeof buildSeqLib==='function') buildSeqLib();
   if(typeof buildBlocks==='function') buildBlocks();
   buildTimeline(); buildPose(); buildFrameTable();
@@ -94,8 +95,11 @@ const SNAP_MODES = [
   ['all',   'All beats',      'snap to every beat'],
   ['off',   'Off / manual',   'no snapping — place bricks freely']
 ];
-function buildSnapPicker(){
-  const host = $('sqSnapWrap'); if(!host) return;
+function buildSnapPicker(hostNode){
+  /* v1.47.0 — the picker lives in the timeline ruler's corner cell, which
+     blkTimeline() builds DETACHED and passes in; the id lookup remains as
+     the fallback for any caller that still has a live wrap in the DOM. */
+  const host = hostNode || $('sqSnapWrap'); if(!host) return;
   host.innerHTML = '';
   const hasMusic = (typeof MUSIC !== 'undefined') && MUSIC.loaded;
   host.appendChild(el('span',null,'snap'));
@@ -281,13 +285,13 @@ $('sqPlay').addEventListener('click',()=>{
   if(typeof blkPlayheadSet==='function') blkPlayheadSet(0, false);
   seqStart('edit', seq.frames, 'preview');
   lg('mae','preview: '+seq.name+'  ('+seqTotal(seq)+' ms)');
-  /* v1.46.0 — a grey brick moves nothing, and a preview in which one part
-     simply never moves is a mystery unless somebody says why. Named, at the
-     moment you are watching for it. */
+  /* v1.47.2 — a grey brick DOES move the model in the preview now (Mike:
+     unmapped panels "should 'Work' on the sim"); what it cannot do is
+     reach the board. Still named, at the moment you are watching. */
   const un = (typeof blockUnwiredNote==='function') ? blockUnwiredNote(seq) : '';
   if(un){
-    if(typeof toast==='function') toast(un+' — nothing moves for them in the preview', 'warn');
-    lg('warn','preview: '+un+' — they move nothing');
+    if(typeof toast==='function') toast(un+' — they move the model only until they are mapped', 'warn');
+    lg('warn','preview: '+un+' — model only, nothing reaches a board for them');
   }
 });
 $('sqStop').addEventListener('click',()=>{

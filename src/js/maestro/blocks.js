@@ -156,13 +156,19 @@ function blockUnwiredNote(seq){
 function blockEndCompiled(seq){
   return blockList(seq).reduce((m,b)=>blockWired(b) ? Math.max(m, b.t0 + b.dur) : m, 0);
 }
-/* closed is the home pose; open is whichever endpoint is further from it */
-function blockClosed(c){ return c.home || c.neutral || BLKH.neutral(); }
-function blockOpen(c){
-  const home = blockClosed(c);
-  const lo = Math.min(c.min, c.max), hi = Math.max(c.min, c.max);
-  return (Math.abs(hi - home) >= Math.abs(home - lo)) ? hi : lo;
-}
+/* closed IS the channel's shut end and open its open end — the directed
+   pair, v1.46.0's travel rule (chanEnds(), maestro/playback.js). NOT the
+   home or neutral µs from the user's servo settings: those numbers belong
+   to the real linkage and can carry weird offsets (Mike, 2026-08-18 — the
+   model approximates, it never matches). The old `home || neutral || 6000`
+   parked every bench-made channel (home 0, no neutral column) at
+   MID-TRAVEL, so a compiled routine stood every panel on the model half
+   open; and "open is whichever endpoint is further from home" drove a
+   reversed pair toward its own SHUT end. PCA Studio loads this file
+   without playback.js, so fall back to the pair itself — same convention,
+   the bench's own (hw-table.js): min shut, max open, directed. */
+function blockClosed(c){ return (typeof chanEnds === 'function') ? chanEnds(c).shut : c.min; }
+function blockOpen(c){ return (typeof chanEnds === 'function') ? chanEnds(c).open : c.max; }
 
 /* ------------------------------------------- the imported travel limits
    The user's .mstr carries a speed and an acceleration per channel, tuned
@@ -348,6 +354,54 @@ function blockBoundaries(seq){
           'o'/'co' brick left it that way).
      'co' amp→0 over fall at the start, holds 0, then 0→amp over rise
           ending at dur. */
+/* The brick's SHAPE alone, in 0..1 of its own throw (amp included), no
+   channel needed — this is what lets an UNWIRED brick move the model
+   (Mike, 2026-08-18: unmapped panels "should 'Work' on the sim and once I
+   or a user maps them they will then work in the real model").
+   MUST MIRROR blockValueAt below, mode for mode and ramp for ramp —
+   blockValueAt keeps its own µs arithmetic (round the open end first,
+   then the lerp) so the compiled frames stay byte-stable; this one is the
+   same envelope said in normalised travel. Change them together. */
+function blockEnvAt(b, t){
+  if(t < b.t0 || t > b.t0 + b.dur) return null;
+  const amp = (b.amp === undefined) ? 1 : b.amp;
+  const {rise, fall} = blockEffRamps(b);
+  const local = t - b.t0;
+  const lerp = (from, to, frac) => from + (to - from) * frac;
+  const mode = blockMode(b);
+  if(mode === 'o'){
+    if(rise > 0 && local < rise) return lerp(0, amp, local/rise);
+    return amp;
+  }
+  if(mode === 'c'){
+    if(fall > 0 && local < fall) return lerp(amp, 0, local/fall);
+    return 0;
+  }
+  if(mode === 'co'){
+    if(fall > 0 && local < fall) return lerp(amp, 0, local/fall);
+    const rstart = b.dur - rise;
+    if(rise > 0 && local >= rstart) return lerp(0, amp, (local - rstart)/rise);
+    return 0;
+  }
+  /* 'oc' */
+  if(rise > 0 && local < rise) return lerp(0, amp, local/rise);
+  if(fall > 0 && local > b.dur - fall) return lerp(amp, 0, (local - (b.dur-fall))/fall);
+  return amp;
+}
+/* every UNWIRED act brick's openness at time t — keyed by act, defaulted
+   to 0 (closed) so a lane parks shut outside its bricks, exactly as a
+   wired channel parks at base-closed between its own. Later bricks win,
+   the same layering rule the wired path uses. */
+function blockFreeAt(seq, ms){
+  const free = {};
+  blockList(seq).forEach(b=>{
+    if(b.kind !== 'act' || blockWired(b)) return;
+    if(free[b.ref] === undefined) free[b.ref] = 0;
+    const env = blockEnvAt(b, ms);
+    if(env !== null) free[b.ref] = env;
+  });
+  return free;
+}
 function blockValueAt(b, t){
   if(t < b.t0 || t > b.t0 + b.dur) return null;
   const c = blockChan(b.ref); if(!c) return null;
@@ -387,6 +441,58 @@ function blockSeqTargetsAt(b, t){
     at += f.duration;
   }
   return ref.frames.length ? ref.frames[ref.frames.length-1].targets : null;
+}
+
+/* ===================================================== BRICKS THAT TRAVEL
+   Mike, 2026-08-18, off the round-trip report: "could we not export teh
+   Bricks info into the export files that are commented out - but when we
+   import we can import them as bricks". So: the choreography .json always
+   carried `blocks`; the .mstr and sequences.h writers now embed them as a
+   comment (base64 JSON — XML forbids `--` and C forbids `* /` inside a
+   comment, base64 contains neither), and every reader hands them to
+   blocksTryAttach(), which re-attaches them ONLY when compiling the bricks
+   against the DESTINATION table reproduces the imported frames exactly.
+   Frames stay the truth; bricks are editability, restored when honest. */
+function blocksPack(seqs){
+  const out = {};
+  (seqs || []).forEach(s=>{
+    if(s && s.blocks && s.blocks.length)
+      out[s.name] = s.blocks.map(b=>{ const nb = Object.assign({}, b); delete nb.id; return nb; });
+  });
+  if(!Object.keys(out).length) return '';
+  const json = JSON.stringify({v:1, seqs:out});
+  return btoa(unescape(encodeURIComponent(json)));
+}
+function blocksUnpack(b64){
+  try{
+    const json = decodeURIComponent(escape(atob(String(b64 || '').trim())));
+    const o = JSON.parse(json);
+    return (o && o.v === 1 && o.seqs) ? o.seqs : null;
+  }catch(e){ return null; }
+}
+/* attach candidate bricks to a sequence IF they honestly describe it:
+   compile them against the CURRENT table and require the same frames,
+   duration for duration and target for target (0 and a hole both mean
+   "untouched"). On success the sequence becomes a routine again — frames
+   regenerated from its own bricks, fresh ids so BLK_NEXT_ID never
+   collides. On failure nothing changes and the caller says so by name. */
+function blocksTryAttach(seq, cand){
+  if(!seq || !cand || !cand.length || !seq.frames || !seq.frames.length) return false;
+  if(typeof BLKH === 'undefined' || !BLKH.loaded()) return false;
+  const blocks = cand.map(b=>{ const nb = Object.assign({}, b); nb.id = BLK_NEXT_ID++; return nb; });
+  let frames;
+  try{ frames = blockCompile({name:seq.name, frames:seq.frames, blocks}); }
+  catch(e){ return false; }
+  if(!frames || frames.length !== seq.frames.length) return false;
+  for(let i=0;i<frames.length;i++){
+    const a = frames[i], b = seq.frames[i];
+    if(a.duration !== b.duration) return false;
+    const n = Math.max(a.targets.length, b.targets.length);
+    for(let k=0;k<n;k++) if((a.targets[k]||0) !== (b.targets[k]||0)) return false;
+  }
+  seq.blocks = blocks;
+  seq.frames = frames;         // a routine's frames are derived — adopt the compiled names too
+  return true;
 }
 
 function blockCompile(seq){
@@ -835,6 +941,13 @@ function blockPoseAt(seq, ms){
       }
     });
     BLKH.applyPose(targets);
+    /* unwired bricks move the MODEL too (2026-08-18) — through the host
+       seam, which only the sim provides: PCA Studio has no droid and no
+       ACT_T, so there the question does not apply. Never the wire. */
+    if(BLKH.applyFree){
+      const free = blockFreeAt(seq, ms);
+      for(const a in free) BLKH.applyFree(a, free[a]);
+    }
     return;
   }
   if(!seq.frames || !seq.frames.length) return;

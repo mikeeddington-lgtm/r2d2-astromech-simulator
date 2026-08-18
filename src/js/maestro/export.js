@@ -272,9 +272,60 @@ function buildMstrText(){
     t = t.replace(/[ \t]*<Script\b[^>]*\/>|[ \t]*<Script\b[^>]*>[\s\S]*?<\/Script>/, ()=>scriptXml); // v1.39.5: replacement is a function so $ in a user's name is not a pattern
     if(t.indexOf('<Sequences>')<0) t = t.replace('</UscSettings>', ()=>seqXml+'\n</UscSettings>');
     if(t.indexOf('<Script')<0)     t = t.replace('</UscSettings>', ()=>scriptXml+'\n</UscSettings>');
-    return t;
+    return mstrSidecar(t);
   }
-  return genFullMstr(seqXml, scriptXml);
+  return mstrSidecar(genFullMstr(seqXml, scriptXml));
+}
+/* both of our comments, in one place, so a new one cannot be added to one
+   branch of buildMstrText() and forgotten in the other */
+function mstrSidecar(t){ return mstrActsComment(mstrBlocksComment(t)); }
+
+/* =====================================================================
+   THE PART MAPPING RIDES THE .mstr TOO (v1.48.1)
+
+   A Pololu settings file has no column for "which panel is this?" — it
+   never had one, and `<Channel>` is name, mode, travel, speed,
+   acceleration and nothing else. So `mstrParse()` has always re-derived
+   the mapping with `guessPart(name)`, and for a wholesale import
+   (`mstrApply()`, which IS the table) that guess REPLACES whatever the
+   builder assigned by hand.
+
+   On the starter table nobody notices, because the names ARE the guess.
+   On Mike's they are not — he names a channel "Panel7" and wires it to
+   the CAD lane `panel5`, because his physical panel numbering is not the
+   CAD's — and a round trip through his own file came back with channels
+   11 and 12 BOTH claiming `panel6`, `panel5` and `panel11` driven by
+   nothing, and every brick naming either of them unwired. The frames were
+   still exact, which is exactly why it went unseen until v1.48.0 gave the
+   bricks a way home and `blocksTryAttach()` started refusing them.
+
+   Same trick as the bricks, same reasons: an XML comment Control Center
+   ignores, base64 so no `--` and no user's name can break the file, any
+   older copy stripped first. Written by CHANNEL INDEX because that is
+   what the <Channels> block is keyed by, and an empty string is a channel
+   deliberately mapped to nothing.
+   ===================================================================== */
+function actsPack(channels){
+  const acts = (channels || []).map(c=>(c && c.act) || '');
+  if(!acts.some(a=>a)) return '';
+  return btoa(unescape(encodeURIComponent(JSON.stringify({v:1, acts:acts}))));
+}
+function mstrActsComment(t){
+  t = t.replace(/[ \t]*<!--r2sim:acts [A-Za-z0-9+/=]+-->\n?/g, '');
+  const packed = actsPack(MSTR.channels);
+  if(!packed) return t;
+  return t.replace('</UscSettings>', ()=>'  <!--r2sim:acts '+packed+'-->\n</UscSettings>');
+}
+/* v1.48.0 — the bricks ride the .mstr as an XML comment (Control Center
+   ignores comments), so a round trip through our own file can come back
+   EDITABLE. Any older copy of the comment is stripped first. base64, so
+   neither `--` (illegal inside an XML comment) nor a user's name can break
+   the file. blocksPack()/blocksTryAttach() in maestro/blocks.js. */
+function mstrBlocksComment(t){
+  t = t.replace(/[ \t]*<!--r2sim:blocks [A-Za-z0-9+/=]+-->\n?/g, '');
+  const packed = (typeof blocksPack === 'function') ? blocksPack(MSTR.sequences) : '';
+  if(!packed) return t;
+  return t.replace('</UscSettings>', ()=>'  <!--r2sim:blocks '+packed+'-->\n</UscSettings>');
 }
 /* the <Channels> block, regenerated from live channel state */
 function genChannelsXml(ind){

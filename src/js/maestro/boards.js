@@ -102,11 +102,16 @@ const DEFAULT_MIN=4000, DEFAULT_MAX=8000, DEFAULT_NEUTRAL=6000;
    `home:DEFAULT_MIN` precisely "so doors rest shut") — nothing else did.
 
    So the resting pose is a question about the ACTUATOR, not about the number:
-     · an explicit Goto home is obeyed, always — somebody measured that
-     · a bipolar actuator (a holo pan/tilt, a head gimbal, a builder joint)
-       rests centred, because both ends are travel away from its middle
-     · everything else — pies, side panels, doors, the drawer, the arms —
-       rests at 0, which is shut
+     · a part on screen rests where ITS KIND rests — a door shut, a bipolar
+       actuator (a holo pan/tilt, a head gimbal, a builder joint) centred —
+       EVEN when the channel carries a measured Goto home. (2026-08-18,
+       Mike: the panels on the model "are used for approximation not exact"
+       — a user may home a real door slightly ajar to spare a linkage, and
+       the model must not stand there ajar copying the number. Until then a
+       stale stored starter with `home:6000, homemode:'Goto'` parked every
+       mapped panel HALF OPEN, resurrecting the exact v1.45.0 bug.)
+     · a board-only channel (no part on screen) obeys an explicit Goto home
+       — somebody measured that, and there is nothing on the model to lie
    `homemode` Off/Ignore means the board does not drive the channel at power-up
    at all, so there is no number to obey and the actuator's own answer wins.
    One reader, `chanRest(c)`, in quarter-µs, so the model and the board agree. */
@@ -119,14 +124,14 @@ function actRestNorm(act){
 }
 function chanRest(c){
   if(!c) return DEFAULT_NEUTRAL;
-  if(/^goto$/i.test(c.homemode || '') && c.home !== undefined && c.home !== null) return c.home;
   const r = actRestNorm(c.act);
-  if(r === null) return (c.home !== undefined && c.home !== null) ? c.home : (c.neutral || DEFAULT_NEUTRAL);
   /* v1.46.0 — chanDenorm(), not a sorted pair: min is the SHUT end and max
      the open one whatever their numeric order, so "a door rests at 0" now
      parks a reversed channel at its own shut end rather than at whichever
      number happened to be lower. One rule, see chanNorm() in playback.js. */
-  return chanDenorm(c, r);
+  if(r !== null) return chanDenorm(c, r);
+  if(/^goto$/i.test(c.homemode || '') && c.home !== undefined && c.home !== null) return c.home;
+  return (c.home !== undefined && c.home !== null) ? c.home : (c.neutral || DEFAULT_NEUTRAL);
 }
 
 function qus(v){ return (v/4).toFixed(0)+' us'; }

@@ -7,7 +7,7 @@ the bottom and, where it alters how things work, an edit to the section above it
 a `GIT.md`; it went at the public split and its content is in §9); this file is
 the *why*, the *state* and the *next*.
 
-Last updated: **2026-08-17** (v1.46.0: **the sim stops inheriting a bad bench** — on the model a channel's `min` is SHUT and its `max` is FULLY OPEN, directed rather than sorted, so a narrow span, a big offset or a reversed pair animates the same full sweep and the real board still gets the authored microseconds (`chanEnds()`, `maestro/playback.js`); `invert` is **retired** and a legacy file carrying it is adopted by swapping its two ends; **an unmapped panel can be dragged into the sequencer and stays grey**, keeps its place and timing, is left out of the compiled frames with a named warning, and starts working the moment it has a channel; an **import sequence button on the sequencer desk**; the import job is **three visible choices** — servo config only, servo config and choreography, choreography only — with a choice the dropped file cannot satisfy unavailable *and reasoned*, a **replace prompt naming what you are about to lose** (cancel · save a copy first · replace), choreography offering **save-then-replace or add as additions** with the collisions named, "save a copy" writing a timestamped file that must land before the import proceeds, and the prompt sitting at the READER's door so all three servo-config entry points ask it; and Mike's two defaults — **one controller and two expanders**, first and selected, and **DY-SV5W** — which he chose to pair with padawan360 mod2026 knowing the sketch drives neither, so a fresh build shows exactly those two objections and one click hands the sketch to the setup; v1.45.0: **Mike's thirty-item list, in one release** — the app opens in **light mode**; **Servo hardware is image-led** (pick Maestro or PCA9685 by its photograph, then that family's own question: one board or two, or the expander arrangement, defaulting to one controller and two expanders); every **setup rail chip is one size**; **Reset really does clear the servo config** (it always deleted the store, and `pagehide` then wrote the still-populated table straight back); the **wiring diagrams are marked BETA** and the dead **Boards section is gone** from the Wiring step; **every saved file carries the date and the time**; the channel table is in **Mike's column order with the first six columns pinned**, so `configure…` never scrolls off the edge, and its four paragraphs of standing prose now fold away so you see the table; a **dome map inside the bench** assigns a channel to a panel by clicking the dome; the **second servo bench is folded into the first** — `#hwWrap` is gone, its live drive/position columns and its board link came with it, and **leaving the bench now disconnects the board**; the Maestro pane has **one guided front door** for build / import / export / assign; the sequencer **lists every moving panel**, with the unconfigured ones dashed and grey; a **PCA9685 `servos.h` / `sequences.h` can be imported as well as written**, with every field that cannot cross the boundary named rather than silently dropped; **one canonical sentence** says what can be imported and exported; **the track's furniture adapts to the track** — curvature-aware spacing, no interpenetrating rails or kerbs on a 3 m lap, no inverted barrier ring inside a hairpin, and the pinch warning no longer switches itself off on small circuits; gates are **sorted into track order** and the painted start line, the grid and the timing line finally agree; **named track layouts** with save-as, load, rename and delete, the stock lap never overwritable; the **Model Builder is repaired** — deleting a joint crashed the frame loop sixteen times a second — and gained **drag-and-drop with auto-connection**, **driven centre-pivot plates**, **per-joint preview sliders**, **usage instructions** and its **own model file** to export and import; **panels rest shut** (`chanRest()` — mid-travel is right for a gimbal and wrong for a door, which is why the pie panels sat half open); and the **MAESTRO 2025 chip is out of the header**; v1.44.1: **one browser launch, not thirty-one** — `tests/harness.js` owns the Chromium flags, and the GitHub workflows moved to the node24 action runtime; v1.44.0: **ready to be handed to strangers** — the project goes public with MrBaddeley's permission for the geometry, MIT (scoped) with forty lines saying what it does not cover, credits in the app, a rewritten README, two GitHub Actions, and the "rc flake" turned out to be a test measuring the wrong number; v1.43.0: **the servo config stops evaporating** — the channel table was never written to storage at all, so a refresh silently replaced an afternoon of names, endpoints and part mappings with a freshly generated starter (`maestro/servo-store.js`); **the sound board goes quiet while a setup overlay is open**, at the board rather than at the keyboard, because automation and the pad-connect greeting never went near a key; **a picture on every hardware card** from a drop folder (`src/art/boards/`, the file name is the whole API) with themed SVG stand-ins until the photos land; a **board link chip in the header**; **Set MIN / Set CENTER / Set MAX** on the dial; the servo step offers to **edit the config you have**, landing on the channel table rather than four questions in front of it; the **dome map drives** — a play button per channel and a connect bar; **Finish offers the whole setup as one file**; the sequencer gets **Clear all** with a confirm and an undo; `⚡ Model only` becomes `⚡ Sim only`; and **PCA Studio's hardware wizard could not open at all** since v1.42.0 — `escGuard` lived in a module Studio does not load, and Studio's smoke test was not in `./test.sh`; v1.39.4: **leaving the sequencer disarms live drive** — the arm is sequencer state, and an arm whose amber button is off screen is an arm you have forgotten; the link stays open and the servos hold where they are; v1.39.3: **Play works on a build with no Pololu Maestro** — the sequence clock was still gated on `PROFILE.hasMaestro` while the desk had been open to PCA9685 builds since v1.27.0, so Play armed a slot nothing ever stepped; the Part column shows the name the BUILDER gave a panel rather than the CAD's (four inner pies are all literally "Pie5"); and the sequencer lists only channels that drive something, like the brick library always has; v1.39.2: **assigning a servo to a panel from where you are standing** — a `drives` column in the bench's channel table (host-gated, so PCA Studio never sees it), an *Assign panels…* button on the Bench pane that lands ON the Panels step, and the part-first table back on the Config tab; v1.39.1: **the servo config has a door back in** — an import beside the export on the bench's Finish step and on the Maestro/Bench pane, a dropped `.json` routed by its `kind` instead of being refused by the whole-setup reader, and on a PCA build the Pololu settings import is no longer the only thing on offer: sequences-only is the button, the whole-file import is a line of text; v1.39.0: **the sequencer can drive the real servos**, armed from a switch beside the transport and hooked into `playback.js` so a pad cue and a music track follow the same arm — through the bench engine, so speed, acceleration and this droid's own end stops all apply; and **the servo step offers what you already have** instead of asking for a file you have not got, naming where the settings came from and when; v1.38.3: **the bench asks before it lets you go, and offers one file instead of three** — Finish now prompts on WORK done (a channel named, ticked, measured, or any edit at all) rather than on travel that differs from the factory pair, and the Finish step shows the servo config alone, with `servos.h` appearing only once you pick a sketch that must be compiled with it and the whole-bench backup under Advanced; v1.38.2: PCA_Bridge is in **`pca-studio/`**, not under `arduino/MaestroPCA/examples/` — the setup wizard said the wrong folder in three places, and the paths are pinned by a test now; v1.38.1: **the Channels step can reach the board** — a Connect hardware button on the step whose whole premise is driving a real servo, and the link chrome no longer assumes the Bench tab is on screen; v1.38.0: **the servo setup path is one flow now** — the import offer matches the boards you actually have, "measure them now" opens the bench carrying your answers, the bench opens on PCA_Bridge, MaestroReplacement stays locked until there is travel to bake in and says it hands the droid to Padawan360, and Finish offers the file and returns you to the wizard; v1.37.0: **Servo setup is its own step after Firmware** and opens by asking whether you already have a config to import — travel only, from a .mstr or our own export; the Firmware step links only the sketch you chose; the bench popout hides its two dangerous controls behind an Advanced tick and finally takes its colours from the theme; v1.36.0: **the servo step is a form and a set of flow diagrams** — Maestro / PCA9685 / Other in a dropdown, then you pick the arrangement whose PICTURE matches your droid, with the three the sketch cannot address drawn dashed and labelled; firmware back to last; v1.35.0: **the platform comes first** — controller, controller board, then the sketch, and a sketch you chose is never silently swapped; **Servo hardware** asks the KIND before the part number; and a **bench walkthrough** for setting the servos up physically, with the right tool for the board you picked; v1.34.0: **one servo question, not two** — dome and body side by side, "one controller for the whole droid" as a real answer, and how two boards reach the host (with the compact-protocol trap that arrangement carries); v1.33.0: **an Arduino or ESP32 running MaestroPCA is a build answer** — PCA9685s behind a co-processor that the Padawan sketch cannot tell from a Maestro, with the chip and the expander count owned by the build and read back by the Bench; v1.32.0: **the model comes first** — setup opens on a picture of each model, and the nine hardware questions grey out the ones the chosen model does not use; **the RC transmitter is a real input** — pick the device, calibrate its endpoints, assign its channels to the pad map or, behind Advanced, straight to an output; v1.28.0: **Sim only** — a public driving mode you hand the laptop over in, with a temporary password on the way out; v1.25.0: past the Maestro — release-when-settled, background sequences that resume, oscillator/wander generators, per-channel easing, link watchdog; v1.24.0: concurrent sequence tracks and looping — a holo idle-sweep survives a panel button press; MaestroLink makes a spare Arduino a drop-in Maestro; PCA Studio 0.2.0; v1.23.0: the PCA9685 route — the MaestroPCA Arduino library plays Maestro-style sequences on a £5 PCA9685, its JS twin lives in the sim, and the Maestro tab exports a generated `sequences.h`; v1.22.0: every imported sketch is its own firmware; v1.21.0: the sketch transpiler and shareable .mstr files; v1.20.0: the rest of the August revert undone)
+Last updated: **2026-08-18** (v1.48.1: **the part mapping rides the file** — a Pololu `<Channel>` is name, mode, travel, speed and acceleration and nothing else, and a MaestroPCA table is no better, so "which panel is this channel?" was re-derived on every import with `guessPart(name)`. On the starter table the names ARE the guess. On Mike's they are not — he names a channel "Panel7" and wires it to the CAD lane `panel5`, because his physical numbering is not the CAD's — and a wholesale import of **his own exported file** came back with channels 11 and 12 both claiming `panel6`, `panel5` and `panel11` driven by nothing, and every brick naming either of them unwired. The frames were exact throughout, which is why it survived unseen until v1.48.0 gave the bricks a way home and `blocksTryAttach()` started refusing them (63 frames' worth recompiling to 54). The mapping now rides the same kind of comment the bricks do — `<!--r2sim:acts …-->` in the .mstr, `/* r2sim:acts … */` in the header, base64, stripped and rewritten on every export, ignored by Control Center and by the compiler — and `actsApply()` lets an authored entry beat the guess per channel while a missing one keeps it. Found by `tests/roundtrip.test.js`, which the same day had asserted the broken behaviour in both directions; five assertions cover it now, proven red by disabling `actsApply()`. v1.48.0: **unwired panels work in ALL sim playback, the bricks survive a round trip, and the round trip has a suite of its own** — `tests/roundtrip.test.js` (47 assertions, both builds) builds an eight-brick routine on a deliberately awkward table, exports it three ways, clears `localStorage`, reloads, rebuilds the same droid and reads each file back through the app's own doors; frames come back target-for-target on all four routes and the bricks now come back with them — except through a `.mstr`, which **carries no part mapping at all** and re-guesses it from the channel name, so a builder whose numbering disagrees with the CAD's gets his droid re-wired on import (two channels claiming `panel6`, `panel5` and `panel11` driven by nothing) and the bricks rightly refuse to re-attach. Frames stay exact, which is why it was invisible until the bricks had a way home. Asserted in both directions; — `seqStart()` recognises which LIBRARY routine its frames belong to (by identity) and `seqFreeOverlay()` lays unwired bricks' envelopes onto the model during ANY slot's playback — the pad, a loadout slot, the preview — parking them shut when the slot ends; and the brick structure now survives export/import on all three formats: the choreography `.json` always carried `blocks`, the `.mstr` and `sequences.h` writers embed them as a base64 comment (`r2sim:blocks` — Control Center and the compiler both ignore it), and every reader re-attaches them through `blocksTryAttach()` ONLY when compiling the bricks against the destination table reproduces the imported frames exactly — otherwise the frames win and the drop is counted out loud. From the round-trip report, items still OPEN: loadout membership silent on the merge path, the two doors disagreeing about clamping a stale target, and brick colours living in PREFS. v1.47.2: **unwired bricks work on the model** — an unmapped panel dragged into a routine now MOVES the 3D droid in preview and scrub (`blockEnvAt()`/`blockFreeAt()` in blocks.js — the brick's envelope in normalised travel, laid over `ACT_T` via the new `BLKH.applyFree` seam from `blockPoseAt()` and the follow loop), parks closed when the preview ends exactly as the wired home frame does, and still compiles to NOTHING — the emitted frames, the board and live drive are untouched, so mapping the panel later is the moment it starts driving the real droid; PCA Studio's host simply lacks the seam, so nothing changes there; the "moves nothing" tooltips and the preview toast now say "model only until mapped". v1.47.1: **choreography round-trips stop reversing and cross-wiring** — Mike diffed his choreography export against his sequences.h and the re-imported copies were wrong two ways: `mstrSrcEnds()` invented a 6000 "shut" for a homemode-Off source channel (a MaestroPCA header stores home 0, the parser fills 6000), so on any pair asymmetric about 6000 the adopted copy came back REVERSED — the home heuristic now fires only on an explicit Goto home inside the pair, otherwise the directed pair; and `mstrMatchChannels()` preferred the GUESSED act (`guessPart(name)`) over an exact authored name, cross-wiring "Panel7"→`panel11` builds — an exact name match now outranks the guess. His real files round-trip target-for-target identical. v1.47.0: **the sequencer's bulk edits and the snap picker's move** — the multi-select card gains **Runs for** and **Motion** (set every selected brick's duration, or its open / open-and-close / close shape, in one undoable gesture — `blkMultiDur()`/`blkMultiMode()` beside the existing Duplicate and Remove), and the **snap picker now IS the timeline ruler's corner cell** (it had sat in the crowded transport bar since v1.12.0, where Mike never found it — the control belongs beside the timing line it governs; same `#sqSnapWrap` id, built by `blkTimeline()` via `buildSnapPicker(host)`); servo speed needed **no change** — the bench inputs already accept Pololu's full 0–16000 speed / 0–255 acceleration, 0 = unlimited. v1.46.1: **the half-open panels** — Mike's screenshot showed every dome panel standing mid-travel, and the cause was the two places that still read a channel's `home`/`neutral` µs as a pose: the brick sequencer's `blockClosed()`/`blockOpen()` now come from the **directed pair** (shut end / open end, never `home || neutral || 6000`, never "furthest from home"), and `chanRest()` lets the actuator's own answer beat a measured Goto home **for any part on screen** (a board-only channel still obeys its Goto home); generated group sequences and the "+ Sequence" base frame park at `chanRest()`; foreign-choreography adoption keeps the home heuristic on the SOURCE side only (`mstrSrcEnds()` — a Control Center pair is always sorted, home is the only directional tell). The travel rule is now a **standing constraint**: the model's panels are an approximation and must never be made to match a user's real servo endpoint or home values. v1.46.0: **the sim stops inheriting a bad bench** — on the model a channel's `min` is SHUT and its `max` is FULLY OPEN, directed rather than sorted, so a narrow span, a big offset or a reversed pair animates the same full sweep and the real board still gets the authored microseconds (`chanEnds()`, `maestro/playback.js`); `invert` is **retired** and a legacy file carrying it is adopted by swapping its two ends; **an unmapped panel can be dragged into the sequencer and stays grey**, keeps its place and timing, is left out of the compiled frames with a named warning, and starts working the moment it has a channel; an **import sequence button on the sequencer desk**; the import job is **three visible choices** — servo config only, servo config and choreography, choreography only — with a choice the dropped file cannot satisfy unavailable *and reasoned*, a **replace prompt naming what you are about to lose** (cancel · save a copy first · replace), choreography offering **save-then-replace or add as additions** with the collisions named, "save a copy" writing a timestamped file that must land before the import proceeds, and the prompt sitting at the READER's door so all three servo-config entry points ask it; and Mike's two defaults — **one controller and two expanders**, first and selected, and **DY-SV5W** — which he chose to pair with padawan360 mod2026 knowing the sketch drives neither, so a fresh build shows exactly those two objections and one click hands the sketch to the setup; v1.45.0: **Mike's thirty-item list, in one release** — the app opens in **light mode**; **Servo hardware is image-led** (pick Maestro or PCA9685 by its photograph, then that family's own question: one board or two, or the expander arrangement, defaulting to one controller and two expanders); every **setup rail chip is one size**; **Reset really does clear the servo config** (it always deleted the store, and `pagehide` then wrote the still-populated table straight back); the **wiring diagrams are marked BETA** and the dead **Boards section is gone** from the Wiring step; **every saved file carries the date and the time**; the channel table is in **Mike's column order with the first six columns pinned**, so `configure…` never scrolls off the edge, and its four paragraphs of standing prose now fold away so you see the table; a **dome map inside the bench** assigns a channel to a panel by clicking the dome; the **second servo bench is folded into the first** — `#hwWrap` is gone, its live drive/position columns and its board link came with it, and **leaving the bench now disconnects the board**; the Maestro pane has **one guided front door** for build / import / export / assign; the sequencer **lists every moving panel**, with the unconfigured ones dashed and grey; a **PCA9685 `servos.h` / `sequences.h` can be imported as well as written**, with every field that cannot cross the boundary named rather than silently dropped; **one canonical sentence** says what can be imported and exported; **the track's furniture adapts to the track** — curvature-aware spacing, no interpenetrating rails or kerbs on a 3 m lap, no inverted barrier ring inside a hairpin, and the pinch warning no longer switches itself off on small circuits; gates are **sorted into track order** and the painted start line, the grid and the timing line finally agree; **named track layouts** with save-as, load, rename and delete, the stock lap never overwritable; the **Model Builder is repaired** — deleting a joint crashed the frame loop sixteen times a second — and gained **drag-and-drop with auto-connection**, **driven centre-pivot plates**, **per-joint preview sliders**, **usage instructions** and its **own model file** to export and import; **panels rest shut** (`chanRest()` — mid-travel is right for a gimbal and wrong for a door, which is why the pie panels sat half open); and the **MAESTRO 2025 chip is out of the header**; v1.44.1: **one browser launch, not thirty-one** — `tests/harness.js` owns the Chromium flags, and the GitHub workflows moved to the node24 action runtime; v1.44.0: **ready to be handed to strangers** — the project goes public with MrBaddeley's permission for the geometry, MIT (scoped) with forty lines saying what it does not cover, credits in the app, a rewritten README, two GitHub Actions, and the "rc flake" turned out to be a test measuring the wrong number; v1.43.0: **the servo config stops evaporating** — the channel table was never written to storage at all, so a refresh silently replaced an afternoon of names, endpoints and part mappings with a freshly generated starter (`maestro/servo-store.js`); **the sound board goes quiet while a setup overlay is open**, at the board rather than at the keyboard, because automation and the pad-connect greeting never went near a key; **a picture on every hardware card** from a drop folder (`src/art/boards/`, the file name is the whole API) with themed SVG stand-ins until the photos land; a **board link chip in the header**; **Set MIN / Set CENTER / Set MAX** on the dial; the servo step offers to **edit the config you have**, landing on the channel table rather than four questions in front of it; the **dome map drives** — a play button per channel and a connect bar; **Finish offers the whole setup as one file**; the sequencer gets **Clear all** with a confirm and an undo; `⚡ Model only` becomes `⚡ Sim only`; and **PCA Studio's hardware wizard could not open at all** since v1.42.0 — `escGuard` lived in a module Studio does not load, and Studio's smoke test was not in `./test.sh`; v1.39.4: **leaving the sequencer disarms live drive** — the arm is sequencer state, and an arm whose amber button is off screen is an arm you have forgotten; the link stays open and the servos hold where they are; v1.39.3: **Play works on a build with no Pololu Maestro** — the sequence clock was still gated on `PROFILE.hasMaestro` while the desk had been open to PCA9685 builds since v1.27.0, so Play armed a slot nothing ever stepped; the Part column shows the name the BUILDER gave a panel rather than the CAD's (four inner pies are all literally "Pie5"); and the sequencer lists only channels that drive something, like the brick library always has; v1.39.2: **assigning a servo to a panel from where you are standing** — a `drives` column in the bench's channel table (host-gated, so PCA Studio never sees it), an *Assign panels…* button on the Bench pane that lands ON the Panels step, and the part-first table back on the Config tab; v1.39.1: **the servo config has a door back in** — an import beside the export on the bench's Finish step and on the Maestro/Bench pane, a dropped `.json` routed by its `kind` instead of being refused by the whole-setup reader, and on a PCA build the Pololu settings import is no longer the only thing on offer: sequences-only is the button, the whole-file import is a line of text; v1.39.0: **the sequencer can drive the real servos**, armed from a switch beside the transport and hooked into `playback.js` so a pad cue and a music track follow the same arm — through the bench engine, so speed, acceleration and this droid's own end stops all apply; and **the servo step offers what you already have** instead of asking for a file you have not got, naming where the settings came from and when; v1.38.3: **the bench asks before it lets you go, and offers one file instead of three** — Finish now prompts on WORK done (a channel named, ticked, measured, or any edit at all) rather than on travel that differs from the factory pair, and the Finish step shows the servo config alone, with `servos.h` appearing only once you pick a sketch that must be compiled with it and the whole-bench backup under Advanced; v1.38.2: PCA_Bridge is in **`pca-studio/`**, not under `arduino/MaestroPCA/examples/` — the setup wizard said the wrong folder in three places, and the paths are pinned by a test now; v1.38.1: **the Channels step can reach the board** — a Connect hardware button on the step whose whole premise is driving a real servo, and the link chrome no longer assumes the Bench tab is on screen; v1.38.0: **the servo setup path is one flow now** — the import offer matches the boards you actually have, "measure them now" opens the bench carrying your answers, the bench opens on PCA_Bridge, MaestroReplacement stays locked until there is travel to bake in and says it hands the droid to Padawan360, and Finish offers the file and returns you to the wizard; v1.37.0: **Servo setup is its own step after Firmware** and opens by asking whether you already have a config to import — travel only, from a .mstr or our own export; the Firmware step links only the sketch you chose; the bench popout hides its two dangerous controls behind an Advanced tick and finally takes its colours from the theme; v1.36.0: **the servo step is a form and a set of flow diagrams** — Maestro / PCA9685 / Other in a dropdown, then you pick the arrangement whose PICTURE matches your droid, with the three the sketch cannot address drawn dashed and labelled; firmware back to last; v1.35.0: **the platform comes first** — controller, controller board, then the sketch, and a sketch you chose is never silently swapped; **Servo hardware** asks the KIND before the part number; and a **bench walkthrough** for setting the servos up physically, with the right tool for the board you picked; v1.34.0: **one servo question, not two** — dome and body side by side, "one controller for the whole droid" as a real answer, and how two boards reach the host (with the compact-protocol trap that arrangement carries); v1.33.0: **an Arduino or ESP32 running MaestroPCA is a build answer** — PCA9685s behind a co-processor that the Padawan sketch cannot tell from a Maestro, with the chip and the expander count owned by the build and read back by the Bench; v1.32.0: **the model comes first** — setup opens on a picture of each model, and the nine hardware questions grey out the ones the chosen model does not use; **the RC transmitter is a real input** — pick the device, calibrate its endpoints, assign its channels to the pad map or, behind Advanced, straight to an output; v1.28.0: **Sim only** — a public driving mode you hand the laptop over in, with a temporary password on the way out; v1.25.0: past the Maestro — release-when-settled, background sequences that resume, oscillator/wander generators, per-channel easing, link watchdog; v1.24.0: concurrent sequence tracks and looping — a holo idle-sweep survives a panel button press; MaestroLink makes a spare Arduino a drop-in Maestro; PCA Studio 0.2.0; v1.23.0: the PCA9685 route — the MaestroPCA Arduino library plays Maestro-style sequences on a £5 PCA9685, its JS twin lives in the sim, and the Maestro tab exports a generated `sequences.h`; v1.22.0: every imported sketch is its own firmware; v1.21.0: the sketch transpiler and shareable .mstr files; v1.20.0: the rest of the August revert undone)
 
 ---
 
@@ -41,7 +41,7 @@ Fusion OBJ exports have never been in the repository and stay out of it.
 | | |
 |---|---|
 | Modules | 100 JS, 14 CSS, 1 markup fragment (+ the MaestroPCA Arduino library under `arduino/`) |
-| Tests | **1909 passing** across 29 suites, both builds, zero failures — plus PCA Studio's 86-assertion smoke test (in `./test.sh`) and 87 host-compiled C++ assertions in `arduino/MaestroPCA/test`. v1.45.0 added 227 of them, every one written red first |
+| Tests | **1988 passing** across 30 suites, both builds, zero failures — plus PCA Studio's 86-assertion smoke test (in `./test.sh`) and 87 host-compiled C++ assertions in `arduino/MaestroPCA/test`. v1.45.0 added 227 of them, every one written red first |
 | Dist size | ≈8.07 MB single self-contained HTML (0.75 MB of it the twenty-one board photos, inlined) |
 | PCA Studio | 0.12.2 — built from `pca-studio/manifest.json` — 20 modules, 12 of them the sim's own |
 | Firmware profiles | 3 hand ports (mod2026, Maestro 2025 PWM, Maestro 2022 BETA) + one per imported `.ino`, side by side |
@@ -1143,6 +1143,335 @@ not missing, it was folded in here (noted 2026-08-17).
 
 ## 10. Change log
 
+### 2026-08-18 — v1.48.1: the part mapping rides the file
+
+Found by the suite written for it an hour earlier. `tests/roundtrip.test.js`
+exports a routine, wipes the sim and reads the file back; on the *starter* table
+the bricks came home through the v1.48.0 comment and on the *tuned* one — the
+fixture shaped like a real builder's — they did not.
+
+**The cause was older than the bricks.** A Pololu `<Channel>` carries name, mode,
+travel, speed and acceleration; there is no "which panel does this drive"
+anywhere in a `.mstr`, and a MaestroPCA channel table is no better. So
+`mstrParse()` and `pcaHeaderParse()` re-derived it with `guessPart(name)`, and a
+**wholesale** import (`mstrApply()` — the file IS the table) replaced whatever
+the builder had assigned by hand with that guess.
+
+On the starter table nobody could see it: the names ARE the guess. On Mike's they
+are not — "Panel7" wired to the CAD lane `panel5`, because his physical panel
+numbering is not the CAD's — and a round trip through **his own exported file**
+came back with:
+
+- channels 11 and 12 **both claiming `panel6`**,
+- `panel5` and `panel11` driven by **nothing**,
+- and every brick naming either of them unwired, compiling to nothing, so
+  `blocksTryAttach()` correctly refused the lot (63 frames' worth of bricks
+  recompiling to 54).
+
+**The frames were exact throughout.** That is why this lived through every
+release that ever exported a `.mstr`: the droid moved correctly, and only the
+*model* was mis-wired. It became visible the moment v1.48.0 gave the bricks a way
+home, because re-attachment is the first thing that ever had to agree with the
+mapping.
+
+**The fix** is the same trick, in the same place, for the same reasons:
+`actsPack()` (export.js) writes the mapping by channel index as base64 inside a
+comment — `<!--r2sim:acts …-->` in the `.mstr`, `/* r2sim:acts … */` in the
+header — that Control Center and the compiler both ignore, stripped and
+rewritten on every export so a stale copy cannot survive. `actsUnpack()` /
+`actsApply()` (import.js) read it for **both** families, because "which panel is
+this channel" is one question whatever file it arrived in, and apply it **per
+channel**: an entry present in the comment wins, a missing one keeps
+`guessPart()`, and an empty string is a real answer meaning *mapped to nothing*.
+`buildMstrText()`'s two return paths now go through one `mstrSidecar()` so a
+third comment cannot be added to one branch and forgotten in the other.
+
+Adoption is deliberately untouched. `mstrMatchChannels()` still ranks an exact
+authored name above the act (v1.47.1) — the name is the human's meaning, and
+now that the source act is authored rather than guessed the two simply agree
+more often. Nothing rewrites your channel table on the adoption path; only the
+wholesale import, which is the one that replaces it by definition.
+
+Five assertions in `tests/roundtrip.test.js` (the file carries the comment; the
+hand-assigned mapping comes back rather than the guess; the bricks therefore
+re-attach; and the header reader gives back the same). **Proven red** by making
+`actsApply()` a no-op — three fail, including the brick count dropping to zero.
+**1988 assertions, 30 suites, both builds, zero failures**, plus PCA Studio's 86.
+
+
+### 2026-08-18 — v1.48.0: unwired panels in all playback, and bricks that survive a round trip
+
+Two asks in one message, both riding on the round-trip report
+(2026-08-18, run against v1.47.1).
+
+#### Unwired panels move in ANY sim playback, not just the sequencer
+
+Mike: *"if the user Loads the sequence shoudl that then become availble if
+nt we need a way for people to trigger sequences as part fo the SIm (not
+hte sequencer)"*. v1.47.2 covered preview and scrub; now the pad, a
+loadout slot, `restartScript(n)` — anything that plays a library routine —
+moves the unmapped panels too. `seqStart()` recognises the routine **by
+frames identity** (`MSTR.sequences.find(q=>q.frames===frames)` — the
+runtime hands it the library sequence's own array, so no caller changed)
+and `seqStepPlayback()` calls `seqFreeOverlay()` after each frame: the
+unwired bricks' envelopes onto `ACT_T` at the slot's own clock, parked
+shut when the slot ends. Model only — `liveWrite()` still sees exactly
+the compiled frames, so the real droid cannot be commanded on a channel
+that does not exist. Built-in stand-in ANIMS ('anim' slots) are not
+routines and are untouched.
+
+#### The bricks survive export/import — "commented out", exactly as asked
+
+Mike: *"could we not export teh Bricks info into the export files that
+are commented out - but when we import we can import them as bricks"*.
+The report measured the loss: adopt an imported routine, drop ONE brick,
+and 19 frames become 8.
+
+- **Writers**: the choreography `.json` always carried `blocks` verbatim.
+  `buildMstrText()` now appends `<!--r2sim:blocks <base64>-->` before
+  `</UscSettings>` (stripping any older copy first), and the sequences.h
+  generator appends `/* r2sim:blocks <base64> */`. base64 because an XML
+  comment cannot contain `--` and a C comment cannot contain `*/` — no
+  user-authored name can break either file. Control Center and the
+  compiler ignore the comments entirely.
+- **Readers**: `mstrParse()` / `pcaHeaderParse()` decode the comment into
+  per-sequence CANDIDATES (`blocksCand`); the choreography reader's
+  candidates are the `blocks` already in the JSON. `mstrApply()` and
+  `mstrAdoptSequences()` hand them to **`blocksTryAttach()`**
+  (maestro/blocks.js): compile the candidate bricks against the
+  DESTINATION table and require the same frames, duration for duration
+  and target for target (0 and a hole both mean untouched). Pass → the
+  routine is a routine again, fresh brick ids, frames regenerated from
+  its own bricks. Fail (endpoints or speeds changed since export) → the
+  frames stay the truth, the bricks are dropped, and the log counts both
+  outcomes by name. The frames-win rule keeps the guarantee that an
+  import never invents motion.
+
+Eight new assertions across `tests/mstr-share.test.js` and
+`tests/sequencer-ui.test.js`, each proven red first (the negative case:
+slow a destination channel after export → bricks dropped, frames intact).
+Full estate green, both builds, plus PCA Studio's smoke test.
+
+#### The round trip gets a suite of its own
+
+Mike: *"create a test sequence, export it out, clean the sim so it doesn't exist
+and then re-import and see if its the same."* Nothing asked that end to end —
+`mstr-share.test.js` proves the retargeting maths and `maestro-import.test.js`
+proves the readers, but neither wipes the app and starts again, so a routine
+could survive the parser and still be lost by the chooser, the loadout or
+persistence.
+
+**`tests/roundtrip.test.js`** (47 assertions, both builds, in `./test.sh`) builds
+one routine of eight bricks — all four motion modes, two partial-travel amps, a
+deliberate overlap, a nested library sequence, and a name
+(`RT probe: "Mike's" <wave> & co`) that has to survive XML escaping and a C
+string — exports it as a choreography `.json`, a `.mstr` and a `sequences.h`,
+then clears `localStorage`, reloads, rebuilds the same droid from the wizard and
+reads each file back through the chooser's real buttons. It runs the whole thing
+**twice**: on the starter table, and on one shaped like a real builder's — every
+pair asymmetric about 6000, one channel inverted, one homemode Off with home 0,
+and two channels named so `guessPart()` disagrees with the wired act.
+
+**Frames: identical on all four routes**, both tables, both builds. **Bricks:
+identical too, since this release** — except through a `.mstr`, and that
+exception is a finding:
+
+- **A `.mstr` carries no part mapping.** `genChannelsXml()` writes name, mode,
+  travel, speed and acceleration; there is no `act` in a Pololu settings file and
+  never was, so `mstrParse()` re-derives it with `guessPart(name)`. On the
+  starter table the names ARE the guess. On Mike's — "Panel7" wired to the CAD
+  lane `panel5` — the import re-wires the droid: channels 11 and 12 both come
+  back claiming `panel6`, `panel5` and `panel11` are driven by nothing, and a
+  brick naming either is unwired, compiles to nothing, and `blocksTryAttach()`
+  correctly refuses (63 frames' worth of bricks recompile to 54). **The frames
+  are still exact**, which is exactly why this was invisible until v1.48.0 gave
+  the bricks a way home. The fix, when it is wanted, is an `act` riding the same
+  comment the bricks already ride in; the suite asserts the CURRENT behaviour in
+  both directions so that fixing it turns red rather than passing silently.
+
+Both v1.47.1 bugs were re-introduced to prove the suite goes red: the
+`mstrSrcEnds()` revert reverses the homemode-Off channel (4649 where 7216
+belongs) and fails three assertions; the `mstrMatchChannels()` revert cross-wires
+the two misleadingly-named panels and fails one.
+
+Two fixture traps are written into the suite's header because each cost an hour:
+an untouched channel is a sparse hole on one side and a `0` on the other (both
+normalise to 0, or ~250 phantom differences bury the real ones), and retuning
+endpoints after `makeStarter()` leaves the starter *frames* speaking the old
+ones, so the library must be rescaled with the recalibration or the fixture —
+not the round trip — is what differs.
+
+**Still OPEN from the round-trip report** (deliberate, not forgotten):
+merge-path adoption leaves the loadout untouched *silently*; the
+choreography door clamps a stale out-of-range target while the `.mstr`
+door does not (the two disagree and only one says so); and brick colours
+live in `PREFS`, so no export carries them. (The fourth item on this list — the `.mstr` carrying no `act` — is
+FIXED in v1.48.1 above.)
+
+### 2026-08-18 — v1.47.2: unwired bricks work on the model
+
+Mike: *"For panels that I havent mapped yet I should be able to add them to a
+sequence or see them in an exsisting sequence, Alos they should 'Work' on the
+sim and once I or a user maps them they will then work in the real model."*
+
+The first half shipped in v1.46.0 — the grey brick that lands, keeps its
+timing, and compiles to nothing. This is the second half: **the grey brick
+now moves the 3D droid** in preview and scrub, while everything board-facing
+stays exactly as it was.
+
+- **`blockEnvAt(b, t)`** (blocks.js) — the brick's shape alone, in 0..1 of
+  its own throw, amp and motion mode included, no channel needed. It MUST
+  mirror `blockValueAt()` mode-for-mode; `blockValueAt()` keeps its own µs
+  arithmetic (round the open end first, then the lerp) so the compiled
+  frames stay byte-stable — the two carry a change-together comment.
+- **`blockFreeAt(seq, ms)`** — every unwired act brick's openness at an
+  instant, keyed by act, defaulted to 0 so a free lane parks SHUT outside
+  its bricks, exactly as a wired channel parks at base-closed. Later bricks
+  win, the wired path's layering rule.
+- **Scrub**: `blockPoseAt()` lays the free map over the model through a new
+  host hook, **`BLKH.applyFree(act, v)`** — defined only by the sim's host
+  (writes `ACT_T`); PCA Studio's host has no droid and simply lacks it,
+  which is the gate blocks.js checks. **Play**: the follow loop (`blkTick`)
+  applies the free map at the playhead's instant while the edit slot runs,
+  and parks the free lanes closed ONCE when the preview ends — the same
+  landing the compiled home frame gives wired channels.
+- **Nothing board-facing moved**: the compiled frames are asserted
+  byte-identical with the brick present, live drive goes through
+  `liveWrite()` which the free path never touches, and the skip-by-name
+  warning and *map them…* door stay. The tooltips and the preview toast now
+  say the true thing: **model only until mapped** — map the panel and the
+  same brick starts driving the real droid.
+
+Six new assertions in `tests/sequencer-ui.test.js` (proven red first,
+`blockEnvAt is not defined`). Full estate green, both builds, plus PCA
+Studio's smoke test.
+
+### 2026-08-18 — v1.47.1: choreography round-trips stop reversing and cross-wiring
+
+Mike: *"check thise two for sequence differences"* — his choreography export
+(20:41) against the sequences.h it was exported alongside (20:40). The .h
+matched his library **byte-for-byte**. But his library also carried three
+`·`-suffixed twins from re-importing that very .h as choreography-only, and
+those were wrong two independent ways:
+
+- **Reversed.** `mstrSrcEnds()` (the v1.46.1 foreign-file heuristic) used
+  `home || neutral || 6000` for the source's shut end. A MaestroPCA header
+  stores **home 0** for a homemode-Off channel (rest is computed, not
+  stored) and `pcaHeaderParse()` fills that hole with 6000 — so a
+  round-trip of OUR OWN directed file was rescaled through a fictional
+  mid-travel "shut", and on any pair asymmetric about 6000 (4530–7293) the
+  invented "open" landed on the wrong side: every panel in the adopted copy
+  reversed, shut-for-open. The heuristic now fires **only on an explicit
+  Goto home inside the pair** — the one case where somebody measured it —
+  and otherwise uses the directed pair, which is exactly right for our own
+  exports and the only honest default for anyone else's.
+- **Cross-wired.** `mstrMatchChannels()` preferred the source's act — which
+  is ALWAYS `guessPart(name)`, a guess — over an exact authored name match.
+  Mike names a channel "Panel7" and wires it to the CAD lane `panel11`
+  (his physical panel numbering is not the CAD's); the guess read "Panel7"
+  as `panel6` and adoption landed two panels' choreography on each other's
+  channels. **An exact name match now outranks the act**: the name is the
+  human's meaning, the guess is ours. Same-number fallback unchanged.
+
+Verified against his actual files: with both fixes the three adopted twins
+are **target-for-target identical** to the sequences they round-tripped
+from. Regression tests in `tests/mstr-share.test.js` (the reversal proven
+red first with an asymmetric homemode-Off fixture; the probe channels are
+named so the guess disagrees with the wired act); the old "preferred the
+part name" assertion updated to the new tier order (name → act → index).
+Full estate green, both builds, plus PCA Studio's smoke test. His library
+still holds the three corrupted `·` twins from before the fix — delete
+them (they were duplicates; the originals are what the .h carries).
+
+### 2026-08-18 — v1.47.0: bulk edits on the multi-select, and the snap picker moves to the timing line
+
+Mike: *"on the sequencer I should be able to select mulitple and copy, delete
+and extend the run time and even bulk change if its an open, open and close
+or just close"*, and *"there should be a selector for Snap to nearest
+auto-snap next to the timeline timming line"*.
+
+- **Bulk edits.** Copy and delete already existed on the multi card
+  (Duplicate / Remove, v1.40.0). It gains **Runs for** — a number input that
+  sets EVERY selected brick's duration (200–8000 ms, the single-brick
+  limits; shows the longest and says `· mixed` when they differ) — and
+  **Motion**, the same four-shape dropdown as the single-brick inspector,
+  applied to every selected act brick (nested-sequence bricks have no motion
+  of their own and are skipped; picking "Opens, then closes" DELETES the
+  stored mode, the single dropdown's contract). `blkMultiDur()` /
+  `blkMultiMode()` sit beside `blkMultiDuplicate()` — one undo snapshot per
+  gesture, selection kept, and undo genuinely restores the old values
+  (asserted through the real `#sqUndo` button).
+- **The snap picker.** It has existed since v1.12.0 — four modes, Auto /
+  strong beats / all beats / off — but lived in the transport top bar among
+  ten other controls, and Mike asked for it as a missing feature: a control
+  nobody finds is a feature that does not exist (the standing lesson from
+  v1.39.x). It now IS the timeline ruler's **corner cell**: same
+  `#sqSnapWrap` id (the test contract), built by `blkTimeline()` passing the
+  detached corner node into `buildSnapPicker(host)` — the id lookup stays as
+  a fallback. The transport span is gone from `body.html`; the select got
+  `max-width:82px` to fit the 118 px sticky lane column. It exists exactly
+  when the timeline does, which is exactly when snapping means anything.
+- **Servo speed: no change needed.** Mike: *"on Accelleration and speed set
+  to 100 it still doesnt feel fast enough"* — the bench inputs already
+  accept Pololu's full ranges (speed 0–16000, acceleration 0–255), so 100
+  is nowhere near the ceiling, and **0 means unlimited**. Answered rather
+  than coded.
+
+Tests: eight new assertions in `tests/sequencer-ui.test.js` (proven red
+first — the transport assertion no longer claims the snap picker). Full
+estate green, both builds, plus PCA Studio's smoke test.
+
+### 2026-08-18 — v1.46.1: the half-open panels, and the travel rule made a standing constraint
+
+Mike, first: *"The panels on the model should not match the settings within
+the user's Servo settings — they are used for approximation not exact, as a
+user may have weird offsets to make it work in their model, so we should avoid
+making the sim's panels' endpoints match the real endpoints."* Then a
+screenshot: every dome panel standing half open, the periscope hovering
+mid-rise.
+
+v1.46.0 settled the rule at `chanEnds()` but **two readers still treated a
+settings µs as a pose**, and both park panels at mid-travel:
+
+- **`blockClosed()` was `home || neutral || 6000`.** A bench-made channel
+  (`setupBlank()`: `home:0`, no `neutral` column) fell all the way through to
+  6000, so every routine the brick sequencer compiled rested every panel HALF
+  OPEN — first frame, home frame, and the pose held after playback. That is
+  the screenshot. And `blockOpen()` — "whichever endpoint is further from
+  home" — drove a reversed pair toward its own SHUT end. Both now come from
+  the directed pair: `chanEnds().shut` / `.open` (falling back to `c.min` /
+  `c.max` in PCA Studio, which loads blocks.js without playback.js — same
+  convention, the bench's own).
+- **`chanRest()` obeyed an explicit Goto home, always.** A stale stored
+  starter from before v1.45.0 carries `home:6000, homemode:'Goto'` on every
+  mapped channel, which resurrected the exact v1.45.0 half-open bug through
+  the store. Now the ACTUATOR's answer wins for any part on screen — a door
+  rests shut, a gimbal centred — even when the channel carries a measured
+  Goto home; a **board-only** channel (nothing on the model to lie) still
+  obeys its Goto home.
+
+Swept the remaining `c.home`-as-pose readers: `groupToSequences()`'s base
+frame (cad/parts.js), the Maestro pane's "+ Sequence" base (ui-pane.js) and
+the anzellan starter's live-pose seeding (starters.js) all go through
+`chanRest()` now; config/tab.js's assign-test fallbacks follow the directed
+pair. **One deliberate exception:** adopting a FOREIGN file's choreography
+(`mstrRetargetFrame()`) keeps the home heuristic for the SOURCE file only —
+`mstrSrcEnds()` — because a Control Center pair is always sorted and its home
+is the only directional tell; the destination side uses the directed pair.
+
+Tests: five new assertions in `tests/sequencer.test.js` (each proven red
+against v1.46.0 first), `mstr-share`'s inverted-mounting adoption updated to
+the split convention. Full estate green, both builds, plus PCA Studio's smoke
+test.
+
+**The standing constraint, recorded so no future session builds the
+opposite:** the model's panels are an approximation. A feature that calibrates
+the sim panel's on-screen travel, endpoints or rest pose to the user's
+measured µs values is out of scope **by design**, not by oversight. The
+lesson repeats v1.45.0's: when a rule about a field changes, grep for EVERY
+reader of that field — `blockClosed()` was the sixth of "five separate
+places".
+
 ### 2026-08-17 — v1.46.0: the sim stops inheriting a bad bench
 
 Six items, and the big one is a rule rather than a feature.
@@ -1178,6 +1507,13 @@ every channel to *its own* shut and open end, so "All min" means everything shut
 — on a reversed channel the old one flung the panel wide open. And the ⇄ tick in
 the Maestro pane's channel table is now the bench's REVERSE: it swaps the two
 ends rather than setting a flag nothing else believes in.
+
+**Reaffirmed 2026-08-18 as a standing constraint on future work.** The model's
+panels are an *approximation*: the on-screen endpoints are the rig's own (shut,
+and its full open sweep — `cad/parts.js`), and the servo config's µs pair
+contributes direction and normalisation only. Never make the sim panel's visual
+endpoints match the real endpoints — a user's real values may carry weird
+offsets that only make sense on their physical linkage.
 
 #### A brick you have not wired yet
 

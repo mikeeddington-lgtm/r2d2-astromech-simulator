@@ -115,6 +115,32 @@ function parseFrameRow(text, servoCount){
 function parseMstr(text, fileName){
   return mstrApply(mstrParse(text, fileName));
 }
+/* ------------------------------------------------- the r2sim:acts sidecar
+   Written by export.js (an XML comment) and pca-gen.js (a C comment); read
+   here for both, because "which panel is this channel" is one question
+   whatever family the file belongs to. Absent, malformed, or from a file
+   that is not ours → null, and every channel keeps guessPart(). */
+function actsUnpack(text, family){
+  const re = (family === 'pca') ? /\/\* r2sim:acts ([A-Za-z0-9+/=]+) \*\//
+                                : /<!--r2sim:acts ([A-Za-z0-9+/=]+)-->/;
+  const m = re.exec(String(text || ''));
+  if(!m) return null;
+  try{
+    const o = JSON.parse(decodeURIComponent(escape(atob(m[1].trim()))));
+    return (o && o.v === 1 && Array.isArray(o.acts)) ? o.acts : null;
+  }catch(e){ return null; }
+}
+function actsApply(channels, acts){
+  if(!acts) return 0;
+  let n = 0;
+  channels.forEach((c,i)=>{
+    if(i >= acts.length) return;
+    const a = acts[i];
+    if(a === undefined || a === null) return;
+    c.act = a; n++;                       // '' is a real answer: mapped to nothing
+  });
+  return n;
+}
 function mstrParse(text, fileName){
   const doc = new DOMParser().parseFromString(text, 'application/xml');
   if(doc.getElementsByTagName('parsererror').length) throw new Error('that file is not valid XML');
@@ -227,6 +253,21 @@ function mstrParse(text, fileName){
     }
   });
 
+  /* v1.48.1 — the part mapping our own export commented in, back out. A
+     Pololu file has no column for it, so without this `guessPart(name)` is
+     the ONLY answer and a wholesale import re-wires a droid whose channel
+     names do not happen to match the CAD's numbering (export.js
+     mstrActsComment says why). Authored beats guessed, per channel: an
+     entry present in the comment wins, a missing one keeps the guess. */
+  actsApply(channels, actsUnpack(text, 'mstr'));
+
+  /* v1.48.0 — the bricks our own export commented in, back out. They are a
+     CANDIDATE only: mstrApply()/mstrAdoptSequences() re-attach them through
+     blocksTryAttach(), which requires the compile to reproduce the frames. */
+  const bcm = /<!--r2sim:blocks ([A-Za-z0-9+/=]+)-->/.exec(text);
+  const packedBlocks = (bcm && typeof blocksUnpack === 'function') ? blocksUnpack(bcm[1]) : null;
+  if(packedBlocks) sequences.forEach(sq=>{ if(packedBlocks[sq.name]) sq.blocksCand = packedBlocks[sq.name]; });
+
   /* What the file was like BEFORE the sim touched anything. The wizard shows
      this, and it is the only chance to tell the user their board was never
      going to answer restartScript() — once we re-export, the evidence is
@@ -265,6 +306,19 @@ function mstrApply(P){
   MSTR.servoCount=P.servoCount; MSTR.channels=P.channels; MSTR.sequences=P.sequences;
   MSTR.subs=P.subs; MSTR.scriptText=P.scriptText; MSTR.header=P.header; MSTR.board=P.board;
   MSTR.report=P.report;
+  /* v1.48.0 — bricks the file carried as a comment come back as bricks,
+     when they honestly recompile to the file's own frames on the file's
+     own table (which is now THE table — mstrApply is wholesale) */
+  if(typeof blocksTryAttach === 'function'){
+    let back = 0, kept = 0;
+    MSTR.sequences.forEach(sq=>{
+      const cand = sq.blocksCand; delete sq.blocksCand;
+      if(!cand || !cand.length) return;
+      if(blocksTryAttach(sq, cand)) back++; else kept++;
+    });
+    if(back) lg('mae','  '+back+' routine(s) restored EDITABLE — bricks intact from the file');
+    if(kept) lg('mae','  '+kept+' routine(s) kept as plain frames — their bricks no longer recompile to the same motion');
+  }
   if(typeof servoStoreSave === 'function') servoStoreSave();
   const {servoCount, channels, sequences, subs, board} = P;
   const fileName = P.fileName, recovered = P.report.seqRecovered;
@@ -323,10 +377,17 @@ function mstrMatchChannels(P){
   P.channels.forEach(a=>{
     if(!servo(a)) return;
     let dst = null, via = null;
-    if(a.act && byAct[a.act]){ dst = byAct[a.act]; via = 'act'; }
-    else if(a.name && !a.autoName && byName[a.name.trim().toLowerCase()]){
+    /* An EXACT name match outranks the act (2026-08-18): a src channel's
+       act is always guessPart(name) — a GUESS — while a real name carried
+       by both files is authored twice. Mike's table names a channel
+       "Panel7" and wires it to the CAD lane `panel11` (his physical
+       numbering is not the CAD's); the guess read "Panel7" as `panel6`
+       and adoption cross-wired his own round-trip, swapping two panels'
+       choreography. The name is the human's meaning; the guess is ours. */
+    if(a.name && !a.autoName && byName[a.name.trim().toLowerCase()]){
       dst = byName[a.name.trim().toLowerCase()]; via = 'name';
     }
+    else if(a.act && byAct[a.act]){ dst = byAct[a.act]; via = 'act'; }
     else if(mine[a.i] && servo(mine[a.i])){
       /* same-number fallback is for raw Pololu files with blank names —
          two channels that BOTH carry real names which DISAGREE are two
@@ -342,12 +403,37 @@ function mstrMatchChannels(P){
   });
   return {pairs, how, unmatched};
 }
+/* A FOREIGN file's direction is unknowable from its pair: Control Center
+   always stores min<max, so "which end is shut" has exactly one tell — the
+   home its droid parks at. That heuristic lives HERE and only here
+   (2026-08-18): our own table is the directed pair (blockClosed/blockOpen,
+   v1.46.0 — min shut, max open, the bench's REV already baked in), so their
+   home lands on my shut end and their far-from-home end on my open end.
+
+   BUT the home is only a tell when the file actually MEASURED one — an
+   explicit Goto home inside the pair. A MaestroPCA sequences.h stores
+   home 0 for a homemode-Off channel (rest is computed, not stored) and
+   the parser fills the hole with 6000, so trusting `home ||` here rescaled
+   a round-trip of OUR OWN export through a fictional mid-travel "shut" —
+   and on any pair asymmetric about 6000 the invented ends came out the
+   wrong way round: every panel in the adopted copy reversed (Mike's
+   2026-08-18 diff of R2choreography… against sequences…h found it). No
+   measured home ⇒ the directed pair, which is exactly right for our own
+   files and the only honest default for anyone else's. */
+function mstrSrcEnds(c){
+  const lo = Math.min(c.min, c.max), hi = Math.max(c.min, c.max);
+  const home = +c.home || 0;
+  if(!/^goto$/i.test(c.homemode || '') || home < lo || home > hi)
+    return {shut: c.min, open: c.max};
+  return {shut: home, open: (Math.abs(hi - home) >= Math.abs(home - lo)) ? hi : lo};
+}
 function mstrRetargetFrame(targets, pairs){
   const t = new Array(MSTR.servoCount).fill(0);
   for(const {src, dst} of pairs){
     const v = targets[src.i];
     if(!v) continue;                                 // 0 = untouched, stays untouched
-    const cA = blockClosed(src), oA = blockOpen(src);
+    const eA = mstrSrcEnds(src);
+    const cA = eA.shut, oA = eA.open;
     const cY = blockClosed(dst), oY = blockOpen(dst);
     let n = (oA === cA) ? 0 : (v - cA) / (oA - cA);
     n = Math.max(0, Math.min(1, n));
@@ -370,6 +456,7 @@ function mstrAdoptSequences(P){
      the receipt. So the renames are collected and handed back, not merely
      applied, and the chooser says them out loud. */
   const renamed = [];
+  let bricksBack = 0, bricksKeptAsFrames = 0;
   P.sequences.forEach(sq=>{
     if(!sq.frames || !sq.frames.length) return;
     const frames = sq.frames.map(f=>{
@@ -379,10 +466,23 @@ function mstrAdoptSequences(P){
     let name = sq.name;
     while(MSTR.sequences.some(s=>s.name === name)) name = name + '·';
     if(name !== sq.name) renamed.push({from:sq.name, to:name});
-    MSTR.sequences.push({name, frames, cat});          // plain frame list — never blocks
+    const adopted = {name, frames, cat};
+    /* v1.48.0 — the file carried its BRICKS (our own choreography .json
+       always did; a .mstr / sequences.h carries them as a comment now).
+       Re-attach them only when they honestly recompile to these frames on
+       THIS table — otherwise the frames stay the truth and the loss is
+       counted, not silent. */
+    const cand = sq.blocksCand || sq.blocks;
+    if(cand && cand.length){
+      if(typeof blocksTryAttach === 'function' && blocksTryAttach(adopted, cand)) bricksBack++;
+      else bricksKeptAsFrames++;
+    }
+    MSTR.sequences.push(adopted);
     added.push(name);
   });
   if(typeof reindexSubs === 'function') reindexSubs();
+  if(bricksBack) lg('mae','  '+bricksBack+' routine(s) came back EDITABLE — their bricks recompile to the same frames on your table');
+  if(bricksKeptAsFrames) lg('mae','  '+bricksKeptAsFrames+' routine(s) kept as plain frames — their bricks would compile differently against your endpoints/speeds, so the frames won');
   /* NOT loadoutReset(): what reaches the board stays exactly what you chose */
   lg('mae','adopted '+added.length+' sequence(s) from '+P.fileName+' onto YOUR servo settings');
   lg('mae','  channels matched: '+how.act+' by part, '+how.name+' by name, '+how.index+' by number'
@@ -497,6 +597,9 @@ function pcaHeaderParse(text, fileName){
     });
   }
   if(!channels.length) throw new Error('the MaestroPCA channel table is empty');
+  /* v1.48.1 — authored part mapping beats guessPart(), same sidecar as the
+     .mstr. Applied HERE, before report.mapped counts them. */
+  actsApply(channels, actsUnpack(t, 'pca'));
   const declared = /#define\s+(?:MPCA_CHANNELS|SERVO_COUNT)\s+(\d+)/.exec(t);
   const servoCount = channels.length;
 
@@ -587,6 +690,12 @@ function pcaHeaderParse(text, fileName){
     mapped: channels.filter(c=>c.act).length,
     dropped
   };
+  /* v1.48.0 — the bricks our own generator commented in, back out (a
+     CANDIDATE only; blocksTryAttach() decides — see mstrParse) */
+  const bcm = /\/\* r2sim:blocks ([A-Za-z0-9+/=]+) \*\//.exec(t);
+  const packedBlocks = (bcm && typeof blocksUnpack === 'function') ? blocksUnpack(bcm[1]) : null;
+  if(packedBlocks) sequences.forEach(sq=>{ if(packedBlocks[sq.name]) sq.blocksCand = packedBlocks[sq.name]; });
+
   /* xmlText is deliberately null: there is no Pololu file behind this
      config, so buildMstrText() must GENERATE the whole .mstr rather than
      regex-patching one (export.js genFullMstr). */

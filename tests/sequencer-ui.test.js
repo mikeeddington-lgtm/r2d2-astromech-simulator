@@ -40,9 +40,8 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
   });
 
   console.log('\n════ the show-control layout ════');
-  ok('transport: play, stop, time readout, snap picker, Advanced, Build your Maestro', await ev(()=>
+  ok('transport: play, stop, time readout, Advanced, Build your Maestro — the snap picker moved to the ruler (2026-08-18)', await ev(()=>
     !!$('sqPlay') && !!$('sqStop') && !!$('sqTime') &&
-    $('sqSnapWrap').querySelectorAll('option').length===4 &&
     !!$('sqAdv') && /Build your Maestro/.test($('sqBuild').textContent)));
   ok('the inspector has its own column on the right', await ev(()=>{
     const r = $('seqinsp').getBoundingClientRect();
@@ -1444,6 +1443,163 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
     return !!got && got.kind==='choreography' && got.from==='sequencer' && wizSeen.length===0;
   }));
   await ev(()=>{ const d=document.querySelector('.jwrap,.iwrap,.dlgwrap'); if(d) d.remove(); });
+
+  console.log('\n════ multi-select — bulk Runs for and Motion (2026-08-18) ════');
+  /* Mike: "on the sequencer I should be able to select multiple and copy,
+     delete and extend the run time and even bulk change if its an open,
+     open and close or just close". Copy and delete existed (Duplicate /
+     Remove); these are the other two, on the same multi card. */
+  const bulk = await ev(()=>{
+    EDIT.seq = blockNewRoutine('Bulk edit test');
+    const seq = MSTR.sequences[EDIT.seq];
+    const acts = blockActions();
+    blockAdd(seq, 'act', acts[0].act, 0,    {dur:400});
+    blockAdd(seq, 'act', acts[1].act, 600,  {dur:700});
+    blockAdd(seq, 'act', acts[2].act, 1400, {dur:500, mode:'o'});
+    BLK.sel = null; blkSelClear();
+    buildSequencer();
+    const click = (i, mods)=>{
+      const n = Array.from(document.querySelectorAll('.blkbrick'))[i];
+      const r = n.getBoundingClientRect();
+      const init = Object.assign({bubbles:true, clientX:r.x+r.width/2, clientY:r.y+r.height/2, pointerId:41}, mods||{});
+      n.dispatchEvent(new PointerEvent('pointerdown', init));
+      window.dispatchEvent(new PointerEvent('pointerup', init));
+    };
+    click(0); click(1, {shiftKey:true}); click(2, {ctrlKey:true});
+    const insp = $('seqinsp');
+    const hasControls = !!insp.querySelector('input[data-multi="dur"]')
+                     && !!insp.querySelector('select[data-multi="mode"]');
+    const ids = blkSelIds();
+    blkMultiDur(seq, ids, 1000);
+    const durs = blockList(seq).map(b=>b.dur);
+    const durUndo = blockCanUndo(seq);
+    blkMultiMode(seq, ids, 'c');
+    const modes = blockList(seq).map(b=>b.mode||'oc');
+    blkMultiMode(seq, ids, 'oc');
+    const cleared = blockList(seq).every(b=>b.mode===undefined);
+    return {hasControls, durs, durUndo, modes, cleared, selCount: blkSelIds().length};
+  });
+  ok('the multi card carries Runs for and Motion alongside Duplicate and Remove',
+     bulk.hasControls, JSON.stringify(bulk));
+  ok('bulk Runs for writes every selected brick', bulk.durs.join()==='1000,1000,1000', bulk.durs.join());
+  ok('...as one undoable gesture, selection kept', bulk.durUndo && bulk.selCount===3, JSON.stringify(bulk));
+  ok('bulk Motion writes every selected act brick', bulk.modes.join()==='c,c,c', bulk.modes.join());
+  ok("...and 'Opens, then closes' clears the stored mode — same contract as the single-brick dropdown",
+     bulk.cleared);
+  const bulkUndo = await ev(()=>{
+    /* three gestures above = three snapshots; unwind them all and the
+       original durations and modes must come back */
+    const seq = MSTR.sequences[EDIT.seq];
+    $('sqUndo').click(); $('sqUndo').click(); $('sqUndo').click();
+    return {durs: blockList(seq).map(b=>b.dur).join(),
+            modes: blockList(seq).map(b=>b.mode||'oc').join()};
+  });
+  ok('undo restores the durations and modes the bulk edits replaced',
+     bulkUndo.durs==='400,700,500' && bulkUndo.modes==='oc,oc,o', JSON.stringify(bulkUndo));
+  await ev(()=>{ MSTR.sequences.splice(EDIT.seq,1); EDIT.seq=0; EDIT.frame=-1; reindexSubs(); BLK.sel=null; blkSelClear(); buildSequencer(); });
+
+  console.log('\n════ the snap picker lives on the timing line (2026-08-18) ════');
+  /* Mike: "there should be a selector for Snap to nearest auto-snap next to
+     the timeline timming line" — it existed since v1.12.0 but sat in the
+     crowded transport bar, where he never found it. It now IS the ruler
+     row's corner cell, so it exists exactly when the timeline does. */
+  await ev(()=>{ EDIT.seq = blockNewRoutine('Snap picker home test'); buildSequencer(); });
+  ok('the snap picker sits in the ruler corner of the timeline, not the transport',
+     await ev(()=>{
+       const w = $('sqSnapWrap');
+       return !!w && !!w.closest('.tlrow') && w.querySelectorAll('option').length===4;
+     }));
+  ok('choosing a mode there writes BLK.snapMode and persists to PREFS', await ev(()=>{
+    const s = $('sqSnapWrap').querySelector('select');
+    s.value = 'off'; s.dispatchEvent(new Event('change'));
+    const off = BLK.snapMode==='off' && PREFS.seqSnap==='off';
+    const s2 = $('sqSnapWrap').querySelector('select');   // rebuilt by buildSequencer
+    s2.value = 'auto'; s2.dispatchEvent(new Event('change'));
+    return off && BLK.snapMode==='auto';
+  }));
+  await ev(()=>{ MSTR.sequences.splice(EDIT.seq,1); EDIT.seq=0; EDIT.frame=-1; reindexSubs(); buildSequencer(); });
+
+  console.log('\n════ unwired bricks WORK on the model (2026-08-18) ════');
+  /* Mike: "For panels that I havent mapped yet I should be able to add them
+     to a sequence or see them in an exsisting sequence, Also they should
+     'Work' on the sim and once I or a user maps them they will then work in
+     the real model." The first half shipped in v1.46.0 (the grey brick).
+     This is the second: preview and scrub move the MODEL for an unwired
+     brick — through ACT_T only, never the compiled frames or the wire. */
+  const fw = await ev(()=>{
+    EDIT.seq = blockNewRoutine('Free preview test');
+    const seq = MSTR.sequences[EDIT.seq];
+    const freeAct = BLKH.movers().filter(m=>!m.on).map(m=>m.act)[0];
+    if(!freeAct) return {noFree:true};
+    blockAdd(seq, 'act', freeAct, 0, {dur:1000, rise:200, fall:200});
+    blockSync(seq);
+    const framesBefore = JSON.stringify(seq.frames);
+    ACT_T[freeAct] = 0;
+    blockPoseAt(seq, 500);                        // scrub to mid-brick
+    const mid = ACT_T[freeAct];
+    blockPoseAt(seq, 100);                        // mid-rise
+    const rising = ACT_T[freeAct];
+    blockPoseAt(seq, 2000);                       // past the brick — parks
+    const after = ACT_T[freeAct];
+    return {freeAct, mid, rising, after,
+            framesUntouched: JSON.stringify(seq.frames) === framesBefore,
+            env: blockEnvAt({t0:0, dur:1000, rise:200, fall:200, kind:'act', ref:freeAct}, 500)};
+  });
+  ok('scrubbing moves an unwired panel on the model — fully open mid-brick',
+     !fw.noFree && fw.mid === 1, JSON.stringify(fw));
+  ok('...and shows the ramp on the way up', fw.rising > 0.3 && fw.rising < 0.7, 'rising='+fw.rising);
+  ok('...and parks it closed past the brick, like the wired home frame', fw.after === 0);
+  ok('...without adding one byte to the compiled frames', fw.framesUntouched);
+  const fwPlay = await ev(async ()=>{
+    const seq = MSTR.sequences[EDIT.seq];
+    const freeAct = blockList(seq)[0].ref;
+    ACT_T[freeAct] = 0;
+    /* play the preview the same way the button does, and let the follow
+       loop drive the free overlay */
+    blkPlayheadSet(0, false);
+    seqStart('edit', seq.frames, 'preview');
+    blkTickStart();
+    const t0 = SIM.millis;
+    let peak = 0;
+    await new Promise(res=>{
+      const watch = ()=>{
+        peak = Math.max(peak, ACT_T[freeAct]);
+        if(!MAESTRO.slot.edit || SIM.millis - t0 > 6000) return res();
+        requestAnimationFrame(watch);
+      };
+      watch();
+    });
+    await new Promise(r=>setTimeout(r, 120));      // one more tick after the slot ends
+    return {peak, settled: ACT_T[freeAct]};
+  });
+  ok('Play moves the unwired panel on the model', fwPlay.peak > 0.6, 'peak='+fwPlay.peak);
+  ok('...and it settles closed when the preview ends', fwPlay.settled === 0, 'settled='+fwPlay.settled);
+  /* v1.48.0 — Mike: "if the user Loads the sequence shoudl that then become
+     availble" — yes: ANY slot playing a library routine's frames (the pad,
+     a loadout slot, restartScript) lays the free overlay too, because
+     seqStart() recognises the routine by frames identity. */
+  const fwPad = await ev(async ()=>{
+    const seq = MSTR.sequences[EDIT.seq];
+    const freeAct = blockList(seq)[0].ref;
+    ACT_T[freeAct] = 0;
+    seqStart(6, seq.frames, 'pad path test');     // a NUMBERED slot — not the sequencer preview
+    const t0 = SIM.millis;
+    let peak = 0;
+    await new Promise(res=>{
+      const w = ()=>{
+        peak = Math.max(peak, ACT_T[freeAct]);
+        if(!MAESTRO.slot[6] || SIM.millis - t0 > 6000) return res();
+        requestAnimationFrame(w);
+      };
+      w();
+    });
+    await new Promise(r=>setTimeout(r, 120));
+    return {peak, settled: ACT_T[freeAct]};
+  });
+  ok('a routine fired into a NUMBERED slot (pad / loadout path) moves the unwired panel too',
+     fwPad.peak > 0.6, 'peak='+fwPad.peak);
+  ok('...and parks it closed when that slot ends', fwPad.settled === 0, 'settled='+fwPad.settled);
+  await ev(()=>{ MSTR.sequences.splice(EDIT.seq,1); EDIT.seq=0; EDIT.frame=-1; reindexSubs(); BLK.sel=null; blkSelClear(); buildSequencer(); });
 
   console.log('\n════ no page errors ════');
   ok('nothing threw', errs.length===0, errs.join(' | '));

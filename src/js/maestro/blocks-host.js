@@ -157,6 +157,10 @@ const BLKH = {
 
   /* -------------------------------------------------------------- hooks */
   applyPose(targets){ if(typeof applyFrameTargets === 'function') applyFrameTargets(targets); },
+  /* an UNWIRED brick's pose — model only, in 0..1 of the part's travel.
+     Deliberately absent from PCA Studio's host (no droid, no ACT_T), which
+     is the gate blocks.js checks before calling (2026-08-18). */
+  applyFree(act, v){ if(typeof ACT_T !== 'undefined' && ACT_T[act] !== undefined) ACT_T[act] = v; },
   changed(){ if(typeof reindexSubs === 'function') reindexSubs(); },
   log(cat, msg){ if(typeof lg === 'function') lg(cat, msg); },
 

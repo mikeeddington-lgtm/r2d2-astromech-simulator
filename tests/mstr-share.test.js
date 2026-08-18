@@ -72,7 +72,10 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
        spec demands, from both sides' own tables */
     const map = (srcI, v)=>{
       const a = __P.channels[srcI], d = MSTR.channels.find(c=>c.act===a.act);
-      const cA=blockClosed(a), oA=blockOpen(a), cY=blockClosed(d), oY=blockOpen(d);
+      /* the SOURCE side keeps the home heuristic (mstrSrcEnds — a foreign
+         Control Center pair is always sorted, home is the only tell); MY
+         side is the directed pair (blockClosed/blockOpen, v1.46.0) */
+      const eA=mstrSrcEnds(a), cA=eA.shut, oA=eA.open, cY=blockClosed(d), oY=blockOpen(d);
       const n = Math.max(0, Math.min(1, (v-cA)/(oA-cA)));
       const lo=Math.min(d.min,d.max), hi=Math.max(d.min,d.max);
       return {i:d.i, v:Math.max(lo, Math.min(hi, Math.round(cY + n*(oY-cY))))};
@@ -104,7 +107,13 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
   ok('an inverted mounting comes out the right way round', adopt.invertedLandsOpen);
   ok('their per-frame speed/accel rows are discarded — my limits govern', adopt.speedsDropped);
   ok('their unmatched channel was dropped, and reported', adopt.r.unmatched.length===1 && adopt.r.unmatched[0]===2);
-  ok('matching preferred the part name over the channel number', adopt.r.how.act>=2, JSON.stringify(adopt.r.how));
+  /* 2026-08-18: an exact NAME match outranks the guessed act — a src act is
+     always guessPart(name), and trusting the guess over the authored name
+     cross-wired Mike's own round-trip (his "Panel7" drives `panel11`, not
+     the `panel6` the guess reads). This fixture's names are copied from my
+     table, so both channels now pair by name; the meaning is unchanged. */
+  ok('matching preferred the authored name, then the part, over the channel number',
+     (adopt.r.how.name + adopt.r.how.act) >= 2 && adopt.r.how.index === 0, JSON.stringify(adopt.r.how));
   ok('adopting again never overwrites — the name grows a dot', await ev(()=>{
     mstrAdoptSequences(__P);
     return MSTR.sequences.some(s=>s.name==='Their wave·');
@@ -421,6 +430,126 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
      JSON.stringify(virgin));
 
   await ev(()=>{ HTMLAnchorElement.prototype.click = window.__aclick; });
+
+  console.log('\n════ adopting our OWN sequences.h comes back the right way round (2026-08-18) ════');
+  /* Mike exported sequences.h, re-imported it as choreography-only, and
+     every panel came back REVERSED: a MaestroPCA header stores home 0
+     (rest is computed, not stored), the parser maps that to 6000, and
+     mstrSrcEnds() then invented a fictional mid-travel "shut" — so a
+     round-trip of our own directed file was rescaled through the wrong
+     ends. The home heuristic is only a directional TELL when the file
+     actually measured one: an explicit Goto home inside the pair. */
+  const hRt = await ev(()=>{
+    setBoard('mini24'); makeStarter('dome','mini24'); reindexSubs();
+    /* Mike's channels are BENCH-made: homemode Off, uneven offsets on the
+       pair — which the generator writes as home 0, the shape that broke.
+       The pair must be ASYMMETRIC about 6000 with min the further end
+       (e.g. 4530–7293), because that is what flipped the invented ends. */
+    const chans = MSTR.channels.filter(c=>/^servo/i.test(c.mode)).slice(0,3);
+    /* names chosen so guessPart(name) DISAGREES with the wired act — Mike's
+       real table does this ("Panel7" drives panel11): the round-trip must
+       pair by the authored name, never by the guess */
+    chans.forEach((c,k)=>{
+      c.homemode='Off'; c.min = 4530 + k*11; c.max = 7293 - k*13;
+      c.name = ['Panel7','Panel12','Panel9'][k]; c.autoName = false;
+    });
+    const mkT = pairs=>{ const a = new Array(MSTR.servoCount).fill(0); pairs.forEach(([i,v])=>a[i]=v); return a; };
+    const probe = {name:'RT probe', frames:[
+      {name:'f0', duration:400, targets: mkT([[chans[0].i, chans[0].min], [chans[1].i, chans[1].max], [chans[2].i, 6100]])},
+      {name:'f1', duration:400, targets: mkT([[chans[0].i, chans[0].max], [chans[1].i, chans[1].min], [chans[2].i, chans[2].min]])}
+    ]};
+    MSTR.sequences.push(probe);
+    loadoutReset(); MSTR.loadout = ['RT probe']; reindexSubs();
+    const before = JSON.parse(JSON.stringify(probe));
+    const h = pcaGenFromLoadout();
+    const P = pcaHeaderParse(h, 'sequences.h');
+    const nBefore = MSTR.sequences.length;
+    mstrAdoptSequences(P);
+    const twin = MSTR.sequences[nBefore];
+    const bad = [];
+    before.frames.forEach((f, j)=>{
+      f.targets.forEach((v, ch)=>{
+        const w = (twin && twin.frames[j] && twin.frames[j].targets[ch]) || 0;
+        if((v||0) !== w && bad.length < 8) bad.push('f'+j+' ch'+ch+': '+v+' → '+w);
+      });
+    });
+    /* clean back out so later state stays predictable */
+    MSTR.sequences.length = nBefore - 1; loadoutReset(); reindexSubs();
+    return {haveTwin: !!twin, bad};
+  });
+  ok('the adopted twin is target-for-target identical to the sequence it round-tripped from',
+     hRt.haveTwin && hRt.bad.length === 0,
+     JSON.stringify(hRt));
+
+  console.log('\n════ the BRICKS survive a round trip (2026-08-18) ════');
+  /* Mike, off the round-trip report: "could we not export teh Bricks info
+     into the export files that are commented out - but when we import we
+     can import them as bricks". The choreography .json always carried
+     them; the .mstr and sequences.h now carry them as a comment; every
+     reader re-attaches them ONLY when compiling the bricks against the
+     DESTINATION table reproduces the imported frames exactly — otherwise
+     the frames win and the bricks are dropped, by name. */
+  const bk = await ev(()=>{
+    setBoard('mini24'); makeStarter('dome','mini24'); reindexSubs();
+    EDIT.seq = blockNewRoutine('Brick RT');
+    const seq = MSTR.sequences[EDIT.seq];
+    const acts = blockActions();
+    blockAdd(seq, 'act', acts[0].act, 0,    {dur:900, rise:200, fall:200});
+    blockAdd(seq, 'act', acts[1].act, 400,  {dur:700, mode:'o'});
+    blockAdd(seq, 'act', acts[2].act, 1400, {dur:600, amp:0.35});
+    blockSync(seq);
+    loadoutReset(); MSTR.loadout = [seq.name]; reindexSubs();
+    /* dense to the board's width: compiled frames are sparse arrays, a
+       retargeted frame is a full one — 0 and a hole both mean untouched */
+    const norm = s => JSON.stringify(s.frames.map(f=>{
+      const t = []; for(let k=0;k<MSTR.servoCount;k++) t.push((f.targets||[])[k]||0);
+      return [f.duration, t];
+    }));
+    const framesBefore = norm(seq);
+    const xml = buildMstrText();
+    const h = pcaGenFromLoadout();
+    const P1 = mstrParse(xml, 'rt.mstr');
+    const P2 = pcaHeaderParse(h, 'rt.h');
+    const P3 = {fileName:'chor.json', servoCount:MSTR.servoCount,
+                channels: JSON.parse(JSON.stringify(MSTR.channels)),
+                sequences: JSON.parse(JSON.stringify([seq]))};
+    const out = {xmlComment: xml.indexOf('r2sim:blocks') >= 0,
+                 hComment: h.indexOf('r2sim:blocks') >= 0};
+    const tryOne = (P, key)=>{
+      const n0 = MSTR.sequences.length;
+      mstrAdoptSequences(P);
+      /* a .mstr carries the WHOLE library, so find OUR routine's twin by name */
+      const twin = MSTR.sequences.slice(n0).find(s=>s.name.replace(/·+$/,'') === 'Brick RT');
+      out[key] = {bricks: !!(twin && twin.blocks && twin.blocks.length === 3),
+                  routine: !!(twin && blockIsRoutine(twin)),
+                  frames: twin ? norm(twin) === framesBefore : false};
+      MSTR.sequences.length = n0; reindexSubs();
+    };
+    tryOne(P1, 'mstr'); tryOne(P2, 'pca'); tryOne(P3, 'chor');
+    /* the negative: slow MY channel after the export, so the travel floor
+       changes — the bricks would compile DIFFERENT frames now, so they
+       must be dropped and the imported frames kept verbatim */
+    const c0 = blockChan(acts[0].act); const keepSpeed = c0.speed;
+    c0.speed = 5;
+    const n0 = MSTR.sequences.length;
+    mstrAdoptSequences(P1);
+    const twin = MSTR.sequences.slice(n0).find(s=>s.name.replace(/·+$/,'') === 'Brick RT');
+    out.slowed = {bricks: !!(twin && twin.blocks), frames: twin ? norm(twin) === framesBefore : false};
+    MSTR.sequences.length = n0; c0.speed = keepSpeed; reindexSubs();
+    /* clean the probe out */
+    MSTR.sequences.splice(EDIT.seq, 1); EDIT.seq = 0; loadoutReset(); reindexSubs();
+    return out;
+  });
+  ok('the .mstr and the sequences.h both carry the bricks, commented out',
+     bk.xmlComment && bk.hComment, JSON.stringify(bk));
+  ok('a .mstr round trip comes back EDITABLE — bricks, routine, frames all intact',
+     bk.mstr && bk.mstr.bricks && bk.mstr.routine && bk.mstr.frames, JSON.stringify(bk.mstr));
+  ok('a sequences.h round trip comes back editable too',
+     bk.pca && bk.pca.bricks && bk.pca.routine && bk.pca.frames, JSON.stringify(bk.pca));
+  ok('a choreography .json round trip comes back editable too',
+     bk.chor && bk.chor.bricks && bk.chor.routine && bk.chor.frames, JSON.stringify(bk.chor));
+  ok('when the destination table has changed, the FRAMES win and the bricks are dropped',
+     bk.slowed && !bk.slowed.bricks && bk.slowed.frames, JSON.stringify(bk.slowed));
 
   console.log('\n════ no page errors ════');
   ok('nothing threw', errs.length===0, errs.join(' | '));
