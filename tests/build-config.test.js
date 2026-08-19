@@ -1142,11 +1142,17 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
     servoTopoDef('m2s').flow[1].join(' > ')==='Padawan > Maestro 2 > Servos'));
   /* v1.46.0 — p1x2 leads: "This should be the default option as in first and
      selected in the list". The array order IS the card order. */
-  ok('...and his four PCA ones, two expanders first, plus the no-controller case', await ev(()=>
-    servoTopos('pca').map(t=>t.id).join()==='p1x2,p0,p1,p2s,p1s' &&
-    servoTopoDef('p1').flow[0].join(' > ')==='Padawan > Controller > PCA9685 > Servos' &&
+  /* v1.54.0 — `p1` is off the picker. It differed from `p1x2` by the integer
+     1, and the integer is a field beside the card now. It is still in
+     SERVO_TOPOS, and deliberately: servoTopoDef() falls back to
+     SERVO_TOPOS[0], which is a MAESTRO shape, so a saved build naming `p1`
+     would come back as a Maestro build if the id were simply deleted. */
+  ok('...and his PCA ones, two expanders first, plus the no-controller case', await ev(()=>
+    servoTopos('pca').map(t=>t.id).join()==='p1x2,p0,p2s,p1s' &&
     servoTopoDef('p1x2').flow[0].join(' > ')==='Padawan > Controller > PCA9685 1 > PCA9685 2 > Servos' &&
     servoTopoDef('p2s').flow.length===2 && servoTopoDef('p1s').flow.length===2));
+  ok('the retired one-expander id still resolves to a PCA shape, not a Maestro one', await ev(()=>
+    servoTopoDef('p1').device==='pca' && servoTopoDef('p1').hidden===true));
   ok('the ones the sketch cannot address say so rather than being left out', await ev(()=>
     SERVO_TOPOS.filter(t=>t.sim==='park').map(t=>t.id).join()==='m2s,p2s,p1s' &&
     SERVO_TOPOS.every(t=>t.note && t.label && t.flow.length)));
@@ -1176,10 +1182,110 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
   }));
   ok('clicking a diagram picks that arrangement', await ev(()=>{
     buildSet('servoDevice','pca'); buildStartup();
-    $('startupBody').querySelector('[data-opt="servoTopo:p1"]').click();
-    return buildGet().servoTopo==='p1' &&
-           $('startupBody').querySelector('[data-opt="servoTopo:p1"]').classList.contains('act');
+    $('startupBody').querySelector('[data-opt="servoTopo:p0"]').click();
+    return buildGet().servoTopo==='p0' &&
+           $('startupBody').querySelector('[data-opt="servoTopo:p0"]').classList.contains('act');
   }));
+
+  /* ================================================================
+     v1.54.0 — Mike, with three PCA9685s answering on the bench and a
+     build that could only say two: "The Servo Hardware - doesnt show
+     enough servos its only showing two."
+
+     The count was two CARDS ("one expander" / "two expanders"), which
+     is right for a shape and wrong for a quantity — eight of them would
+     have been eight near-identical pictures differing by one rectangle.
+     The shape stays a card; the quantity is a number beside it.
+     ================================================================ */
+  console.log('\n════ how many expanders is a number, not a card ════');
+  const pcaN = await ev(()=>{
+    const out = {};
+    buildSet('servoDevice','pca'); buildSet('servoTopo','p1x2');
+    buildSet('pcaBoards', 3); buildStartup();
+    const b = buildGet();
+    out.three   = b.pcaBoards;
+    out.dome    = b.domeServo;
+    out.body    = b.bodyServo;
+    out.hwBoard = buildSeqBoard(b);
+    out.channels = boardById(buildSeqBoard(b)).ch;
+    /* the field is on the step, and it is a number */
+    const inp = $('wizPcaBoards');
+    out.hasField = !!inp && inp.type === 'number'
+                && +inp.max === PCA_MAX_BOARDS_UI && +inp.value === 3;
+    /* eight is the ceiling, and it is the WIRE's ceiling */
+    buildSet('pcaBoards', 99); buildStartup();
+    out.clamped = buildGet().pcaBoards;
+    out.clampedCh = boardById(buildSeqBoard(buildGet())).ch;
+    buildSet('pcaBoards', 0); buildStartup();
+    out.floored = buildGet().pcaBoards;
+    /* a build restored without the field at all is the two it always meant */
+    const b2 = buildGet(); delete b2.pcaBoards;
+    buildNormaliseServos(b2);
+    out.legacy = b2.pcaBoards;
+    /* the retired card's id is rewritten rather than resolved to a Maestro */
+    const b3 = buildGet(); b3.servoTopo = 'p1'; b3.servoDevice = 'pca';
+    buildNormaliseServos(b3);
+    out.p1topo = b3.servoTopo; out.p1n = b3.pcaBoards; out.p1dome = b3.domeServo;
+    /* setting the board answer DIRECTLY feeds the count back — otherwise the
+       forward pass would hand your value back changed */
+    buildSet('pcaBoards', 2); buildStartup();
+    buildSet('domeServo','mpca64'); buildStartup();
+    out.backwards = buildGet().pcaBoards;
+    out.backDome  = buildGet().domeServo;
+    buildSet('pcaBoards', 2); buildSet('servoTopo','p1x2'); buildStartup();
+    return out;
+  });
+  ok('three expanders is an answer the build can hold', pcaN.three === 3, JSON.stringify(pcaN));
+  ok('...and it resolves to the three-board co-processor at both ends',
+     pcaN.dome === 'mpca48' && pcaN.body === 'mpca48', pcaN.dome+' / '+pcaN.body);
+  ok('...and the sequencer gets 48 channels, not 32',
+     pcaN.hwBoard === 'pca48' && pcaN.channels === 48, pcaN.hwBoard+' = '+pcaN.channels);
+  ok('the step asks for it as a number capped at the protocol ceiling', pcaN.hasField);
+  ok('eight is the ceiling — the wire protocol cannot address a ninth board',
+     pcaN.clamped === 8 && pcaN.clampedCh === 128, JSON.stringify([pcaN.clamped, pcaN.clampedCh]));
+  ok('...and one is the floor', pcaN.floored === 1);
+  ok('a build saved before the field existed still means two',
+     pcaN.legacy === 2, String(pcaN.legacy));
+  ok('the retired p1 card becomes p1x2 with a count of one, still a PCA build',
+     pcaN.p1topo === 'p1x2' && pcaN.p1n === 1 && pcaN.p1dome === 'mpca16',
+     JSON.stringify([pcaN.p1topo, pcaN.p1n, pcaN.p1dome]));
+  ok('setting the board answer directly carries the count back with it',
+     pcaN.backwards === 4 && pcaN.backDome === 'mpca64',
+     JSON.stringify([pcaN.backwards, pcaN.backDome]));
+
+  /* THE THING MIKE ACTUALLY REPORTED. Everything above is the build knowing
+     how many boards there are; this is the channel table growing to match,
+     which is what "doesnt show enough servos" meant. It goes through
+     buildApply() → setBoard() rather than poking MSTR, because that is the
+     path a click takes. */
+  const grow = await ev(()=>{
+    const seen = [];
+    const step = n => {
+      buildSet('pcaBoards', n); buildApply();
+      seen.push({n, board:MSTR.board, ch:MSTR.channels.length,
+                 count:HW.setupCount(), boards:HW.boards()});
+    };
+    buildSet('servoDevice','pca'); buildSet('servoTopo','p1x2');
+    buildSet('pcaBoards',2); buildApply(); buildEnsureMaestro();
+    seen.push({n:2, board:MSTR.board, ch:MSTR.channels.length,
+               count:HW.setupCount(), boards:HW.boards()});
+    step(3); step(4); step(8);
+    /* the mapping work survives going UP — the table is padded, not rebuilt */
+    const named = MSTR.channels[0] && MSTR.channels[0].name;
+    return {seen, named};
+  });
+  ok('two boards is 32 channels, as it always was',
+     grow.seen[0].ch === 32 && grow.seen[0].board === 'pca32',
+     JSON.stringify(grow.seen[0]));
+  ok('THREE boards grows the channel table to 48 — the thing that was broken',
+     grow.seen[1].ch === 48 && grow.seen[1].count === 48
+     && grow.seen[1].board === 'pca48' && grow.seen[1].boards === 3,
+     JSON.stringify(grow.seen[1]));
+  ok('four is 64 and eight is 128, the wire protocol\'s whole range',
+     grow.seen[2].ch === 64 && grow.seen[3].ch === 128,
+     JSON.stringify([grow.seen[2].ch, grow.seen[3].ch]));
+  ok('...and growing the table does not throw the first channel away',
+     !!grow.named, String(grow.named));
 
   /* ================================================================
      v1.45.0 — Mike: "Maestro: choose one or two boards."
@@ -1248,8 +1354,12 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
       const b = buildGet();
       const ans = buildServoAnswer(b);
       const step = $('startupBody').textContent;
-      const okShape = b.servoTopo === t.id
-        && buildServoTopo(b).id === t.id
+      /* v1.54.0 — `p1` is the one shape that no longer reads back as itself,
+         on purpose: it was "p1x2 with one expander" all along and it is
+         stored that way now. Everything else must still be exactly itself. */
+      const want = t.id === 'p1' ? 'p1x2' : t.id;
+      const okShape = b.servoTopo === want
+        && buildServoTopo(b).id === want
         /* two boards or two links means two; one of either means one, EXCEPT
            when the board cannot be shared — the mod2026 expanders are two
            fixed addresses on the host bus, never one controller */
@@ -1312,15 +1422,23 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
     return buildGet().domeServo==='mod2026' && buildGet().bodyServo==='mod2026' &&
            servoTopoDef('p0').direct===true && !buildUsesCoproc();
   }));
+  /* v1.54.0 — the count is its own answer now, so these two set it rather
+     than picking between two cards that differed only by it. `p1` still
+     works as an input and is what it always meant. */
   ok('one controller and one expander is 16 channels behind a co-processor', await ev(()=>{
     buildSet('servoTopo','p1');
-    return buildGet().domeServo==='mpca16' && buildUsesCoproc() &&
+    return buildGet().domeServo==='mpca16' && buildGet().pcaBoards===1 && buildUsesCoproc() &&
            boardById(buildMaestroBoard()).ch===16;
   }));
   ok('two expanders on it is 32, still one link', await ev(()=>{
-    buildSet('servoTopo','p1x2');
+    buildSet('servoTopo','p1x2'); buildSet('pcaBoards',2);
     return buildGet().domeServo==='mpca32' && buildServoSplit()==='one' &&
            boardById(buildMaestroBoard()).ch===32;
+  }));
+  ok('...and four of them is 64, still one controller and one link', await ev(()=>{
+    buildSet('pcaBoards',4);
+    return buildGet().domeServo==='mpca64' && buildServoSplit()==='one' &&
+           buildServoTopo().links===1 && boardById(buildMaestroBoard()).ch===64;
   }));
   ok('the controller is Arduino or ESP32, from the same list the Bench uses', await ev(()=>{
     buildStartup();

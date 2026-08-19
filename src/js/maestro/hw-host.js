@@ -104,7 +104,7 @@ const HW = {
     /* the one thing worth saying out loud: the wizard's board count and the
        BUILD's board can disagree, and the build is what the wiring sheet and
        the exports read */
-    const want = (hw && hw.boards === 1) ? 'pca16' : 'pca32';
+    const want = pcaSeqBoardId(hw && hw.boards);
     if(hw && boardIsPca(MSTR.board) && MSTR.board !== want){
       this.say('setup says '+hw.boards+' board(s), but this build is set to '
              + boardById(MSTR.board).label + ' — change it in the build setup if that is wrong');

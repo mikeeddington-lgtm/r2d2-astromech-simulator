@@ -660,6 +660,57 @@ function wizFlowCard(grid, t, on, o){
 }
 
 /* The shape, as pictures. One card per arrangement the chosen device has. */
+/* ================================= HOW MANY EXPANDERS (v1.54.0)
+   Mike had three PCA9685s answering on the bench and the build could only
+   say two, because "one expander" and "two expanders" were two separate
+   arrangement CARDS. Cards are right for a shape — controller or no
+   controller, one link or two — and wrong for a quantity: eight of them
+   would be eight near-identical pictures differing by one rectangle.
+
+   So the shape stays a card and the quantity becomes a number beside it,
+   which is also what the bench's own Channels step has always used. The
+   ceiling is the wire protocol's, not an arbitrary one, and the field says
+   what the answer BUYS you — channels, and the highest channel number —
+   because "6 boards" is not a thing anyone can picture and "96 channels" is.
+
+   Only for shapes that carry a count (`counted`). `p0` is the mod2026 pair
+   at two fixed addresses on the host's own bus, and `p2s`/`p1s` split their
+   expanders across two links and are both sim:'park'; giving any of them a
+   count would be offering an arrangement nothing drives. */
+function wizPcaCountPicker(host, b){
+  const topo = buildServoTopo(b);
+  if(!topo.counted) return null;
+  const n = Math.max(1, Math.min(PCA_MAX_BOARDS_UI, b.pcaBoards|0));
+  const row = el('div','setrow pcacount');
+  const lab = el('label');
+  lab.appendChild(document.createTextNode('How many expander boards? '));
+  const inp = document.createElement('input');
+  inp.type = 'number'; inp.min = '1'; inp.max = String(PCA_MAX_BOARDS_UI);
+  inp.value = String(n); inp.id = 'wizPcaBoards';
+  inp.title = 'Each PCA9685 is 16 channels. Up to ' + PCA_MAX_BOARDS_UI
+            + ' of them on the one I2C bus — the addresses are found by a boot scan, '
+            + 'so bridge whichever jumpers suit the build.';
+  inp.addEventListener('change', ()=>{
+    buildSet('pcaBoards', Math.max(1, Math.min(PCA_MAX_BOARDS_UI, +inp.value || 1)));
+    buildStartup();
+  });
+  lab.appendChild(inp);
+  row.appendChild(lab);
+  const stat = el('span','stat');
+  stat.textContent = (n*16) + ' channels · highest channel number ' + (n*16 - 1);
+  row.appendChild(stat);
+  host.appendChild(row);
+  if(n > 2){
+    const note = el('div','hint');
+    note.innerHTML = 'More than two expanders needs the <b>current sketch</b> on the controller — '
+      + 'PCA_Bridge 2 or MaestroReplacement 3 and later. Driving servos live from this app used to stop '
+      + 'at channel 61 because the channel travelled in six bits; it travels in seven now. Exported '
+      + 'sequences drive every channel either way.';
+    host.appendChild(note);
+  }
+  return row;
+}
+
 function wizTopoPicker(host, b){
   const list = servoTopos(b.servoDevice);
   const cur  = buildServoTopo(b);
@@ -827,6 +878,7 @@ function wizServosStep(host, step){
       + 'answers like a Maestro, or nothing at all.';
     s2.appendChild(h2);
     wizTopoPicker(s2, b);
+    wizPcaCountPicker(s2, b);
   }
 
   /* ------------------------------------------- 3 · the sizes, and the boards */
@@ -911,8 +963,11 @@ function wizBoardPics(host, b){
   }else{
     const mcu = servoMcuOptions().find(m=>m.id === b.servoMcu);
     want.push({step:'servoMcu', id:b.servoMcu, cap:'the controller' + (mcu ? ' — ' + mcu.label : '')});
-    const n = (topo.pca || 1) * (topo.links > 1 ? topo.links : 1);
-    want.push({step:'servos', id:(n > 1 ? 'mpca32' : 'mpca16'),
+    /* v1.54.0 — the count is an answer now, not a property of which card is
+       lit, so the strip draws however many the build actually has */
+    const per = topo.counted ? b.pcaBoards : (topo.pca || 1);
+    const n = per * (topo.links > 1 ? topo.links : 1);
+    want.push({step:'servos', id:servoCoprocId(n),
                cap:n + ' × PCA9685 — ' + (n*16) + ' channels'});
   }
   const strip = el('div','bpstrip');

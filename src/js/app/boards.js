@@ -33,6 +33,12 @@ const HW_CHOICES = [
   ['pca16','PCA9685 ×1 + co-processor'],
   ['pca32','PCA9685 ×2 + co-processor']
 ];
+/* v1.54.0 — three to eight expanders, appended rather than typed out. The
+   first two keep their hand-written entries above so the order of this list,
+   which IS the order of the picker, does not change for anyone. */
+for(let n = 3; n <= PCA_MAX_BOARDS_UI; n++){
+  HW_CHOICES.push(['pca'+(n*16), 'PCA9685 ×'+n+' + co-processor']);
+}
 /* PREFS.hw is the store the Boards section reads, but the BUILD answers are
    the source of truth for what board is where — so an unset hw block takes
    its values from them rather than from a second, drifting default. */

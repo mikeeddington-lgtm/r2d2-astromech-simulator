@@ -127,6 +127,56 @@ function modelUnusedWhy(model){
   return MODEL_UNUSED_WHY[model || (typeof modelGet === 'function' ? modelGet() : 'droid')] || '';
 }
 
+/* =============================== THE CO-PROCESSOR ANSWERS, ONE TO EIGHT
+   v1.54.0. There were exactly two of these — `mpca16` and `mpca32` — and
+   the reason was never the hardware: a PCA9685 has six address jumpers, and
+   the MaestroPCA library has never had a board limit. It was the live-drive
+   WIRE PROTOCOL, whose channel field was six bits wide, which capped the
+   thing at 32 channels. That field is seven bits now (see serial-link.js),
+   so the build can hold what the wire can carry: eight boards, 128 channels.
+
+   Mike, with three already answering on the bench: *"for the dome I need two
+   and one for the body - 4 pcas would future proof me"* — and the build
+   could only say two.
+
+   GENERATED, NOT LISTED, and the ids are unchanged for one and two. An id
+   here is `mpca` + the CHANNEL count, and `hw` is the matching pseudo-board
+   from PCA_SEQ_BOARDS. Saved builds, saved workspaces and exported setups
+   all carry `mpca16`/`mpca32` strings, so those two must come out of this
+   function spelled exactly as they were hand-written — which is why their
+   notes are still the sentences somebody wrote for them rather than the
+   generated one. The count itself is answered by `pcaBoards` on the build;
+   these options are what that count RESOLVES to, so everything downstream
+   (`servoOpt`, `buildLabel`, the wiring sheet, PREFS.hw) keeps speaking the
+   one language it always did. */
+const COPROC_NOTE = {
+  dome: {1:'One expander board, 16 channels — the pies and a few panels.',
+         2:'Two expander boards, 32 channels — the whole MK4 dome with six to spare. About £10 of expander.'},
+  body: {1:'One expander board, 16 channels — comfortable for the body.',
+         2:'Two expander boards, 32 channels. More than the body needs, but the spare channels cost nothing.'}
+};
+function servoCoprocOpts(loc){
+  const out = [];
+  for(let n = 1; n <= PCA_MAX_BOARDS_UI; n++){
+    out.push({
+      id:'mpca'+(n*16), label:'PCA9685 ×'+n+' + co-processor', sim:'full', hw:'pca'+(n*16),
+      maestroProtocol:true, pcaBoards:n, mcu:true,
+      short:'PCA ×'+n+' + coproc', family:'coproc', size:(n*16)+' channels',
+      note:(COPROC_NOTE[loc] && COPROC_NOTE[loc][n])
+         || (n+' expander boards, '+(n*16)+' channels, all on the co-processor\'s own I2C bus. '
+            + 'The addresses are found by a boot scan, so bridge whichever jumpers suit the build.')
+    });
+  }
+  /* two first, then one, then the rest — the order the picker inherited when
+     Mike said the two-expander answer "should be the default option as in
+     first and selected in the list" */
+  return [out[1], out[0]].concat(out.slice(2));
+}
+/* a COUNT to the option id that expresses it */
+function servoCoprocId(n){
+  return 'mpca' + (Math.max(1, Math.min(PCA_MAX_BOARDS_UI, n|0)) * 16);
+}
+
 const BUILD_OPTIONS = {
   controller:[
     {id:'xbox360', label:'Xbox 360 wireless', sim:'full',
@@ -169,12 +219,7 @@ const BUILD_OPTIONS = {
        PCA9685s are behind the co-processor, on ITS I2C bus, not the Mega's.
        `maestroProtocol` is therefore true and `pcaBoards` records how many
        expanders hang off it. */
-    {id:'mpca32',  label:'PCA9685 ×2 + co-processor', sim:'full', hw:'pca32',
-     maestroProtocol:true, pcaBoards:2, mcu:true, short:'PCA ×2 + coproc', family:'coproc', size:'32 channels',
-     note:'Two expander boards, 32 channels — the whole MK4 dome with six to spare. About £10 of expander.'},
-    {id:'mpca16',  label:'PCA9685 ×1 + co-processor', sim:'full', hw:'pca16',
-     maestroProtocol:true, pcaBoards:1, mcu:true, short:'PCA ×1 + coproc', family:'coproc', size:'16 channels',
-     note:'One expander board, 16 channels — the pies and a few panels.'},
+    ...servoCoprocOpts('dome'),
     {id:'mod2026', label:'PCA9685 @ 0x41',   sim:'full', hw:'mod2026', pca:true, short:'PCA9685 direct', family:'direct', size:'16 channels',
      note:'The dome half of the mod2026 arrangement: 16 channels, 11 of them wired to pie panels by the sketch.'}
   ],
@@ -207,12 +252,7 @@ const BUILD_OPTIONS = {
        A body co-processor and a dome co-processor are separate boards on a
        real droid: the slip ring is the reason, and it is why these two
        questions are answered independently rather than once. */
-    {id:'mpca16',  label:'PCA9685 ×1 + co-processor', sim:'full', hw:'pca16',
-     maestroProtocol:true, pcaBoards:1, mcu:true, short:'PCA ×1 + coproc', family:'coproc', size:'16 channels',
-     note:'One expander board, 16 channels — comfortable for the body.'},
-    {id:'mpca32',  label:'PCA9685 ×2 + co-processor', sim:'full', hw:'pca32',
-     maestroProtocol:true, pcaBoards:2, mcu:true, short:'PCA ×2 + coproc', family:'coproc', size:'32 channels',
-     note:'Two expander boards, 32 channels. More than the body needs, but the spare channels cost nothing.'}
+    ...servoCoprocOpts('body')
   ],
   sound:[
     {id:'dysv5w',   label:'DY-SV5W',   sim:'full',
@@ -294,6 +334,14 @@ function buildDefault(){
        default that disagrees with its own derivation would be a build nobody
        chose. */
     servoDevice:'pca', servoTopo:'p1x2',
+    /* v1.54.0 — HOW MANY EXPANDERS, as a number rather than a card each.
+       `p1` and `p1x2` used to be two arrangement cards that differed only in
+       this integer, which stopped scaling the moment there could be eight of
+       them. They are one card now and this is the field beside it. `p1` is
+       kept as a hidden alias so a saved build naming it still loads, and
+       buildNormaliseServos() rewrites it to p1x2 with a count of 1. Clamped
+       to PCA_MAX_BOARDS_UI, which is the wire protocol's ceiling. */
+    pcaBoards:2,
     servoSize1:'mini24', servoSize2:'mini12',
     /* v1.35.0 — set the moment YOU choose a firmware. The question moved to
        step 3, ahead of the hardware it has to match, so a later hardware
@@ -472,16 +520,26 @@ const SERVO_TOPOS = [
      selected in the list". Two expanders behind one co-processor leads the
      PCA arrangements now; the order of this array IS the order of the cards
      on the setup's Servo hardware step, and buildDefault() names p1x2. */
-  {id:'p1x2', device:'pca', label:'One controller, two expanders', sim:'full',
-   boards:1, links:1, pca:2, link:'chain',
+  {id:'p1x2', device:'pca', label:'One controller, expanders', sim:'full',
+
+   boards:1, links:1, pca:2, link:'chain', counted:true,
+
    flow:[['Padawan','Controller','PCA9685 1','PCA9685 2','Servos']],
-   note:'32 channels. The second expander shares the first\'s I2C wires with its address jumper soldered, so it is still one controller and one link from the droid.'},
+
+   note:'One small board in front, and as many expanders behind it as you need — say how many below. They share the one set of I2C wires with their address jumpers soldered differently, so it is still one controller and one link from the droid.'},
+
   {id:'p0', device:'pca', label:'Straight off the droid\'s board', sim:'full',
    boards:0, links:1, pca:2, direct:true, link:'chain',
    flow:[['Padawan','PCA9685 ×2','Servos']],
    note:'No controller in between — the expanders hang off the droid\'s own I2C pins and its sketch writes every pulse itself. Nothing extra to buy or flash, but there is nowhere to store movements, so only the mod2026 sketch can drive it.'},
+  /* v1.54.0 — RETIRED AS A CARD, kept as an id. This differed from `p1x2`
+     by the integer 1, and once the count became a field beside the card the
+     two were the same arrangement drawn twice. It stays in the array because
+     saved builds name it and `servoTopoDef()` falls back to SERVO_TOPOS[0] —
+     which is a MAESTRO shape, so an unknown id here would silently turn a
+     PCA build into a Maestro one. `hidden` keeps it out of the picker. */
   {id:'p1', device:'pca', label:'One controller, one expander', sim:'full',
-   boards:1, links:1, pca:1, link:'chain',
+   boards:1, links:1, pca:1, link:'chain', hidden:true,
    flow:[['Padawan','Controller','PCA9685','Servos']],
    note:'16 channels behind one small board. The controller answers the droid exactly as a Maestro would, so no code on the droid changes.'},
   {id:'p2s', device:'pca', label:'Two controllers, one link each', sim:'park',
@@ -493,7 +551,7 @@ const SERVO_TOPOS = [
    flow:[['Padawan','Controller','PCA9685 1','Servos'],['Padawan','Controller','PCA9685 2','Servos']],
    note:'One controller holding both expanders, but addressed as two separate destinations from the droid. Not working yet, for the same reason — and the co-processor firmware would need a second link too.'}
 ];
-function servoTopos(device){ return SERVO_TOPOS.filter(t=>t.device === (device || buildGet().servoDevice)); }
+function servoTopos(device){ return SERVO_TOPOS.filter(t=>!t.hidden && t.device === (device || buildGet().servoDevice)); }
 function servoTopoDef(id){ return SERVO_TOPOS.find(t=>t.id === id) || SERVO_TOPOS[0]; }
 
 /* ------------------------------------ the shape each family starts from
@@ -903,7 +961,7 @@ function buildSet(key, id, opts){
      already speak — in step with the two servo-controller answers, and keep
      the merged question's own invariants (v1.34.0) */
   if(key === 'domeServo' || key === 'bodyServo' || key === 'servoSplit' ||
-     key === 'servoDevice' || key === 'servoTopo' ||
+     key === 'servoDevice' || key === 'servoTopo' || key === 'pcaBoards' ||
      key === 'servoSize1'  || key === 'servoSize2') buildNormaliseServos(b, key);
   /* ...and the BENCH wizard's own answers (v1.33.0). The build owns which
      chip the co-processor is and how many expanders it drives; setup-hw.js
@@ -911,7 +969,7 @@ function buildSet(key, id, opts){
      a hand-kept second copy is a copy that eventually differs — the lesson
      `blocks.js` and the HW seam already taught this repo. Write through,
      exactly as PREFS.hw does above. */
-  if(key === 'domeServo' || key === 'bodyServo' || key === 'servoMcu') buildSyncBench(b);
+  if(key === 'domeServo' || key === 'bodyServo' || key === 'servoMcu' || key === 'pcaBoards') buildSyncBench(b);
   /* v1.35.0 — the firmware is an ANCHOR now, not a consequence.
      It used to be re-picked whenever a hardware change invalidated it,
      which was reasonable while it was the LAST question: everything above
@@ -977,6 +1035,17 @@ function optionBlockers(key, id, b){
    Boards section, the wiring sheet and every saved .json read it. */
 function buildNormaliseServos(b, changed){
   b = b||buildGet();
+  /* one clamp, at the top, so nothing below has to wonder. A build restored
+     from an older file has no `pcaBoards` at all, and 2 is what every such
+     build meant when the only two answers were one expander and two. */
+  /* NOT ANSWERED and ANSWERED ZERO are different things. A build saved
+     before this field existed has no answer and means two, which is what
+     every such build was; a typed 0 is a value and clamps to one. Folding
+     them together made the floor 2, which is a spinner that will not go
+     down to 1 — a small lie, and the kind that costs an afternoon. */
+  if(b.pcaBoards == null || !isFinite(+b.pcaBoards)) b.pcaBoards = 2;
+  b.pcaBoards = Math.max(1, Math.min(PCA_MAX_BOARDS_UI, Math.round(+b.pcaBoards)));
+  if(b.servoTopo === 'p1'){ b.servoTopo = 'p1x2'; b.pcaBoards = 1; }
 
   /* ------------------------------------------- BACKWARDS: answer → shape
      `buildSet('domeServo','mini24')` has to go on working. It is the setter
@@ -1001,8 +1070,15 @@ function buildNormaliseServos(b, changed){
       b.servoSize1 = b.domeServo; b.servoSize2 = b.bodyServo;
     }else{
       b.servoDevice = 'pca';
-      b.servoTopo = (famD === 'direct') ? 'p0'
-                  : (b.domeServo === 'mpca32') ? 'p1x2' : 'p1';
+      /* v1.54.0 — the count rides back with the shape. Setting domeServo to
+         `mpca48` directly (an import, a test, a restored workspace) has to
+         leave the build saying THREE expanders, or the forwards pass below
+         would read pcaBoards, still on its old value, and hand the answer
+         straight back changed — the worst kind of API: one that accepts your
+         value and ignores it. */
+      const nPca = servoCoprocBoards(b.domeServo);
+      if(nPca) b.pcaBoards = nPca;
+      b.servoTopo = (famD === 'direct') ? 'p0' : 'p1x2';
     }
   }
 
@@ -1024,9 +1100,16 @@ function buildNormaliseServos(b, changed){
       b.bodyServo  = (topo.boards > 1) ? b.servoSize2 : b.servoSize1;
     }else{
       /* one co-processor answer per LINK, sized by the expanders it holds;
-         `direct` is the no-controller shape, which IS mod2026 */
-      const per = topo.direct ? 'mod2026'
-                : (topo.pca === 2 && topo.links === 1) ? 'mpca32' : 'mpca16';
+         `direct` is the no-controller shape, which IS mod2026.
+
+         v1.54.0 — the size comes from `pcaBoards` on shapes that carry a
+         count (`counted`), instead of from the two-cards-that-differ-by-one
+         it used to be read out of. Shapes that are NOT counted keep their
+         own declared `topo.pca`: `p2s` and `p1s` split the expanders across
+         two links and are both sim:'park' anyway, so inventing a count for
+         them would be describing an arrangement nothing drives. */
+      const nWant = topo.counted ? b.pcaBoards : topo.pca;
+      const per = topo.direct ? 'mod2026' : servoCoprocId(nWant);
       b.domeServo = per;
       b.bodyServo = per;
     }

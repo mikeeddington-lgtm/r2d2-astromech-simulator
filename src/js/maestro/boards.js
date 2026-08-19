@@ -42,14 +42,33 @@ const MAESTRO_BOARDS = [
    limit you hit is flash on the Nano, which the header itself warns about
    past 128 sequences. Anything reading `script` must treat 0 as "not
    applicable" rather than "full". */
-const PCA_SEQ_BOARDS = [
-  {id:'pca16', label:'PCA9685', ch:16, mini:true, script:0, pullups:false, pca:true, boards:1,
-   product:'one PCA9685 + a MaestroPCA co-processor',
-   note:'16 channels on one £5 board. The co-processor runs the sequences, so the host sketch still just says restartScript(n).'},
-  {id:'pca32', label:'PCA9685 ×2', ch:32, mini:true, script:0, pullups:false, pca:true, boards:2,
-   product:'two PCA9685s (0x40 + 0x41) + a MaestroPCA co-processor',
-   note:'32 channels — the mod2026 arrangement, dome and body. Channel i lives on board i/16, pin i%16.'}
-];
+/* v1.54.0 — ONE TO EIGHT, generated rather than listed. There were two of
+   these, `pca16` and `pca32`, because the live-drive wire protocol could not
+   address more than two boards; it can address eight now, and Mike has three
+   on the bench with a fourth planned ("for the dome I need two and one for
+   the body - 4 pcas would future proof me"). The ids are the CHANNEL COUNT,
+   which is why `pca16` and `pca32` keep their exact names and every saved
+   build, workspace and exported file still reads. */
+const PCA_MAX_BOARDS_UI = 8;      /* the wire protocol's ceiling — see serial-link.js */
+const PCA_SEQ_BOARDS = [];
+for(let n=1; n<=PCA_MAX_BOARDS_UI; n++){
+  PCA_SEQ_BOARDS.push({
+    id:'pca'+(n*16), label:'PCA9685'+(n>1?' ×'+n:''), ch:n*16,
+    mini:true, script:0, pullups:false, pca:true, boards:n,
+    product:(n===1 ? 'one PCA9685' : n+' PCA9685s')+' + a MaestroPCA co-processor',
+    note:(n===1
+       ? '16 channels on one £5 board. The co-processor runs the sequences, so the host sketch still just says restartScript(n).'
+       : n===2
+       ? '32 channels — the mod2026 arrangement, dome and body. Channel i lives on board i/16, pin i%16.'
+       : (n*16)+' channels across '+n+' boards on one I2C bus. Channel i lives on board i/16, pin i%16; '
+         + 'the addresses are found by a boot scan, so which jumpers you bridged does not matter.')
+  });
+}
+/* the pseudo-board for n expanders — the one place that turns a COUNT into
+   an id, so nobody has to know the ids are the channel count */
+function pcaSeqBoardId(n){
+  return 'pca' + (Math.max(1, Math.min(PCA_MAX_BOARDS_UI, n|0)) * 16);
+}
 function boardById(id){
   return MAESTRO_BOARDS.find(b=>b.id===id)
       || PCA_SEQ_BOARDS.find(b=>b.id===id)

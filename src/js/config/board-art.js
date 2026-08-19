@@ -99,14 +99,31 @@ function baEsp(){
 
 /* A PCA9685: the long strip of sixteen three-pin servo headers is the
    entire silhouette, and it is unmistakable. */
+/* v1.54.0 — up to EIGHT of them. This stacked one board per 26 units from
+   y=10, which walks straight off a 72-tall drawing at four boards and was
+   invisible while two was the most anyone could have. Past three they go in
+   two columns of half-width boards: still recognisably a stack of expanders,
+   still countable at a glance, and it fits. */
 function baPca(n){
-  const boards = n || 1;
+  const boards = Math.max(1, Math.min(8, n || 1));
   let s = '';
+  if(boards === 1){
+    return baBoard(10, 22, 100, 28) + baPins(16, 25, 16, 5.8, 22) + baChip(96, 29, 9, 8);
+  }
+  if(boards <= 3){
+    const h = boards === 2 ? 22 : 15, gap = boards === 2 ? 26 : 19;
+    for(let b=0;b<boards;b++){
+      const y = (boards === 2 ? 10 : 8) + b*gap;
+      s += baBoard(10, y, 100, h) + baPins(16, y+3, 16, 5.8, h-6) + baChip(96, y+5, 9, 6);
+    }
+    return s;
+  }
+  const rows = Math.ceil(boards/2);
+  const h = rows >= 4 ? 12 : 15, gap = rows >= 4 ? 15 : 19;
   for(let b=0;b<boards;b++){
-    const y = boards === 1 ? 22 : (10 + b*26);
-    s += baBoard(10, y, 100, boards === 1 ? 28 : 22)
-       + baPins(16, y+3, 16, 5.8, boards === 1 ? 22 : 16)
-       + baChip(96, y+7, 9, 8);
+    const col = b % 2, row = (b - col) / 2;
+    const x = 8 + col*54, y = 8 + row*gap;
+    s += baBoard(x, y, 48, h) + baPins(x+5, y+3, 8, 4.4, h-6) + baChip(x+40, y+4, 6, 5);
   }
   return s;
 }
@@ -231,6 +248,8 @@ const BOARD_ART = {
   mega:     baArduino.bind(null, true),
   other:    baBlank,
   /* servo hardware */
+  /* v1.54.0 — one entry per expander count, generated below the literal so
+     `mpca48`…`mpca128` draw rather than falling through to nothing */
   mpca32:   baPca.bind(null, 2),
   mpca16:   baPca.bind(null, 1),
   mod2026:  baPca.bind(null, 1),
@@ -251,6 +270,14 @@ const BOARD_ART = {
   teeces:      baLights.bind(null, true),
   none:        baBlank
 };
+/* v1.54.0 — the co-processor answers run 1..8 expanders now and their art
+   is the same drawing with a different count, so it is registered rather
+   than typed. `mpca16` and `mpca32` are already in the literal above; this
+   fills in the rest and leaves those two exactly as they were. */
+for(let __n = 1; __n <= 8; __n++){
+  const __id = 'mpca' + (__n*16);
+  if(!BOARD_ART[__id]) BOARD_ART[__id] = baPca.bind(null, __n);
+}
 
 /* The four Pololu boards have REAL photos already — captured for the
    wiring sheet (js/app/board-img.js). A card that could show the actual

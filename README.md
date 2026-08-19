@@ -57,7 +57,8 @@ account, no internet. Open the HTML and it works.
   what an import brings — travel, routines, or both — and it says what it will
   replace before it replaces it.
 - **Live drive over USB**, to a PCA9685 bridge or to the MaestroPCA
-  co-processor — up to **eight boards, 128 channels**. Move a slider, a real
+  co-processor — up to **eight boards, 128 channels**, which is also what the
+  build setup will let you say you have. Move a slider, a real
   servo moves; run a routine, the droid runs it. The boards are *found* by an
   I2C scan rather than assumed, so which address jumpers you bridged does not
   matter. The app reads the sketch's boot banner and matches the channel width
@@ -312,7 +313,7 @@ Issues and pull requests are welcome, with two requests:
 1. **Read `HANDOVER.md` first** — most "why on earth is it done like that?"
    questions are answered there, usually with the bench session that caused it.
 2. **Run the suites.** `./test.sh` drives a headless Chromium over both builds
-   and PCA Studio. A change that breaks one of the ~2109 assertions has broken
+   and PCA Studio. A change that breaks one of the ~2124 assertions has broken
    something somebody found the hard way.
 
 If you are fixing a bug, the house style is to make the test go **red first**
