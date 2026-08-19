@@ -96,7 +96,11 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
      which is now the one place a channel is configured. hw-table.js itself
      is still shared and still exercised, by PCA Studio's suite, which is
      where its page furniture actually exists. */
-  console.log('\n════ the bench channel table ════');
+  /* v1.50.0: the settings left the table. A channel's identity is a row and
+     its configuration is the panel below (setup-hw-channels.js says why), so
+     the same assertions now select the channel and read #chCfg — the surface
+     moved, the contract did not. */
+  console.log('\n════ the bench channel table, and its panel ════');
   const tbl = await ev(()=>{
     hwOpen();
     const out = {open:SETUP.open};
@@ -104,11 +108,14 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
     out.rows = $('setBody').querySelectorAll('tr[data-ch]').length;
     out.buildRows = HW.count();
     const head = tab().rows[0].textContent;
-    out.us = /µs/.test(head);
-    out.rev = /rev/i.test(head);
-    out.ease = /ease/i.test(head);
+    out.listPlain = !/µs|rev|ease/i.test(head);          // identity only
     const ch = MSTR.channels.findIndex(c=>c && /^servo/i.test(c.mode));
-    const cell = k=>$('setBody').querySelector('tr[data-ch="'+ch+'"] [data-k='+k+']');
+    SETUP.sel = ch; setupRender();
+    const panel = ()=>$('chCfg').textContent;
+    out.us   = /µs/.test(panel());
+    out.rev  = /reversed/i.test(panel());
+    out.ease = /ease/i.test(panel());
+    const cell = k=>$('setBody').querySelector('#chCfg [data-k='+k+']');
     const c = MSTR.channels[ch];
     out.shownMin = cell('minUs').value;
     out.storedMin = c.min;
@@ -135,8 +142,9 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
   });
   ok('the bench opens with one row per channel the build has',
      tbl.open && tbl.rows === tbl.buildRows && tbl.rows > 0 && tbl.closed, tbl.rows+' rows');
-  ok('it carries the same columns Studio has — µs, rev and ease',
-     tbl.us && tbl.rev && tbl.ease);
+  ok('the list is identity only — no setting left in it', tbl.listPlain);
+  ok('and the panel carries them all — µs, reversed and ease',
+     tbl.us && tbl.rev && tbl.ease, JSON.stringify({us:tbl.us,rev:tbl.rev,ease:tbl.ease}));
   ok('µs in, quarter-µs stored',
      tbl.shownMin === String(Math.round(tbl.storedMin/4)) && tbl.afterType === 4400,
      'showed '+tbl.shownMin+', typing 1100 stored '+tbl.afterType);
@@ -458,8 +466,10 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
        and the rendered table's own boot checkbox agrees */
     setupUse(j2, true);
     out.fresh = HW.channels()[j2].homemode;
-    setupRender();
-    const box = document.querySelector('#setBody tr[data-ch="'+j2+'"] [data-k="boot"]');
+    /* v1.50.0 — boot is in the Configure panel now, so the assertion has to
+       select the channel it is asking about. Same box, same contract. */
+    SETUP.sel = j2; setupRender();
+    const box = document.querySelector('#chCfg [data-k="boot"]');
     out.boxTicked = box ? box.checked : null;
 
     /* calibrating on the dial is measuring travel, not answering "drive to
@@ -606,26 +616,28 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
        "Disconnect hardware on exit from Servo Setup."
        ...and the two export buttons that threw ReferenceError in the sim.
      ================================================================== */
-  console.log('\n════ the channel table in Mike\'s column order (v1.45.0) ════');
+  console.log('\n════ the channel list, and where its settings went (v1.50.0) ════');
   const cols = await ev(()=>{
     setupOpen(4);
     const tab = $('setBody').querySelector('table.chtab');
     const head = Array.from(tab.rows[0].cells);
     const row  = Array.from($('setBody').querySelector('tr[data-ch]').cells);
     const at = sel=>row.findIndex(td=>td.querySelector(sel));
-    const stick = head.filter(th=>th.classList.contains('cst')).length;
-    const lefts = head.filter(th=>th.classList.contains('cst')).map(th=>th.style.left);
     const out = {
       /* the first cell is the pick-all tick, then Mike's order */
       order: head.slice(1, 7).map(th=>th.textContent.trim().toLowerCase()).join('|'),
       /* the cells are positionally paired with the headers, so they must
          agree — reordering one and not the other is the trap this checks */
-      calAt:  at('[data-k=cal]'),
+      testAt: at('[data-k=test]'),
       partAt: at('[data-k=part]'),
       nameAt: at('[data-k=name]'),
       useAt:  at('[data-k=use]'),
       pickAt: at('[data-k=pick]'),
-      stick, lefts,
+      /* the dial is in the panel now, and it is reachable without scrolling
+         sideways, which is the promise the pinning used to keep */
+      calInPanel: !!$('setBody').querySelector('#chCfg [data-k=cal]'),
+      calInRow:   at('[data-k=cal]'),
+      sticky: $('setBody').querySelectorAll('.chtab .cst').length,
       /* the pick-all tick still drives the apply bar */
       applyBefore: $('setBody').querySelector('[data-act=applysel]').disabled
     };
@@ -638,15 +650,15 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
     setupClose();
     return out;
   });
-  ok('the headers read #, board·pin, use, name, configure, drives — Mike\'s order',
-     cols.order === '#|board·pin|use|name|configure|drives', cols.order);
+  ok('the headers read #, board·pin, use, name, drives, test — identity only',
+     cols.order === '#|board·pin|use|name|drives|test', cols.order);
   ok('…and every cell sits under its own header, not one column adrift',
-     cols.pickAt===0 && cols.useAt===3 && cols.nameAt===4 && cols.calAt===5 && cols.partAt===6,
-     JSON.stringify([cols.pickAt,cols.useAt,cols.nameAt,cols.calAt,cols.partAt]));
-  ok('the identity columns through configure are pinned, so configure cannot scroll off',
-     cols.stick === 6 && cols.lefts.every(l=>/px$/.test(l))
-     && parseFloat(cols.lefts[5]) > parseFloat(cols.lefts[4]),
-     cols.stick+' sticky · '+cols.lefts.join(','));
+     cols.pickAt===0 && cols.useAt===3 && cols.nameAt===4 && cols.partAt===5 && cols.testAt===6,
+     JSON.stringify([cols.pickAt,cols.useAt,cols.nameAt,cols.partAt,cols.testAt]));
+  ok('the dial moved to the panel, where it cannot scroll off at all',
+     cols.calInPanel && cols.calInRow === -1, JSON.stringify([cols.calInPanel, cols.calInRow]));
+  ok('…so the pinned-column machinery is gone with the table that needed it',
+     cols.sticky === 0, String(cols.sticky));
   ok('the pick-all tick still arms the apply bar',
      cols.applyBefore === true && cols.applyAfter === false && cols.picked > 0,
      cols.picked+' picked · '+cols.applyLabel.trim());
@@ -727,13 +739,16 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
     out.isOpen = (typeof hwIsOpen === 'function') && hwIsOpen();
     out.modal = uiModalOpen();
     /* the live half came across: a drive slider, a position bar, a µs
-       readout and the four quick-move buttons */
+       readout and the four quick-move buttons. v1.50.0 — they live in the
+       Configure panel now, one channel at a time, so the channel has to be
+       selected first. Same engine, same ids, same clock. */
     const ch = MSTR.channels.findIndex(c=>c && /^servo/i.test(c.mode));
-    const tr = $('setBody').querySelector('tr[data-ch="'+ch+'"]');
-    out.slider = !!tr.querySelector('[data-k=slide]');
+    SETUP.sel = ch; setupRender();
+    const pan = $('chCfg');
+    out.slider = !!pan.querySelector('[data-k=slide]');
     out.bar    = !!$('spb'+ch) && !!$('spt'+ch);
     out.us     = !!$('sus'+ch);
-    out.quick  = ['soff','slo','smid','shi'].every(k=>!!tr.querySelector('[data-k='+k+']'));
+    out.quick  = ['soff','slo','smid','shi'].every(k=>!!pan.querySelector('[data-k='+k+']'));
     /* and it MOVES — the same engine, the same clock */
     const c = MSTR.channels[ch];
     HW.drive(ch, Math.max(c.min,c.max));

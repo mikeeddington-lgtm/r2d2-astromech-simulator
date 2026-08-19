@@ -1,0 +1,245 @@
+/* THE BENCH, SIMPLIFIED (v1.50.0)
+   ---------------------------------------------------------------------
+   Mike, 2026-08-19, on "Set up your servo hardware": the selection is
+   invisible in light mode; the Channels step "jumps around when enabling
+   servos"; the table is "too complicated a view" and should be a simple
+   list plus a configuration panel that "should always be visible"; the
+   apply button should say what it applies to; the dome map should rotate
+   to match how you are looking at your real dome, and clicking a panel on
+   it should not throw you up the screen; the PCA9685 step should ask how
+   many boards and stop there; and the Sketch step should link the sketches
+   it has been naming paths at people for five releases.
+
+   WHAT IS WORTH ASSERTING HERE, and what is not. "Is it clearer?" is not a
+   test. What IS testable is every structural promise underneath the
+   request:
+
+     · the reader does not lose their place — scrollTop survives the
+       re-render that ticking a box causes, and so does the caret in a name
+       being typed;
+     · the list carries only identity, and every setting that left it can
+       still be reached and still writes to the same channel;
+     · the panel follows the selection from BOTH directions (the row and
+       its own picker) and is present whatever is selected, including
+       nothing;
+     · the test button is the DIRECTED pair, so a reversed channel closes
+       when it says shut — the one place a "simpler" control could quietly
+       do the opposite of what it says;
+     · the map rotates without any bearing being recomputed, and the labels
+       come back upright;
+     · what came off the PCA step is off it and still reachable, not gone.
+   ===================================================================== */
+const { launchBrowser } = require('./harness');
+const path = require('path');
+const R2_Q = process.env.R2_DRAW ? '' : '?norender';
+const URL_ = 'file://' + path.resolve(__dirname, '..', process.env.R2_TARGET || 'R2D2-Simulator.html') + R2_Q;
+let pass = 0, fail = 0;
+const ok = (n,c,x='') => { c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n+(x?'   '+x:'')); };
+
+(async () => {
+  const browser = await launchBrowser();
+  const page = await browser.newPage({ viewport: { width: 1600, height: 950 } });
+  const errs = []; page.on('pageerror', e=>errs.push(e.message));
+  page.on('dialog', async d=>await d.accept());
+  await page.goto(URL_);
+  await page.waitForFunction('typeof CAD!=="undefined" && CAD.loaded', {timeout:40000});
+  const ev = f => page.evaluate(f);
+  await ev(()=>{ PREFS.seenStartup=true; if(typeof closeStartup==='function') closeStartup(); });
+  await ev(()=>{ buildSet('domeServo','mini24'); buildSet('sound','dysv5w'); wizFinish(); });
+  await page.waitForTimeout(300);
+  await ev(()=>{ loadProfile('maestro25'); setBoard('mini24'); makeStarter('dome','mini24'); });
+  await page.waitForTimeout(300);
+  await ev(()=>setupOpen(4));
+  await page.waitForTimeout(300);
+
+  console.log('\n════ the list carries identity, and only identity ════');
+  const cols = await ev(()=>Array.from(document.querySelectorAll('.chtab tr:first-child th'))
+    .map(t=>t.textContent.trim().toLowerCase()));
+  console.log('  ' + JSON.stringify(cols));
+  ok('seven columns, not sixteen', cols.length === 7, String(cols.length));
+  ok('and they are the identity ones', cols.join('|').indexOf('name') >= 0
+     && cols.join('|').indexOf('drives') >= 0 && cols.join('|').indexOf('test') >= 0);
+  ok('no setting is left in the list', !/µs|speed|accel|ease|sleep|boot|rev/.test(cols.join('|')), cols.join('|'));
+  ok('so nothing scrolls sideways any more — the pinning went with it',
+     await ev(()=>document.querySelectorAll('.chtab .cst').length === 0));
+
+  console.log('\n════ the panel is always there, and follows the selection ════');
+  ok('the panel exists before anything is selected', await ev(()=>!!$('chCfg')));
+  const p1 = await ev(()=>{ document.querySelector('tr[data-ch="3"]').click(); return {sel:SETUP.sel, who:$('chCfg').textContent}; });
+  ok('clicking a row selects it', p1.sel === 3, String(p1.sel));
+  ok('…and the panel is about that channel', /channel 3/.test(p1.who), p1.who.slice(0,60));
+  ok('the row is marked as the selected one',
+     await ev(()=>document.querySelector('tr[data-ch="3"]').classList.contains('sel')));
+  const p2 = await ev(()=>{
+    const s = $('chPick'); s.value = '7'; s.dispatchEvent(new Event('input',{bubbles:true}));
+    return {sel:SETUP.sel, who:$('chCfg').textContent};
+  });
+  ok('the panel’s own picker moves the selection too', p2.sel === 7 && /channel 7/.test(p2.who), String(p2.sel));
+  ok('every setting that left the list is in the panel',
+     await ev(()=>['minUs','ctrUs','maxUs','rev','boot','speed','acceleration','ease','sleep']
+        .every(k=>!!document.querySelector('#chCfg [data-k="'+k+'"]'))));
+  ok('and so is the dial, and the live half',
+     await ev(()=>!!document.querySelector('#chCfg [data-k=cal]')
+        && !!document.querySelector('#chCfg [data-k=slide]')
+        && !!document.querySelector('#chCfg [data-k=soff]')));
+  ok('a channel not in use says so rather than showing empty fields',
+     await ev(()=>{ SETUP.sel = 23; setupRender();
+       return !document.querySelector('#chCfg [data-k=minUs]') && /not in use/.test($('chCfg').textContent); }));
+
+  console.log('\n════ the panel writes to the channel it says it does ════');
+  await ev(()=>{ SETUP.sel = 5; setupRender(); });
+  const wrote = await ev(()=>{
+    const before = {sp:HW.channels()[5].speed, min:HW.channels()[5].min, other:HW.channels()[6].speed};
+    const sp = document.querySelector('#chCfg [data-k=speed]');
+    sp.value = 123; sp.dispatchEvent(new Event('input',{bubbles:true}));
+    const mn = document.querySelector('#chCfg [data-k=minUs]');
+    mn.value = 900; mn.dispatchEvent(new Event('input',{bubbles:true}));
+    return {before, sp:HW.channels()[5].speed, min:HW.channels()[5].min, other:HW.channels()[6].speed};
+  });
+  ok('a number typed in the panel lands on that channel', wrote.sp === 123 && wrote.min === 3600, JSON.stringify(wrote));
+  ok('…and on no other', wrote.other === wrote.before.other, JSON.stringify(wrote));
+
+  console.log('\n════ you do not lose your place (the jumping) ════');
+  const jump = await ev(()=>{
+    const body = $('setBody');
+    body.scrollTop = 300;
+    const before = body.scrollTop;
+    const box = document.querySelector('tr[data-ch="12"] [data-k=use]');
+    box.checked = false; box.dispatchEvent(new Event('input',{bubbles:true}));
+    return {before, after: $('setBody').scrollTop, used: /^servo/i.test(HW.channels()[12].mode||'')};
+  });
+  ok('un-ticking a servo does not scroll the page back to the top',
+     jump.before > 0 && jump.after === jump.before, JSON.stringify(jump));
+  ok('…and it really did untick it', jump.used === false);
+  const caret = await ev(()=>{
+    const box = document.querySelector('tr[data-ch="2"] [data-k=name]');
+    box.focus(); box.value = 'Dome Pie 3x';
+    box.setSelectionRange(4,4);
+    box.dispatchEvent(new Event('input',{bubbles:true}));
+    /* something that re-renders, while the field has focus */
+    setupRender();
+    const now = document.activeElement;
+    return {k: now && now.dataset ? now.dataset.k : '', ch: now && now.closest ? (now.closest('[data-ch]')||{dataset:{}}).dataset.ch : '',
+            at: now ? now.selectionStart : -1};
+  });
+  ok('a re-render puts the keyboard back in the field you were typing in',
+     caret.k === 'name' && caret.ch === '2', JSON.stringify(caret));
+  ok('…with the caret where it was', caret.at === 4, JSON.stringify(caret));
+
+  console.log('\n════ the test button is the DIRECTED pair ════');
+  const test = await ev(()=>{
+    const c = HW.channels()[4];
+    c.min = 7800; c.max = 4200;              // reversed: shut is the BIGGER number
+    HW.save(); HW.rebuild(true);
+    HW.drive(4, c.min);                      // start it where a shut panel is
+    setupRender();
+    const b = document.querySelector('tr[data-ch="4"] [data-k=test]');
+    const word0 = b.textContent;
+    b.click();
+    const t1 = HW.engine().st[4].target;
+    document.querySelector('tr[data-ch="4"] [data-k=test]').click();
+    const t2 = HW.engine().st[4].target;
+    return {word0, t1, t2, min:c.min, max:c.max};
+  });
+  ok('it says "open" while the channel is shut', test.word0 === 'open', test.word0);
+  ok('pressing it drives to the OPEN end, even reversed', test.t1 === 4200, JSON.stringify(test));
+  ok('pressing it again drives back to the SHUT end', test.t2 === 7800, JSON.stringify(test));
+
+  console.log('\n════ apply says what it applies to ════');
+  const applyTxt = await ev(()=>{
+    SETUP.pick = [0,1,2]; setupRender();
+    return document.querySelector('[data-act=applysel]').textContent;
+  });
+  ok('the button names the count', /all 3 selected/.test(applyTxt), applyTxt);
+  ok('…and is disabled with nothing ticked',
+     await ev(()=>{ SETUP.pick = []; setupRender();
+       return document.querySelector('[data-act=applysel]').disabled; }));
+
+  console.log('\n════ the dome map turns ════');
+  await ev(()=>{ SETUP.sel = 0; setupDomeOpen(); });
+  await page.waitForTimeout(200);
+  ok('there is a rotation control', await ev(()=>!!$('domeRot')));
+  const rot = await ev(()=>{
+    const before = document.querySelector('#domeSvg g').getAttribute('transform') || '';
+    const r = $('domeRot'); r.value = 90; r.dispatchEvent(new Event('input',{bubbles:true}));
+    const g = document.querySelector('#domeSvg g');
+    return {before, after: g.getAttribute('transform') || '', pref: PREFS.domeRot,
+            upright: document.querySelectorAll('#domeSvg text[transform]').length,
+            texts: document.querySelectorAll('#domeSvg text').length};
+  });
+  ok('the whole drawing is rotated by one transform', /rotate\(90\)/.test(rot.after), JSON.stringify(rot.after));
+  ok('every label is turned back so it stays readable',
+     rot.upright === rot.texts && rot.texts > 10, rot.upright+' of '+rot.texts);
+  ok('the angle is remembered', rot.pref === 90, String(rot.pref));
+  ok('reset puts it back', await ev(()=>{
+    document.querySelector('[data-dome="0"]').click();
+    return PREFS.domeRot === 0 && !/rotate/.test(document.querySelector('#domeSvg g').getAttribute('transform')||'');
+  }));
+  const domeJump = await ev(()=>{
+    const body = $('setBody');
+    body.scrollTop = 260;
+    const before = body.scrollTop;
+    const g = document.querySelector('#domeSvg g.dmpie, #domeSvg g.dm');
+    if(g) g.dispatchEvent(new MouseEvent('click',{bubbles:true}));
+    return {before, after: $('setBody').scrollTop};
+  });
+  ok('clicking a panel on the map does not throw you up the screen',
+     domeJump.after === domeJump.before, JSON.stringify(domeJump));
+  await ev(()=>setupDomeClose());
+
+  console.log('\n════ the PCA9685 step asks one question ════');
+  await ev(()=>{ SETUP.adv = false; setupGo(1); });
+  await page.waitForTimeout(200);
+  const pca = await ev(()=>({h:$('setBody').querySelector('h3').textContent, t:$('setBody').textContent,
+                             boards:!!$('setBody').querySelector('[data-f=boards]')}));
+  ok('the heading is just the board count', /how many pca9685 boards\?$/i.test(pca.h.trim()), pca.h);
+  ok('the board count is still asked', pca.boards);
+  ok('chained-vs-star is off the step', !/star \(in parallel\)/i.test(pca.t));
+  ok('so is the power routing', !/a feed per board/i.test(pca.t));
+  ok('but the step still says what they are set to', /signal/i.test(pca.t) && /chained|star/i.test(pca.t));
+  const adv = await ev(()=>{ SETUP.adv = true; setupRender();
+    return {t:$('setBody').textContent, chain:!!$('setBody').querySelector('[data-f=chain]'),
+            power:!!$('setBody').querySelector('[data-f=power]'), amps:!!$('setBody').querySelector('[data-f=supplyA]')}; });
+  ok('and Advanced still has all three, so nothing was deleted',
+     adv.chain && adv.power && adv.amps, JSON.stringify(adv).slice(0,120));
+  await ev(()=>{ SETUP.adv = false; });
+
+  console.log('\n════ the sketches are links ════');
+  await ev(()=>setupGo(3));
+  await page.waitForTimeout(200);
+  const links = await ev(()=>Array.from($('setBody').querySelectorAll('a.setlinkout')).map(a=>({
+    href:a.getAttribute('href'), t:a.getAttribute('target'), rel:a.getAttribute('rel')})));
+  console.log('  ' + links.length + ' link(s)');
+  ok('the Sketch step links out', links.length >= 3, String(links.length));
+  ok('PCA_Bridge is one of them', links.some(l=>/pca-studio\/PCA_Bridge$/.test(l.href)), JSON.stringify(links.map(l=>l.href)));
+  ok('so is MaestroReplacement', links.some(l=>/examples\/MaestroReplacement$/.test(l.href)));
+  ok('they open in a new tab, without a handle back into this one',
+     links.every(l=>l.t === '_blank' && /noopener/.test(l.rel||'')));
+  /* the constant lives in the PAGE, not in this file — a helper defined in
+     the Node process is not defined in the browser, and the reverse is just
+     as true (HANDOVER §Traps) */
+  const repo = await ev(()=>APP_REPO);
+  ok('and they point at this project', !!repo && links.every(l=>l.href.indexOf(repo) === 0), repo);
+
+  console.log('\n════ selection is visible in light mode ════');
+  await ev(()=>{ applyTheme('light'); setupGo(0); });
+  await page.waitForTimeout(250);
+  const look = await ev(()=>{
+    const on = document.querySelector('.setopt.on'), off = document.querySelector('.setopt:not(.on)');
+    const cs = getComputedStyle(on), co = getComputedStyle(off);
+    return {onBg:cs.backgroundColor, offBg:co.backgroundColor, shadow:cs.boxShadow,
+            border:cs.borderLeftColor, tick:getComputedStyle(on.querySelector('b'),'::before').content};
+  });
+  console.log('  ' + JSON.stringify(look));
+  ok('the selected card is filled differently from the others', look.onBg !== look.offBg, look.onBg+' vs '+look.offBg);
+  ok('…and carries an accent bar as well as a fill', /inset/.test(look.shadow) && look.shadow.length > 20, look.shadow.slice(0,60));
+  ok('…and a tick, so colour is not the only signal', /✓/.test(look.tick), String(look.tick));
+  await ev(()=>applyTheme('dark'));
+
+  console.log('\n════ no page errors ════');
+  ok('nothing threw', errs.length === 0, errs.slice(0,3).join(' | '));
+
+  console.log('\n'+pass+' passed, '+fail+' failed');
+  await browser.close();
+  process.exit(fail?1:0);
+})();

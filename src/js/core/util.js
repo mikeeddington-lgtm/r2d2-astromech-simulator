@@ -7,13 +7,19 @@
 
 /* Shown top-left in the header so a stale copy is obvious at a glance.
    BUMP THIS on every delivery (HANDOVER §change log gets the same number). */
-const APP_VERSION = '1.49.0';
+const APP_VERSION = '1.50.0';
 /* The licence the app's own About box states — one string, one place.
    Scoped on purpose: MIT covers THIS project's code and artwork, and the
    About box has to say so rather than implying it covers the geometry, the
    BSD-3-Clause firmware lineage or the manufacturers' photographs, none of
    which are ours to license (v1.44.0; see LICENSE and CREDITS.md). */
 const APP_LICENCE = 'MIT';
+/* WHERE THIS PROJECT LIVES — one string, one place (v1.50.0). The setup
+   wizard names four sketch folders and, until now, offered no way to reach
+   any of them: Mike, of the Sketch step, *"can we provide links to the
+   sketches?"* A path is only an instruction if you already have the repo.
+   No trailing slash; every caller appends `/tree/main/<path>`. */
+const APP_REPO = 'https://github.com/mikeeddington-lgtm/r2d2-astromech-simulator';
 
 /* ------------------------------------------------------- download stamps
    Every file this app saves carries the moment it was saved, to the minute:

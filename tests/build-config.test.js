@@ -1709,13 +1709,20 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
     $('setAdvChk').click();
     return SETUP.adv===true && !!$('setupWrap').querySelector('[data-f="freq"]');
   }));
-  ok('everything that is not risky stays visible either way', await ev(()=>{
-    const advCount = $('setupWrap').querySelectorAll('input,select,button').length;
+  /* v1.50.0 — Mike: "under the tab for the PCA9685s… we just need to know
+     how many boards there are." The chain, the power routing and the supply
+     amps went behind Advanced with the frequency, so what this step asks in
+     simple mode is ONE question. They are hidden, not deleted: the wiring
+     diagram is still drawn from them. */
+  ok('simple mode asks the board count and nothing else', await ev(()=>{
+    const advHas = ['freq','supplyA','chain','power']
+      .filter(f=>!!$('setupWrap').querySelector('[data-f="'+f+'"]'));
     $('setAdvChk').click();
-    const simple = $('setupWrap').querySelectorAll('input,select,button').length;
+    const simpleHas = ['freq','supplyA','chain','power']
+      .filter(f=>!!$('setupWrap').querySelector('[data-f="'+f+'"]'));
+    const boards = !!$('setupWrap').querySelector('[data-f="boards"]');
     setupClose();
-    /* exactly one control hidden on this step — the frequency box */
-    return SETUP.adv===false && advCount - simple === 1;
+    return SETUP.adv===false && boards && simpleHas.length === 0 && advHas.length >= 3;
   }));
 
   /* ================================================================

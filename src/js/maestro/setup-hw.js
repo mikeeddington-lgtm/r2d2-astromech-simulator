@@ -294,10 +294,73 @@ function setupPowerCheck(){
         : 'Thin: '+have+' A against a theoretical '+worst.toFixed(0)+' A. A brown-out resets the Arduino mid-sequence, which looks exactly like a firmware bug.'};
 }
 
+/* ============================================== THE PLACE YOU WERE LOOKING
+   Mike, 2026-08-19: *"in Set up your servo hardware it jumps around when
+   enabling servos"* — and again of the dome map, *"clicking one of the
+   panels seems to jump around the screen, which means you lose track of
+   what you're actually doing."*
+
+   Both are the same bug and it is structural: `setupRender()` rebuilds the
+   whole dialog by innerHTML, and a fresh element scrolls to the top. Every
+   tick, every dropdown, every dome click therefore threw the reader back to
+   the header — on a table of twenty-four channels that is the difference
+   between working down a list and losing your place on every row.
+
+   So the render is BRACKETED. Where you were looking is captured before the
+   swap and put back after it, and so is the keyboard focus and the caret
+   inside it: a name half-typed must survive the re-render that ticking its
+   own row causes. Focus is restored by a STABLE description of the field
+   (its row and its data-k, or its id) rather than by element identity,
+   because the element it was is gone.
+
+   This is the one place that can fix it for every control in the wizard.
+   Doing it per-handler would mean remembering, in twelve call sites, a
+   thing that is nothing to do with what any of them is for. */
+function setupScrollSave(){
+  const body = $('setBody');
+  const st = {top: body ? body.scrollTop : 0, left: 0, foc: null};
+  const sc = body && body.querySelector('.setscroll');
+  if(sc) st.left = sc.scrollLeft;
+  const a = document.activeElement;
+  if(a && body && body.contains(a)){
+    const row = a.closest ? a.closest('[data-ch]') : null;
+    st.foc = {
+      id: a.id || '',
+      ch: row ? row.dataset.ch : '',
+      k:  a.dataset ? (a.dataset.k || '') : '',
+      s0: (a.selectionStart === undefined) ? null : a.selectionStart,
+      s1: (a.selectionEnd === undefined) ? null : a.selectionEnd
+    };
+  }
+  return st;
+}
+function setupScrollLoad(st){
+  if(!st) return;
+  const body = $('setBody'); if(!body) return;
+  body.scrollTop = st.top;
+  const sc = body.querySelector('.setscroll');
+  if(sc) sc.scrollLeft = st.left;
+  const f = st.foc; if(!f) return;
+  let el2 = null;
+  if(f.id) el2 = document.getElementById(f.id);
+  if(!el2 && f.k){
+    const row = f.ch !== '' ? body.querySelector('[data-ch="'+f.ch+'"]') : body;
+    if(row) el2 = row.querySelector('[data-k="'+f.k+'"]');
+  }
+  if(!el2 || typeof el2.focus !== 'function') return;
+  el2.focus();
+  /* a caret only makes sense in a text-ish field, and setSelectionRange
+     throws on the others (number inputs included, in some browsers) */
+  if(f.s0 !== null && el2.setSelectionRange){
+    try{ el2.setSelectionRange(f.s0, f.s1); }catch(e){}
+  }
+}
+
 /* ================================================================ render */
 function setupRender(){
   const host = $('setupWrap'); if(!host) return;
   if(!SETUP.open){ host.classList.add('hide'); return; }
+  const keep = setupScrollSave();
   host.classList.remove('hide');
   const step = SETUP_STEPS[SETUP.step];
   let h = '<div class="setcard"><div class="sethead">'
@@ -349,6 +412,7 @@ function setupRender(){
   }
   if(step.key === 'wiring' || step.key === 'expander') setupBindSimple();
   if(step.key === 'board' || step.key === 'sketch' || step.key === 'done') setupBindSimple();
+  setupScrollLoad(keep);          // put the reader back where they were
 }
 
 function setupClick(e){
@@ -385,15 +449,35 @@ function setupStepExpander(){
       + '<td>'+setupJumpers(b)+'</td>'
       + '<td class="pin">channels '+(b*16)+'–'+(b*16+15)+'</td></tr>';
   }
-  return '<h3>How many PCA9685 boards, and how are they joined?</h3>'
-    + '<p class="setp">Every board sits on the same I2C bus whatever the layout — what changes is '
-    + 'the address jumpers and how the wires run. The two questions below are independent: '
-    + 'the <b>signal</b> chain and the <b>power</b> chain do not have to take the same path, '
-    + 'and on a droid they usually should not.</p>'
+  /* ONE QUESTION (v1.50.0). Mike: *"under the tab for the PCA9685s — do we
+     care? Why do we need to know whether there's… we just need to know how
+     many boards there are. Unless we're testing for it, do we care if it's
+     chained or in star? And we're not that worried about power either,
+     because we're never going to tell people how to do the power as it
+     currently stands."*
+
+     He is right about what the APP needs: the board count is the only
+     answer here that changes anything downstream — how many channels exist,
+     which address jumpers to bridge, and what goes in the sketch. Chained
+     versus star changes one drawing, and the power routing changes nothing
+     at all; both were being asked as if the answer mattered to the setup,
+     which is how a three-question step earns the same weight as a
+     three-decision one.
+
+     So they come off the step and go under ADVANCED, where the pulse
+     frequency already lives — kept rather than deleted, because the Wiring
+     diagram genuinely does draw the two layouts differently and somebody
+     who wants the star version drawn should still be able to have it. The
+     default stays chained, which is what the diagram drew before anyone
+     answered. */
+  return '<h3>How many PCA9685 boards?</h3>'
+    + '<p class="setp">The only answer that changes anything: it decides how many channels there are, '
+    + 'which address jumpers to bridge, and what goes in the sketch. Every board sits on the same I2C bus '
+    + 'whatever the layout.</p>'
     + '<div class="setrow"><label>Boards <input type="number" data-f="boards" min="1" max="8" value="'+n+'"></label>'
     + '<span class="stat">'+setupChannels()+' channels · highest channel number '+(setupChannels()-1)+'</span></div>'
     + '<table class="settab"><tr><th>#</th><th>address</th><th>address jumpers</th><th>gives you</th></tr>'+rows+'</table>'
-    + (n > 1 ? '<div class="setsplit">'
+    + ((n > 1 && setupAdv()) ? '<div class="setsplit">'
       + '<div><h4>Signal — how the boards are joined</h4>'
       + '<label class="setopt sm'+(SETUP.hw.chain==='daisy'?' on':'')+'"><input type="radio" name="chain" value="daisy" data-f="chain"'+(SETUP.hw.chain==='daisy'?' checked':'')+'>'
       + '<b>Chained (in series)</b><span class="why">Board 0’s output header into board 1’s input, and so on. Four wires from the Arduino total. Neatest in a dome; one bad joint takes out everything downstream of it.</span></label>'
@@ -405,12 +489,15 @@ function setupStepExpander(){
       + '<label class="setopt sm'+(SETUP.hw.power==='perboard'?' on':'')+'"><input type="radio" name="power" value="perboard" data-f="power"'+(SETUP.hw.power==='perboard'?' checked':'')+'>'
       + '<b>A feed per board</b><span class="why">Each board’s V+ back to the supply on its own pair. What to do with four boards and a dozen servos moving at once. Grounds still common everywhere.</span></label></div>'
       + '</div>' : '')
-    + '<div class="setrow"><label>Servo supply <input type="number" data-f="supplyA" min="1" max="60" step="1" value="'+SETUP.hw.supplyA+'"> A</label>'
     + (setupAdv()
-        ? '<label>Pulse frequency <input type="number" data-f="freq" min="40" max="400" step="10" value="'+SETUP.hw.freq+'"> Hz</label>'
+        ? '<div class="setrow"><label>Servo supply <input type="number" data-f="supplyA" min="1" max="60" step="1" value="'+SETUP.hw.supplyA+'"> A</label>'
+          + '<label>Pulse frequency <input type="number" data-f="freq" min="40" max="400" step="10" value="'+SETUP.hw.freq+'"> Hz</label>'
           + '<span class="stat">50 Hz is right for almost every analogue servo. Digital servos may take 200–333 Hz — check before raising it, an analogue servo fed 300 Hz gets hot.</span>'
-        : '<span class="stat">Pulse rate <b>'+SETUP.hw.freq+' Hz</b> — right for almost every analogue servo. Tick <b>Advanced</b> in the header to change it.</span>')
-    + '</div>';
+          + '</div>'
+        : '<div class="setrow"><span class="stat">Pulse rate <b>'+SETUP.hw.freq+' Hz</b>, signal <b>'
+          + (SETUP.hw.chain==='daisy'?'chained':'star')+'</b>, '
+          + (SETUP.hw.power==='shared'?'one supply':'a feed per board')+' at <b>'+SETUP.hw.supplyA+' A</b>. '
+          + 'Tick <b>Advanced</b> in the header if any of that needs changing — the wiring diagram is drawn from it.</span></div>');
 }
 
 /* ============================================== THE BOARD, FROM HERE (v1.38.1)
@@ -490,20 +577,33 @@ function setupLinkSync(){
 function setupHasTravel(){
   return (typeof servoCfgConfigured === 'function') ? servoCfgConfigured() : 0;
 }
+/* a link to a folder in this project, for a step that has spent five
+   releases naming paths at people (v1.50.0). Opens in a new tab so the
+   bench session — which may have a board connected — is not navigated
+   away from; `noopener` because a new tab that can reach back into this
+   one is a hazard we get nothing for. */
+function setupRepoLink(path, text, tip){
+  const repo = (typeof APP_REPO === 'string') ? APP_REPO : '';
+  if(!repo) return '<code>'+path+'</code>';
+  return '<a class="setlinkout" href="'+repo+'/tree/main/'+path+'" target="_blank" rel="noopener"'
+    + ' title="'+(tip || ('open '+path+' on GitHub'))+'">'+(text || path)+'</a>';
+}
 function setupDroidCard(){
   const n = setupHasTravel();
   const on = SETUP.hw.sketch === 'coproc';
   if(!n){
     return '<label class="setopt locked" title="Measure the endpoints first — this sketch bakes them in.">'
       + '<input type="radio" name="sketch" value="coproc" disabled>'
-      + '<b>MaestroReplacement</b><span class="sub">the droid — not yet</span>'
+      + '<b>MaestroReplacement</b><span class="sub">the droid — not yet · '
+      + setupRepoLink('arduino/MaestroPCA/examples/MaestroReplacement','open the sketch ↗')+'</span>'
       + '<span class="why">Available once the servos have been measured. This is the sketch that ENDS the bench session: '
       + 'it holds the sequences itself, answers <code>restartScript(n)</code> exactly as a Pololu Maestro does, and hands '
       + 'control to Padawan360 — this app stops driving the droid. There is nothing to bake in yet, so there is nothing '
       + 'to flash.</span></label>';
   }
   return '<label class="setopt'+(on?' on':'')+'"><input type="radio" name="sketch" value="coproc" data-f="sketch"'+(on?' checked':'')+'>'
-    + '<b>MaestroReplacement</b><span class="sub">the droid — when you are finished</span>'
+    + '<b>MaestroReplacement</b><span class="sub">the droid — when you are finished · '
+    + setupRepoLink('arduino/MaestroPCA/examples/MaestroReplacement','open the sketch ↗')+'</span>'
     + '<span class="why"><b>This is the last step, not a step.</b> Flash it when the choreography is done and you no longer '
     + 'want the simulator driving the real droid: the co-processor holds the sequences itself and answers '
     + '<code>restartScript(n)</code> over the link exactly as a Pololu Maestro does, so <b>Padawan360 takes over</b> and '
@@ -614,21 +714,28 @@ function setupStepSketch(){
      from without opening the dome. */
   const espCard = !esp ? '' :
       '<label class="setopt'+(SETUP.hw.sketch==='esp32'?' on':'')+'"><input type="radio" name="sketch" value="esp32" data-f="sketch"'+(SETUP.hw.sketch==='esp32'?' checked':'')+'>'
-    + '<b>Esp32Droid</b><span class="sub">the droid, with a radio</span>'
+    + '<b>Esp32Droid</b><span class="sub">the droid, with a radio · '
+    + setupRepoLink('arduino/MaestroPCA/examples/Esp32Droid','open the sketch ↗')+'</span>'
     + '<span class="why">MaestroReplacement plus WiFi. It answers <code>restartScript(n)</code> over the link exactly the same way, and also serves a page that lists your slots as buttons — join <b>R2-PCA</b> on a phone and fire a routine without opening the dome. '
     + (setupChannels() > 16
         ? 'With '+SETUP.hw.boards+' boards you are past the ESP32&rsquo;s 16 built-in PWM channels, so it drives your PCA9685s over I2C — set <code>MPCA_DIRECT_PINS 0</code>.'
         : 'At '+setupChannels()+' channels it could also drive the servos straight off its own pins at ~0.3 µs resolution — finer than a PCA9685 — with no expander at all. That is <code>MPCA_DIRECT_PINS 1</code>.')
     + '</span></label>';
   return '<h3>Which sketch to flash</h3>'
-    + '<p class="setp"><b>PCA_Bridge</b> is in <code>pca-studio/PCA_Bridge/</code> — it is a tool, so it lives with '
-    + 'the tool. The droid sketches are in <code>arduino/MaestroPCA/examples/</code>, which is what the library is for. '
+    + '<p class="setp"><b>PCA_Bridge</b> is in '
+    + setupRepoLink('pca-studio/PCA_Bridge','pca-studio/PCA_Bridge/')
+    + ' — it is a tool, so it lives with the tool. The droid sketches are in '
+    + setupRepoLink('arduino/MaestroPCA/examples','arduino/MaestroPCA/examples/')
+    + ', which is what the library is for; the library itself is '
+    + setupRepoLink('arduino/MaestroPCA','arduino/MaestroPCA/')
+    + '. Every link opens on GitHub in a new tab. '
     + 'You can change your mind later — they are the same wiring. '
     + '<b>Start with PCA_Bridge</b>: it is the one that lets this app drive your real servos, which is how you '
     + 'both check an imported config and measure a new one.</p>'
     + '<div class="setgrid">' + espCard
     + '<label class="setopt'+(SETUP.hw.sketch==='bridge'?' on':'')+'"><input type="radio" name="sketch" value="bridge" data-f="sketch"'+(SETUP.hw.sketch==='bridge'?' checked':'')+'>'
-    + '<b>PCA_Bridge</b><span class="sub">the bench tool</span>'
+    + '<b>PCA_Bridge</b><span class="sub">the bench tool · '
+    + setupRepoLink('pca-studio/PCA_Bridge','open the sketch ↗')+'</span>'
     + '<span class="why">A dumb pipe. This app runs the sequencer and streams positions over USB, so a slider here moves a real servo. Flash this first: it is how you calibrate the endpoints on the next step.</span></label>'
     + setupDroidCard()
     + '</div>'

@@ -89,6 +89,22 @@ function domeSector(r1, r2, a1, a2){
                         "assign" means (the import wizard's temporary
                         MSTR.channels[i].act=key, or HW.setPart for the live
                         table); this file never writes a channel itself
+     opts.rotate       degrees clockwise to turn the whole drawing
+
+   TURNING IT (v1.50.0). Mike: *"for the dome map, can we make it rotatable
+   so that it can match how the user's looking at their dome."* Which is the
+   real gesture — a builder is stood over an open dome with the front
+   pointing wherever the bench put it, and reading a fixed drawing means
+   doing the rotation in your head on every single panel. That is exactly
+   where P7 gets mapped to P11.
+
+   The whole diagram goes inside one rotated group, so nothing about the
+   LAYOUT changes and no bearing is recomputed — the drawing is turned, not
+   redrawn, and a rotated map and an unrotated one are the same picture.
+   Every label is then turned back by the same angle about its own anchor,
+   because a panel number upside down is not a label. The FRONT marker
+   rotates WITH the dome: it is the thing that says which way you have
+   turned it.
    ===================================================================== */
 function buildDomeMap(host, opts){
   const o = opts || {};
@@ -97,6 +113,11 @@ function buildDomeMap(host, opts){
   const svg = svgEl('svg', {viewBox:'-142 -140 284 288', class:'domemap'});
   svg.setAttribute('role','img');
   svg.setAttribute('aria-label','Top-down dome map');
+
+  /* everything is drawn into this, and only this is rotated */
+  const deg  = ((+o.rotate || 0) % 360 + 360) % 360;
+  const root = svgEl('g', deg ? {transform:'rotate('+deg+')'} : {});
+  svg.appendChild(root);
 
   const selCh  = (o.selected>=0) ? channels[o.selected] : null;
   const hoverK = o.hoverKey || '';
@@ -122,16 +143,16 @@ function buildDomeMap(host, opts){
   const pick = (key)=>{ if(o.onPick) o.onPick(key); };
 
   /* --- dome outline --- */
-  svg.appendChild(svgEl('circle',{cx:0,cy:0,r:R,class:'dmring'}));
-  svg.appendChild(svgEl('circle',{cx:0,cy:0,r:R*0.86,class:'dmring2'}));
-  svg.appendChild(svgEl('circle',{cx:0,cy:0,r:R*0.44,class:'dmring2'}));
-  svg.appendChild(svgEl('circle',{cx:0,cy:0,r:R*0.09,class:'dmhub'}));
+  root.appendChild(svgEl('circle',{cx:0,cy:0,r:R,class:'dmring'}));
+  root.appendChild(svgEl('circle',{cx:0,cy:0,r:R*0.86,class:'dmring2'}));
+  root.appendChild(svgEl('circle',{cx:0,cy:0,r:R*0.44,class:'dmring2'}));
+  root.appendChild(svgEl('circle',{cx:0,cy:0,r:R*0.09,class:'dmhub'}));
 
   /* --- front marker, so the drawing has an orientation --- */
   const [fx,fy] = domePolar(R*1.34, 180);
   const ft = svgEl('text',{x:fx,y:fy+3,class:'dmfront','text-anchor':'middle'});
   ft.textContent = 'FRONT';
-  svg.appendChild(ft);
+  root.appendChild(ft);
 
   /* --- the six pie panels --- */
   DOME_LAYOUT.pies.forEach(p=>{
@@ -147,7 +168,7 @@ function buildDomeMap(host, opts){
       p.n===3 ? 'carries holoprojector 3 — drawn just outside it' : p.n===4 ? 'usually the periscope' : '');
     g.appendChild(tt);
     g.addEventListener('click',()=>pick(key));
-    svg.appendChild(g);
+    root.appendChild(g);
   });
 
   /* --- the fourteen lower panels ---
@@ -178,7 +199,7 @@ function buildDomeMap(host, opts){
     tt.textContent = title('Panel '+p.n, key, light ? light+' on the reference drawing — usually not a servo' : 'moving panel');
     g.appendChild(tt);
     g.addEventListener('click',()=>pick(key));
-    svg.appendChild(g);
+    root.appendChild(g);
   });
 
   /* --- three holoprojectors, two axes each ---
@@ -208,7 +229,7 @@ function buildDomeMap(host, opts){
       }).join('\n') + (selCh ? '\nclick to assign channel '+selCh.i+' to '+(nextK===panK?'pan':'tilt') : '');
     g.appendChild(tt);
     g.addEventListener('click',()=>pick(nextK));
-    svg.appendChild(g);
+    root.appendChild(g);
   });
 
   /* --- fixed features, for orientation only --- */
@@ -221,9 +242,20 @@ function buildDomeMap(host, opts){
     g.appendChild(t);
     const tt = svgEl('title'); tt.textContent = m.t + '\nnot a servo';
     g.appendChild(tt);
-    svg.appendChild(g);
+    root.appendChild(g);
   });
 
+  /* the labels come back upright. About each label's OWN anchor, in the
+     group's own coordinates, so the text lands where the rotation put it
+     and reads the way it was written. */
+  if(deg){
+    const texts = root.querySelectorAll('text');
+    for(let k=0;k<texts.length;k++){
+      const t = texts[k];
+      const x = +t.getAttribute('x') || 0, y = +t.getAttribute('y') || 0;
+      t.setAttribute('transform', 'rotate('+(-deg)+' '+x.toFixed(2)+' '+y.toFixed(2)+')');
+    }
+  }
   host.appendChild(svg);
   return svg;
 }
