@@ -43,6 +43,12 @@ g++ -std=c++11 -O1 -Wall -Wno-unused-variable \
 timeout 30 /tmp/maestrosplit_test
 
 echo
+echo "== the I2C bus scan: the All Call trap, and the address order =="
+g++ -std=c++11 -O1 -Wall -Wno-unused-variable \
+    -I shim scan_test.cpp -o /tmp/maestroscan_test
+timeout 30 /tmp/maestroscan_test
+
+echo
 echo "== the ESP32 sketches compile (against a faked ESP32) =="
 g++ -std=c++11 -O0 -w \
     -I shim -I esp32shim -I ../src \

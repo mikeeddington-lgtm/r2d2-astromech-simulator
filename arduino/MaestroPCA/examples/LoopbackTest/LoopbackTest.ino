@@ -38,6 +38,7 @@
 
 #include <Wire.h>
 #include <Adafruit_PWMServoDriver.h>
+#include <MpcaScan.h>
 #include <PololuMaestro.h>
 #include <MaestroPCA.h>
 #include <MaestroLink.h>
@@ -53,9 +54,15 @@
 #endif
 #define LINK_BAUD  9600
 
+/* v1.53.0 — re-addressed at boot from the bus scan, like every other
+   sketch in this library (MpcaScan.h). This one already swept 0x40-0x4F,
+   but only to PRINT what it saw: the drivers stayed nailed to 0x40/0x41,
+   so it could report a board it was then unable to talk to. */
 Adafruit_PWMServoDriver pcaA(0x40);
 Adafruit_PWMServoDriver pcaB(0x41);
 Adafruit_PWMServoDriver* const BOARDS[] = { &pcaA, &pcaB };
+uint8_t pcaAddr[] = { 0x40, 0x41 };
+uint8_t pcaOnBus = 0, pcaBound = 0;
 
 #ifndef PCA_BOARDS
 #define PCA_BOARDS  ((MPCA_CHANNELS + 15) / 16)   /* 1 board per 16 channels */
@@ -93,19 +100,23 @@ HostPort hostPort;
 /* EXACTLY what a Padawan sketch declares */
 MiniMaestro host(hostPort);
 
-bool probe(uint8_t a){ Wire.beginTransmission(a); return Wire.endTransmission() == 0; }
-
 void status(){
   Serial.println(F("--- loopback test ---"));
-  /* scan the bus, not just what this config expects */
-  for(uint8_t a = 0x40; a <= 0x4F; a++){
-    bool here = probe(a);
-    bool used = (uint8_t)(a - 0x40) < PCA_BOARDS;
-    if(!here && !used) continue;
-    Serial.print(F("  PCA9685 0x")); Serial.print(a, HEX);
-    if(here && used)      Serial.println(F("   FOUND, in use"));
-    else if(here)         Serial.println(F("   found, not used by this config"));
-    else                  Serial.println(F("   MISSING — the config needs it"));
+  Serial.print(F("  I2C: ")); Serial.print(pcaOnBus);
+  Serial.println(F(" PCA9685(s) on the bus (scanned 0x40-0x7F)"));
+  for(uint8_t b = 0; b < PCA_BOARDS; b++){
+    Serial.print(F("    board ")); Serial.print(b);
+    if(b < pcaBound){
+      Serial.print(F(" = 0x")); Serial.print(pcaAddr[b], HEX);
+      Serial.print(F("   channels ")); Serial.print(b*16);
+      Serial.print(F("-")); Serial.println(b*16+15);
+    }else{
+      Serial.println(F("   MISSING — the config needs it"));
+    }
+  }
+  if(pcaOnBus > PCA_BOARDS){
+    Serial.print(F("    ")); Serial.print(pcaOnBus - PCA_BOARDS);
+    Serial.println(F(" more on the bus than this config uses"));
   }
   Serial.print(F("  mode: "));
   if(wireMode) Serial.println(F("REAL UART  (jumper pin 14 -> pin 19 detected)"));
@@ -141,6 +152,14 @@ void setup(){
   Wire.begin();
   Wire.setClock(400000);
   delay(50);
+  /* SCAN, then bind, then begin — engine.begin() calls begin() on every
+     board, and re-addressing after that would strand Adafruit's own
+     allocation (MpcaScan.h) */
+  { uint8_t found[PCA_BOARDS];
+    pcaOnBus = mpcaScan(found, PCA_BOARDS);
+    pcaBound = mpcaBind(BOARDS, PCA_BOARDS, found, pcaOnBus);
+    for(uint8_t b = 0; b < pcaBound; b++) pcaAddr[b] = found[b];
+  }
   engine.begin();
 
 #if HAS_TWO_UARTS

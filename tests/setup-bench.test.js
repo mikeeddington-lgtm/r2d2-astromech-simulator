@@ -354,6 +354,24 @@ const ok = (n,c,x='') => { c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+' 
   const repo = await ev(()=>APP_REPO);
   ok('and they point at this project', !!repo && links.every(l=>l.href.indexOf(repo) === 0), repo);
 
+  /* Mike, 2026-08-19: "does the PCA sketches check for pca boards via a
+     scan of all addresses as I and others may jumper them differently".
+     They do since v1.53.0 (arduino/MaestroPCA/src/MpcaScan.h), and this
+     block is what somebody COPIES into their sketch — so it must not read
+     as an instruction about which jumpers to bridge. */
+  console.log('\n════ the sketch block says the addresses are found, not fixed ════');
+  await ev(()=>setupGo(3));
+  await page.waitForTimeout(200);
+  const cfg = await ev(()=>$('setBody').querySelector('.setpre').textContent);
+  ok('it still shows the driver list', /Adafruit_PWMServoDriver\(0x40\)/.test(cfg));
+  ok('…and says the sketch scans for them', /SCANS the bus/.test(cfg), cfg.slice(-220));
+  ok('…naming the range and the All Call exclusion', /0x40-0x7F/.test(cfg) && /All Call/.test(cfg));
+  ok('the PCA9685 step calls the jumper table a suggestion', await ev(()=>{
+    setupGo(1);
+    return /scan for the boards/.test($('setBody').textContent)
+        && /suggestion, not a requirement/.test($('setBody').textContent);
+  }));
+
   console.log('\n════ selection is visible in light mode ════');
   await ev(()=>{ applyTheme('light'); setupGo(0); });
   await page.waitForTimeout(250);

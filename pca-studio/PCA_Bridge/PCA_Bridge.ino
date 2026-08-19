@@ -34,13 +34,22 @@
 
 #include <Wire.h>
 #include <Adafruit_PWMServoDriver.h>
+#include <MpcaScan.h>            /* the bus scan — MaestroPCA library      */
 
-const uint8_t ADDR[2] = { 0x40, 0x41 };
+/* v1.53.0 — the addresses are FOUND, not assumed. A PCA9685 has six
+   address jumpers and which of them you bridge is a soldering decision
+   made inside a dome; this sketch used to insist on 0x40 and 0x41 and
+   report anything else as "not present" while the board sat there
+   answering. MpcaScan.h has the whole argument, including why the All
+   Call address has to be excluded from the sweep. */
+uint8_t ADDR[2] = { 0x40, 0x41 };      /* overwritten by the scan */
 Adafruit_PWMServoDriver pca[2] = {
-  Adafruit_PWMServoDriver(ADDR[0]),
-  Adafruit_PWMServoDriver(ADDR[1])
+  Adafruit_PWMServoDriver(0x40),
+  Adafruit_PWMServoDriver(0x41)
 };
+Adafruit_PWMServoDriver* const BOARDS[2] = { &pca[0], &pca[1] };
 bool present[2] = { false, false };
+uint8_t nFound = 0;                    /* everything on the bus, not just ours */
 
 uint32_t oscHz   = 25000000UL;
 float    servoHz = 50.0f;
@@ -63,12 +72,6 @@ void applyClock(){
   }
 }
 
-/* does anything ACK at this address? */
-bool probe(uint8_t addr){
-  Wire.beginTransmission(addr);
-  return Wire.endTransmission() == 0;
-}
-
 void allOff(){
   for(uint8_t b=0; b<2; b++){
     if(!present[b]) continue;
@@ -83,6 +86,10 @@ void status(){
     Serial.print(F("  channels ")); Serial.print(b*16);
     Serial.print(F("-")); Serial.print(b*16+15);
     Serial.println(present[b] ? F("   FOUND") : F("   not present"));
+  }
+  if(nFound > 2){
+    Serial.print(F("  ")); Serial.print(nFound - 2);
+    Serial.println(F(" more board(s) on the bus than this sketch drives (32 channels max)"));
   }
   Serial.print(F("  oscillator ")); Serial.print(oscHz);
   Serial.print(F(" Hz   servo ")); Serial.print((int)servoHz); Serial.println(F(" Hz"));
@@ -113,9 +120,15 @@ void setup(){
   Wire.setClock(400000);
   delay(50);
 
+  /* SCAN, then bind, then begin — in that order. mpcaBind() re-addresses
+     the driver objects and Adafruit allocates its I2C device inside
+     begin(), so binding afterwards would strand the allocation. */
+  uint8_t found[2];
+  nFound = mpcaScan(found, 2);
+  uint8_t n = mpcaBind(BOARDS, 2, found, nFound);
   for(uint8_t b=0; b<2; b++){
-    present[b] = probe(ADDR[b]);
-    if(present[b]) pca[b].begin();
+    present[b] = (b < n);
+    if(present[b]){ ADDR[b] = found[b]; pca[b].begin(); }
   }
   applyClock();
   allOff();          /* everything off until told otherwise — no surprise lunges */

@@ -484,9 +484,11 @@ function setupStepExpander(){
      default stays chained, which is what the diagram drew before anyone
      answered. */
   return '<h3>How many PCA9685 boards?</h3>'
-    + '<p class="setp">The only answer that changes anything: it decides how many channels there are, '
-    + 'which address jumpers to bridge, and what goes in the sketch. Every board sits on the same I2C bus '
-    + 'whatever the layout.</p>'
+    + '<p class="setp">The only answer that changes anything: it decides how many channels there are and '
+    + 'what goes in the sketch. Every board sits on the same I2C bus whatever the layout, and since v1.53.0 '
+    + 'the sketches <b>scan for the boards</b> rather than insisting on particular addresses — so the '
+    + 'jumper table below is a suggestion, not a requirement. Bridge whatever suits your build; the lowest '
+    + 'address found becomes board 0.</p>'
     + '<div class="setrow"><label>Boards <input type="number" data-f="boards" min="1" max="8" value="'+n+'"></label>'
     + '<span class="stat">'+setupChannels()+' channels · highest channel number '+(setupChannels()-1)+'</span></div>'
     + '<table class="settab"><tr><th>#</th><th>address</th><th>address jumpers</th><th>gives you</th></tr>'+rows+'</table>'
@@ -786,9 +788,19 @@ function setupSketchConfig(){
       : '#define LINK_RX_PIN  8\n#define LINK_TX_PIN  9   // SoftwareSerial: this board makes no PWM\n';
     s += '#define LINK_BAUD    9600     // must match the host\'s Serial3.begin()\n';
   }
+  /* v1.53.0 — Mike: "does the PCA sketches check for pca boards via a scan
+     of all addresses as I and others may jumper them differently". They do
+     now (MpcaScan.h), so these addresses are a STARTING POINT and the
+     sketch re-addresses them at boot from what is actually on the bus.
+     Saying so here matters: this block is what somebody copies, and until
+     now it read as an instruction about which jumpers to bridge. */
   s += '\nAdafruit_PWMServoDriver pca[] = {\n';
   for(let b=0;b<n;b++) s += '  Adafruit_PWMServoDriver('+setupAddrHex(b)+')'+(b<n-1?',':'')+'   // '+setupJumpers(b)+'\n';
   s += '};\n';
+  s += '/* The sketch SCANS the bus at boot (0x40-0x7F, minus the All Call)\n'
+    +  '   and re-addresses these to whatever it finds, lowest address first.\n'
+    +  '   Bridge whichever jumpers suit your build — the addresses above are\n'
+    +  '   only what a board with no jumpers, then A0, then A1... would be. */\n';
   if(esp) s += '\n/* 3.3 V logic. A PCA9685 reads it as a valid high, so this works —\n'
             +  '   but its VCC is the ESP32\'s 3V3, V+ is still the servo supply, and\n'
             +  '   nothing may push 5 V back into an ESP32 pin. */\n';

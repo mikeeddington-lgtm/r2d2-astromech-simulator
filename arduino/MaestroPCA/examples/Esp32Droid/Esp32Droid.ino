@@ -106,11 +106,17 @@ static const uint8_t SERVO_PINS[] = {
 #else
   #include <Wire.h>
   #include <Adafruit_PWMServoDriver.h>
+  #include <MpcaScan.h>
   #ifndef PCA_BOARDS
   #define PCA_BOARDS  ((MPCA_CHANNELS + 15) / 16)
   #endif
+  /* v1.53.0 — a starting point, not an assumption: mpcaScan() re-addresses
+     these at boot to whatever is actually on the bus, in ascending address
+     order. This sketch did not probe at all before, so a board on a
+     different jumper setting was simply written to and never answered. */
   static Adafruit_PWMServoDriver pca0(0x40), pca1(0x41), pca2(0x42), pca3(0x43);
   static Adafruit_PWMServoDriver* const BOARDS[] = { &pca0, &pca1, &pca2, &pca3 };
+  static uint8_t pcaFound[4], pcaOnBus = 0, pcaBound = 0;
   MpcaPca9685Output output(BOARDS, PCA_BOARDS);
 #endif
 
@@ -251,6 +257,12 @@ void setup(){
 #if !MPCA_DIRECT_PINS
   Wire.begin(21, 22);
   Wire.setClock(400000);
+  delay(50);
+  /* SCAN, then bind, then begin — maestro.begin() below calls begin() on
+     every board, and re-addressing after that would strand Adafruit's own
+     allocation (MpcaScan.h) */
+  pcaOnBus = mpcaScan(pcaFound, 4);
+  pcaBound = mpcaBind(BOARDS, PCA_BOARDS, pcaFound, pcaOnBus);
 #endif
   Serial1.begin(LINK_BAUD, SERIAL_8N1, LINK_RX_PIN, LINK_TX_PIN);
 #if MPCA_SPLIT_LOCAL
@@ -260,6 +272,19 @@ void setup(){
   maestro.begin(OSC_HZ, SERVO_HZ);
 
   Serial.println(F("MAESTRO-PCA-ESP32 1"));
+#if !MPCA_DIRECT_PINS
+  Serial.print(F("  I2C: ")); Serial.print(pcaOnBus);
+  Serial.print(F(" PCA9685(s) found, ")); Serial.print(pcaBound);
+  Serial.println(F(" in use"));
+  for(uint8_t b = 0; b < pcaBound; b++){
+    Serial.print(F("    board ")); Serial.print(b);
+    Serial.print(F(" = 0x")); Serial.print(pcaFound[b], HEX);
+    Serial.print(F("   channels ")); Serial.print(b*16);
+    Serial.print(F("-")); Serial.println(b*16+15);
+  }
+  if(pcaBound < PCA_BOARDS)
+    Serial.println(F("    FEWER BOARDS THAN THE TABLE NEEDS — the top channels will not move"));
+#endif
   wifiSetup();
   webSetup();
   status();
