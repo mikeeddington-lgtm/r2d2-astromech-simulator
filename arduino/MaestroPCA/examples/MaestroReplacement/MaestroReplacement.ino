@@ -70,15 +70,30 @@
 
 SoftwareSerial link(LINK_RX_PIN, LINK_TX_PIN);
 
-/* v1.53.0 — these two addresses are only a STARTING point: the bus is
+/* v1.53.0 — these addresses are only a STARTING point: the bus is
    scanned at boot and the drivers are re-addressed to whatever is
    actually there, in ascending address order (MpcaScan.h says why, and
    why the All Call address must be excluded from the sweep). Bridge A1
-   instead of A0 and this still works. */
-Adafruit_PWMServoDriver pcaA(0x40);
-Adafruit_PWMServoDriver pcaB(0x41);
-Adafruit_PWMServoDriver* const BOARDS[] = { &pcaA, &pcaB };
-uint8_t boardAddr[] = { 0x40, 0x41 };   /* what the scan found, per board */
+   instead of A0 and this still works.
+
+   v1.54.0 — EIGHT of them, not two. A droid with two boards in the dome
+   and one in the body already needs three, and the only thing that ever
+   made two the number was the six-bit channel field in the live-drive
+   wire protocol (see the frame decoder below). That field is seven bits
+   now. Boards that are not on the bus cost a few bytes of RAM and are
+   never spoken to, so declaring the ceiling here is free — what a given
+   droid actually drives is still decided by MPCA_CHANNELS. */
+Adafruit_PWMServoDriver pcaObj[8] = {
+  Adafruit_PWMServoDriver(0x40), Adafruit_PWMServoDriver(0x41),
+  Adafruit_PWMServoDriver(0x42), Adafruit_PWMServoDriver(0x43),
+  Adafruit_PWMServoDriver(0x44), Adafruit_PWMServoDriver(0x45),
+  Adafruit_PWMServoDriver(0x46), Adafruit_PWMServoDriver(0x47)
+};
+Adafruit_PWMServoDriver* const BOARDS[] = {
+  &pcaObj[0], &pcaObj[1], &pcaObj[2], &pcaObj[3],
+  &pcaObj[4], &pcaObj[5], &pcaObj[6], &pcaObj[7]
+};
+uint8_t boardAddr[8] = { 0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47 };
 uint8_t boardsOnBus = 0;                /* everything, not just what we use */
 #define PCA_MAX_BOARDS (sizeof(BOARDS)/sizeof(BOARDS[0]))
 
@@ -160,7 +175,7 @@ void leaveLive(){
 }
 
 void status(){
-  Serial.println(F("MAESTRO-PCA 2"));      /* version 2 = live drive supported */
+  Serial.println(F("MAESTRO-PCA 3"));      /* 2 = live drive; 3 = 7-bit channels */
   Serial.println(F("--- Maestro replacement ---"));
   /* v1.53.0 — this used to sweep 0x40-0x4F and assume address minus 0x40
      was the board number, which is only true if you bridged the jumpers
@@ -168,20 +183,27 @@ void status(){
      the boot scan settled on, printed as the mapping it is. */
   Serial.print(F("  I2C: "));
   Serial.print(boardsOnBus); Serial.println(F(" PCA9685(s) on the bus"));
+  /* v1.54.0 — eight board slots, so only the ones that answered are
+     listed. Printing five "MISSING" lines for jumpers nobody bridged is
+     noise, and noise is what stops people reading the one line that
+     matters. A board found beyond what sequences.h declares is not an
+     error: it is woken and live-drivable, just not animated by the
+     flashed slots. */
   for(uint8_t b = 0; b < PCA_MAX_BOARDS; b++){
+    if(!boardLive[b]) continue;
     Serial.print(F("    board ")); Serial.print(b);
-    if(boardLive[b]){
-      Serial.print(F(" = 0x")); Serial.print(boardAddr[b], HEX);
+    Serial.print(F(" = 0x")); Serial.print(boardAddr[b], HEX);
+    if(b * 16 >= MPCA_CHANNELS){
+      Serial.println(F("   spare — live drive only, no slots use it"));
+    }else{
       Serial.print(F("   channels ")); Serial.print(b * 16);
       Serial.print(F("-")); Serial.println(min(MPCA_CHANNELS - 1, b * 16 + 15));
-    }else{
-      Serial.println(F("   MISSING — nothing on the bus for it"));
     }
   }
   if(boardsOnBus > PCA_MAX_BOARDS){
     Serial.print(F("    ")); Serial.print(boardsOnBus - PCA_MAX_BOARDS);
-    Serial.print(F(" more board(s) found than this sequences.h declares ("));
-    Serial.print(MPCA_CHANNELS); Serial.println(F(" channels), so nothing drives them"));
+    Serial.print(F(" more board(s) on the bus than this sketch drives ("));
+    Serial.print(PCA_MAX_BOARDS); Serial.println(F(" boards, 128 channels max)"));
   }
   if(!boardsOnBus) Serial.println(F("    nothing on the bus — check SDA/SCL, VCC, shared ground"));
   Serial.print(F("  channels ")); Serial.print(MPCA_CHANNELS);
@@ -277,18 +299,28 @@ void loop(){
      has. A payload byte is consumed as payload and can therefore never be
      mistaken for a keypress, which is what used to make Studio fire slots
      at random here. A frame arriving means the PC wants the servos, so the
-     board stops animating until a slot key takes them back. */
+     board stops animating until a slot key takes them back.
+
+     PROTOCOL 2 (v1.54.0). The header byte's high bit marks the frame; the
+     channel used to be read out of only six of the remaining seven bits,
+     which capped live drive at 32 channels — two boards — because 62 and
+     63 were spent on configuration. Reading all seven gives 0..127, and
+     the config channels move to 126 and 127. The cost is that board 7's
+     top two pins are not drivable from the browser; every other channel
+     is, and the flashed sequences drive all 128 regardless, since they
+     never travel over this wire. The banner below says 3 so the app knows
+     which decoder is on the other end. */
   while(Serial.available()){
     uint8_t b = Serial.read();
 
-    if(b & 0x80){ uch = b & 0x3F; upay = 0; ust = 1; continue; }
+    if(b & 0x80){ uch = b & 0x7F; upay = 0; ust = 1; continue; }
     if(ust == 1){ upay = (uint16_t)b << 7; ust = 2; continue; }
     if(ust == 2){
       upay |= b; ust = 0;
       enterLive();
-      if(uch == 62){ oscHz = (uint32_t)upay * 10000UL; applyClock(); }
-      else if(uch == 63){ servoHz = upay; applyClock(); }
-      else if(uch < 32){
+      if(uch == 126){ oscHz = (uint32_t)upay * 10000UL; applyClock(); }
+      else if(uch == 127){ servoHz = upay; applyClock(); }
+      else {
         uint8_t bd = uch >> 4, pn = uch & 15;
         if(bd < PCA_MAX_BOARDS && boardLive[bd]){
           if(upay == 8191) BOARDS[bd]->setPWM(pn, 0, 4096);       /* full off */

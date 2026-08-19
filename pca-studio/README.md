@@ -104,6 +104,42 @@ If nothing identifies itself, PCA Studio does **not** stream anyway. Sending
 the position protocol to the wrong firmware is what makes servos move on
 their own, so it stays monitor-only and asks you to choose.
 
+### Eight boards, and why the banner number matters (v1.54.0)
+
+A frame is three bytes: `0x80 | channel`, then the payload in two 7-bit
+halves. The high bit of the first byte marks the frame, so a dropped byte
+resyncs on the next one.
+
+The channel used to be read out of only **six** of the remaining seven
+bits, with 62 and 63 spent on the oscillator and the servo rate — which
+capped live drive at 32 channels, two PCA9685s. A dome wants two boards on
+its own. The current sketches read all **seven** bits: channels **0–125**
+drive servos, **126** is the oscillator and **127** the servo rate. Eight
+boards, 128 channels, and the flashed sequences drive all 128 because they
+never travel over this wire.
+
+The two widths are **indistinguishable on the wire**, which is the whole
+reason the app cares which sketch you flashed. Send channel 70 to an older
+board and it decodes `70 & 0x3F` = 6 and moves a completely different
+servo — no error, no clue, just the wrong panel opening. So the width is
+decided by the banner, once, at connect:
+
+| banner | channel field | config on | servo channels |
+|---|---|---|---|
+| `PCA-BRIDGE 2` or later | 7 bits | 126, 127 | 0–125 |
+| `MAESTRO-PCA 3` or later | 7 bits | 126, 127 | 0–125 |
+| `PCA-BRIDGE 1`, `MAESTRO-PCA 2`, anything unrecognised | 6 bits | 62, 63 | 0–61 |
+
+Anything above the connected board's ceiling is **dropped** with one plain
+warning, never folded. Nothing needs re-flashing to keep working;
+re-flashing is what unlocks channels 32 and up.
+
+The honest cost of putting the config at the top: on a full eight-board
+rig, board 7's last two pins (channels 126 and 127) cannot be driven live
+from the browser. They still work on the standalone droid sketch. If you
+have eight boards and need those two pins, put the servos that matter on
+lower channels.
+
 ## Hardware mode
 
 Flash `PCA_Bridge/PCA_Bridge.ino` on any Arduino (Mega/Uno) with the

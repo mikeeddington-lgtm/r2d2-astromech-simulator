@@ -3,6 +3,14 @@
 #ifndef ARDUINO_H_SHIM
 #define ARDUINO_H_SHIM
 #include <stdint.h>
+/* Arduino defines these as MACROS, and sketches use them freely — a
+   sketch that compiles in the IDE and not here is a shim gap, not a bug. */
+#ifndef min
+#define min(a,b) ((a)<(b)?(a):(b))
+#endif
+#ifndef max
+#define max(a,b) ((a)>(b)?(a):(b))
+#endif
 #include <stddef.h>
 #include <string.h>
 

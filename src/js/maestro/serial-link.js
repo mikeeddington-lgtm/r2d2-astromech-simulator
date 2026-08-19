@@ -12,11 +12,52 @@
    ===================================================================== */
 /* ============================================================ WEB SERIAL
    3-byte frames to the PCA_Bridge sketch @115200:
-     byte0 0x80|ch(0..63)   byte1 ticks>>7   byte2 ticks&0x7F
+     byte0 0x80|ch   byte1 ticks>>7   byte2 ticks&0x7F
    ticks 0..4096 = setPWM; 8191 = pulses OFF.
-   ch62 payload = oscillator Hz / 10000; ch63 payload = servo Hz. */
+
+   TWO PROTOCOL WIDTHS, AND WHY THE APP HAS TO KNOW WHICH (v1.54.0).
+   The header byte's high bit marks the frame. The old sketches read the
+   channel out of only SIX of the remaining seven bits and spent 62 and 63
+   on configuration, which capped live drive at 32 channels — two boards.
+   The current sketches read all seven: channels 0..125 drive servos, 126
+   is the oscillator and 127 the servo rate. Eight boards.
+
+   This matters because the difference is INVISIBLE on the wire. Send
+   channel 70 to an old board and it decodes 70 & 0x3F = 6 and moves a
+   completely different servo — no error, no clue, just the wrong panel
+   opening. So the width is decided by the BANNER, once, at connect:
+   PCA-BRIDGE 2+ or MAESTRO-PCA 3+ is wide, anything else (including a
+   board that would not identify itself) is narrow, and a channel the
+   connected board cannot decode is DROPPED with one plain warning rather
+   than sent somewhere it will do harm.
+
+   Nothing needs re-flashing to keep working; re-flashing is what unlocks
+   channels 32 and up. */
 const SER = { port:null, writer:null, reader:null, q:[], flushing:false,
-              lastTicks:{}, blocked:false, banner:'' };
+              lastTicks:{}, blocked:false, banner:'',
+              /* narrow until a banner proves otherwise — the safe default,
+                 because guessing wide at a v1 board misaddresses servos */
+              wide:false, chMax:61, cfgOsc:62, cfgServo:63, warnedWide:false };
+
+/* SER.wide, and everything that follows from it, in one place so the
+   encoder, the guard and the config frames can never disagree. */
+function serialSetWidth(wide){
+  SER.wide      = !!wide;
+  SER.chMax     = wide ? 125 : 61;   /* highest servo channel this board decodes */
+  SER.cfgOsc    = wide ? 126 : 62;
+  SER.cfgServo  = wide ? 127 : 63;
+  SER.warnedWide = false;
+}
+/* Read the width straight out of the banner. Kept separate from
+   serialWhat() because "which sketch" and "how wide is its channel field"
+   are different questions with different version thresholds. */
+function serialBannerWide(){
+  const b = /PCA-BRIDGE[^0-9]*(\d+)/i.exec(SER.banner);
+  if(b) return +b[1] >= 2;
+  const m = /MAESTRO-PCA[^0-9]*(\d+)/i.exec(SER.banner);
+  if(m) return +m[1] >= 3;
+  return false;
+}
 
 /* ------------------------------------------------- the link's own chrome
    v1.38.1. connect/disconnect used to poke `$('serialChip')`, `$('bConnect')`
@@ -162,6 +203,7 @@ async function serialConnect(){
     await port.open({baudRate:115200});
     SER.port=port; SER.writer=port.writable.getWriter();
     SER.lastTicks={}; SER.blocked=false; SER.banner='';
+    serialSetWidth(false);              /* until a banner says otherwise */
     serialUiSync();
     monShow(true);
     monWarn('');
@@ -173,6 +215,10 @@ async function serialConnect(){
        '0'..'9' range constantly — so streaming at it fires sequences at
        random. Identify before sending anything binary. */
     const what = await serialIdentify();
+    serialSetWidth(serialBannerWide());
+    if(SER.wide) monAppend('[7-bit channels — up to 8 boards, 126 channels]\n','sys');
+    else if(what) monAppend('[6-bit channels — this sketch decodes 0-61 only; '
+                          + 're-flash for more than two boards]\n','sys');
 
     if(what === 'coproc-live'){
       serialSetMode('stream', 'Connected to the <b>MaestroReplacement</b> co-processor. '
@@ -241,7 +287,7 @@ async function serialDisconnect(){
 }
 function serialFrame(ch, val){          /* val = 14-bit payload */
   if(!SER.writer) return;
-  SER.q.push(0x80|(ch&63), (val>>7)&0x7F, val&0x7F);
+  SER.q.push(0x80|(ch&0x7F), (val>>7)&0x7F, val&0x7F);
   if(!SER.flushing){
     SER.flushing=true;
     Promise.resolve().then(async()=>{
@@ -253,8 +299,8 @@ function serialFrame(ch, val){          /* val = 14-bit payload */
 }
 function serialConfig(){
   if(SER.blocked) return;
-  serialFrame(62, Math.round(HW.osc()/10000));
-  serialFrame(63, HW.freq());
+  serialFrame(SER.cfgOsc,   Math.round(HW.osc()/10000));
+  serialFrame(SER.cfgServo, HW.freq());
 }
 /* Change the servo refresh rate on a running board. The bridge sketch calls
    setPWMFreq() the moment this arrives, which reprograms the prescaler — so
@@ -278,7 +324,7 @@ function serialSetFreq(hz){
   if(!SER.port || SER.blocked){ HW.say('servo rate set to '+hz+' Hz — takes effect when a board is connected'); return; }
   serialAllOff();
   SER.lastTicks = {};
-  serialFrame(63, hz);
+  serialFrame(SER.cfgServo, hz);
   HW.say('servo rate → '+hz+' Hz · one PCA9685 count is now '
          + (1000000/hz/4096).toFixed(2) + ' µs. Everything was stopped first; drive a channel to wake it.');
 }
@@ -291,7 +337,24 @@ function serialAllOff(){
 /* v1.39.5: the tick period follows HW.freq() */
 function serialTicksFor(qus){ return (qus==null) ? 8191 : pcaQusToTicks(qus, 1000000/HW.freq()); }
 function serialWrite(ch, qus){          /* qus null = off */
-  if(!SER.port || SER.blocked || ch>61) return;
+  if(!SER.port || SER.blocked) return;
+  /* Above the connected board's ceiling: DROP it, do not fold it. The old
+     mask would have turned channel 70 into channel 6 and moved the wrong
+     servo silently. Said once, because this fires per frame. */
+  if(ch > SER.chMax){
+    if(!SER.warnedWide){
+      SER.warnedWide = true;
+      const msg = SER.wide
+        ? ('channel ' + ch + ' is past 125 — the wire protocol tops out there '
+           + '(126 and 127 carry the board configuration)')
+        : ('channel ' + ch + ' is not being sent: this board is running the OLDER sketch, '
+           + 'which only decodes channels 0-61 (two PCA9685s). Re-flash PCA_Bridge or '
+           + 'MaestroReplacement to drive up to eight boards.');
+      HW.say(msg, 'warn');
+      monAppend('[' + msg + ']\n','sys');
+    }
+    return;
+  }
   const ticks = serialTicksFor(qus);
   if(SER.lastTicks[ch]===ticks) return; /* spare the wire, like the AVR does */
   SER.lastTicks[ch]=ticks;

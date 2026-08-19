@@ -349,6 +349,106 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
   ok('the rate can be changed on a running board', freq.set === 200 && freq.sentLive);
   ok('…and is clamped to something a servo might survive', freq.clamped === 400, freq.clamped+' Hz');
 
+  /* ================================================================
+     v1.54.0 — Mike, with three PCA9685s on the bench and a bridge
+     saying "32 channels max": "Is this a true limit? for the dome I
+     need two and one for the body - 4 pcas would future proof me."
+
+     It was not. The frame header's high bit marks the frame and only
+     six of the other seven bits were being read, so the channel field
+     capped at 32 usable channels. It reads seven now — eight boards.
+
+     THE DANGER THIS SECTION EXISTS FOR: the two widths are
+     indistinguishable on the wire. A wide channel sent to a narrow
+     board is not rejected, it is FOLDED — 70 & 0x3F is 6 — and a servo
+     the user was not touching moves instead. So the app must decide the
+     width from the banner and drop what the board cannot decode.
+     ================================================================ */
+  console.log('\n════ the wire is only as wide as the board on the end of it ════');
+  const width = await ev(async ()=>{
+    const flush = ()=>new Promise(r=>setTimeout(r,0));
+    const has = (seen, want) => seen.some((_,k)=>want.every((v,j)=>seen[k+j]===v));
+    const out = {};
+    const seen = [];
+    hwOpen();
+    SER.writer = { write:b=>{ seen.push(...b); return Promise.resolve(); } };
+    SER.port = {}; SER.blocked = false;
+
+    /* the banner is the only evidence there is */
+    SER.banner = 'PCA-BRIDGE 1\n--- PCA bridge ---';   out.v1bridge  = serialBannerWide();
+    SER.banner = 'PCA-BRIDGE 2\n--- PCA bridge ---';   out.v2bridge  = serialBannerWide();
+    SER.banner = 'MAESTRO-PCA 2';                      out.v2coproc  = serialBannerWide();
+    SER.banner = 'MAESTRO-PCA 3';                      out.v3coproc  = serialBannerWide();
+    SER.banner = 'some other board saying hello';      out.unknown   = serialBannerWide();
+
+    /* Match WHOLE frames, not lone header bytes: the engine is ticking on
+       the page's own clock and writing channels of its own, so "did a byte
+       0x86 appear" is not evidence about channel 6. `frame(ch)` is the
+       exact three bytes this call would produce. */
+    const tk = serialTicksFor(6000);
+    const frame = ch => [0x80|(ch&0x7F), tk>>7, tk&0x7F];
+
+    /* NARROW: 61 is the last servo channel, config sits at 62/63 */
+    serialSetWidth(false);
+    out.narrowMax = SER.chMax; out.narrowCfg = [SER.cfgOsc, SER.cfgServo];
+    seen.length = 0; SER.lastTicks = {};
+    serialWrite(61, 6000); await flush();
+    out.narrow61 = has(seen, frame(61));
+    seen.length = 0; SER.lastTicks = {};
+    serialWrite(70, 6000); serialWrite(120, 6000); await flush();
+    /* the fold this prevents: 70 & 0x3F = 6, 120 & 0x3F = 56 */
+    out.narrowDropped = !has(seen, frame(70)) && !has(seen, frame(6))
+                     && !has(seen, frame(120)) && !has(seen, frame(56));
+    seen.length = 0; serialConfig(); await flush();
+    out.narrowCfgOnWire = has(seen, [0x80|63, HW.freq()>>7, HW.freq()&0x7F]);
+
+    /* WIDE: everything up to 125, config moved to 126/127 */
+    serialSetWidth(true);
+    out.wideMax = SER.chMax; out.wideCfg = [SER.cfgOsc, SER.cfgServo];
+    seen.length = 0; SER.lastTicks = {};
+    serialWrite(70, 6000); await flush();
+    out.wide70 = has(seen, frame(70)) && !has(seen, frame(6));
+    seen.length = 0; SER.lastTicks = {};
+    serialWrite(125, 6000); await flush();
+    out.wide125 = has(seen, frame(125));
+    seen.length = 0; SER.lastTicks = {};
+    serialWrite(126, 6000); serialWrite(127, 6000); await flush();
+    out.wideCfgProtected = !has(seen, frame(126)) && !has(seen, frame(127));
+    seen.length = 0; serialConfig(); await flush();
+    out.wideCfgOnWire = has(seen, [0x80|127, HW.freq()>>7, HW.freq()&0x7F])
+                     && !has(seen, [0x80|63, HW.freq()>>7, HW.freq()&0x7F]);
+
+    /* every channel either side of the ceiling encodes to exactly one
+       header byte — no channel can ever be mistaken for another */
+    const headers = new Set();
+    for(let c=0; c<=127; c++) headers.add(0x80 | (c & 0x7F));
+    out.headersUnique = headers.size === 128;
+
+    serialSetWidth(false);
+    SER.banner=''; SER.port=null; SER.writer=null; hwClose();
+    return out;
+  });
+  ok('a PCA-BRIDGE 1 banner means the narrow protocol, PCA-BRIDGE 2 the wide one',
+     width.v1bridge === false && width.v2bridge === true);
+  ok('MAESTRO-PCA 2 is narrow, 3 is wide — a different threshold, same idea',
+     width.v2coproc === false && width.v3coproc === true);
+  ok('a board that says nothing recognisable is assumed NARROW, never wide',
+     width.unknown === false);
+  ok('narrow: 61 channels, config on 62/63',
+     width.narrowMax === 61 && width.narrowCfg[0] === 62 && width.narrowCfg[1] === 63);
+  ok('narrow: channel 61 still goes out', width.narrow61);
+  ok('narrow: a channel past 61 is DROPPED, not folded onto channel 6',
+     width.narrowDropped);
+  ok('narrow: the config still rides on channel 63', width.narrowCfgOnWire);
+  ok('wide: 125 channels, config on 126/127',
+     width.wideMax === 125 && width.wideCfg[0] === 126 && width.wideCfg[1] === 127);
+  ok('wide: channel 70 goes out as 70, not as 6', width.wide70);
+  ok('wide: channel 125 — the top servo channel — goes out', width.wide125);
+  ok('wide: 126 and 127 are the config channels, so a servo write there is refused',
+     width.wideCfgProtected);
+  ok('wide: the config moves to 127 and stops using 63', width.wideCfgOnWire);
+  ok('all 128 channels encode to distinct header bytes', width.headersUnique);
+
   console.log('\n════ serialTicksFor follows HW.freq() (v1.39.5) ════');
   const ticksFreq = await ev(()=>{
     serialSetFreq(200);

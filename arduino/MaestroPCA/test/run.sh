@@ -55,14 +55,26 @@ g++ -std=c++11 -O1 -w \
 timeout 30 /tmp/maestrobridge_test
 
 echo
+echo "== MaestroReplacement.ino compiles and boots (the sketch in the droid) =="
+g++ -std=c++11 -O0 -w \
+    -I shim -I . -I ../src -I ../examples/MaestroReplacement \
+    compile_maestro_replacement.cpp ../src/MaestroPCA.cpp ../src/MaestroLink.cpp \
+    -o /tmp/maestrorepl_compile
+timeout 30 /tmp/maestrorepl_compile
+
+echo
 echo "== the ESP32 sketches compile (against a faked ESP32) =="
+# NOTE: no 2>/dev/null here, deliberately. It used to be there, and it hid a
+# compile check that had stopped working the moment it was written (v1.33.0
+# added it, v1.53.0 found it): the only symptom of a broken step was a step
+# that printed no PASS, which is exactly what a silent step looks like.
 g++ -std=c++11 -O0 -w \
     -I shim -I esp32shim -I ../src \
     esp32shim/compile_esp32.cpp ../src/MaestroPCA.cpp ../src/MaestroLink.cpp \
-    -o /tmp/maestroesp32_compile 2>/dev/null
+    -o /tmp/maestroesp32_compile
 timeout 30 /tmp/maestroesp32_compile
 g++ -std=c++11 -O0 -w \
     -I shim -I esp32shim -I ../src \
     esp32shim/compile_esp32_slave.cpp ../src/MaestroPCA.cpp ../src/MaestroLink.cpp \
-    -o /tmp/maestroesp32slave_compile 2>/dev/null
+    -o /tmp/maestroesp32slave_compile
 timeout 30 /tmp/maestroesp32slave_compile

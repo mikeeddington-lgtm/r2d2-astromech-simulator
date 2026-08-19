@@ -305,6 +305,23 @@ live on pins 8/9 and leave USB free for flashing and diagnostics.
 and hands back any reply — so moving to WiFi or BLE on an ESP32 means
 changing only where the bytes come from.
 
+**How many PCA9685s.** Eight, as of v1.54.0 — 128 channels. The bus is
+scanned at boot and the drivers are bound to whatever answered, in
+ascending address order, so board 0 is simply the lowest address on your
+bus regardless of which jumpers you bridged. Which channels the flashed
+sequences actually animate is still decided by `MPCA_CHANNELS` in
+`sequences.h`; a board found beyond that is woken anyway and stays
+live-drivable from PCA Studio, listed as `spare` in the `?` status.
+
+Eight is the ceiling of the **live-drive wire format**, not of the library:
+a frame's header byte spends its high bit marking the frame and the other
+seven on the channel, so 0–127 is all there is, and 126/127 carry the
+oscillator and servo rate. `MaestroPCA` itself indexes boards as
+`channel >> 4` with no such limit. The banner reads `MAESTRO-PCA 3`; the
+app keys the channel width off that number, and an older board is sent
+nothing above channel 61 rather than something it would decode as the
+wrong servo.
+
 **The diagnostic a real Maestro cannot give you.** A Maestro that ignores
 serial looks exactly like a dead droid, and that fault costs people days.
 Open the co-processor's USB Serial Monitor at 115200: `?` gives an I2C scan
@@ -350,6 +367,19 @@ these pass, a host running `PololuMaestro` is understood exactly.
 looping) and `features_test.cpp` (30 on release, background resume,
 generators, easing, and that headers generated before these fields existed
 still compile and behave as they used to).
+
+`test/run.sh` also **compiles the sketches** against host shims —
+`MaestroReplacement` (the one that ends up in the droid), `PCA_Bridge`, and
+the two ESP32 sketches — and boots each one against a fake I2C bus. A
+sketch nobody compiles in CI is a sketch that breaks in somebody's dome:
+the ESP32 check was added in v1.33.0 and silently stopped working almost
+immediately, because `run.sh` sent the compiler's stderr to `/dev/null` and
+the only symptom was a step that printed nothing. That redirect is gone.
+
+`bridge_test.cpp` additionally drives the live-drive frame decoder through
+`loop()` against a real byte stream — channel 70 must reach board 4 pin 6
+and not fold onto board 0 pin 6, 126/127 must configure and move nothing,
+and a truncated frame must be abandoned at the next header.
 
 `tests/pcaseq.test.js` in the simulator covers the engine itself (63
 checks), and `pca-studio/smoke.test.js` the standalone app (27).

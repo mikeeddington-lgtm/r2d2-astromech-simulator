@@ -491,6 +491,16 @@ function setupStepExpander(){
     + 'address found becomes board 0.</p>'
     + '<div class="setrow"><label>Boards <input type="number" data-f="boards" min="1" max="8" value="'+n+'"></label>'
     + '<span class="stat">'+setupChannels()+' channels · highest channel number '+(setupChannels()-1)+'</span></div>'
+    /* v1.54.0 — eight boards became possible here the day the wire protocol
+       grew a seventh channel bit, and an already-flashed board does not know
+       that. Said at the point of the decision, not discovered later when a
+       channel quietly stops moving. */
+    + (n > 2 ? '<p class="setp"><b>More than two boards needs the current sketch.</b> Driving servos live '
+       + 'from this app used to top out at channel 61 — two boards — because the channel travelled in six '
+       + 'bits. It travels in seven now, so 0–125 all reach real servos, but only if the board is running '
+       + '<b>PCA_Bridge 2</b> or <b>MaestroReplacement 3</b> or later. Connect and the banner tells you which '
+       + 'you have; an older one is simply sent nothing above channel 61, rather than something it would '
+       + 'decode as the wrong servo. Exported sequences drive every channel either way.</p>' : '')
     + '<table class="settab"><tr><th>#</th><th>address</th><th>address jumpers</th><th>gives you</th></tr>'+rows+'</table>'
     + ((n > 1 && setupAdv()) ? '<div class="setsplit">'
       + '<div><h4>Signal — how the boards are joined</h4>'

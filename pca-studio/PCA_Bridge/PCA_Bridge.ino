@@ -16,18 +16,40 @@
    --- typed commands (Serial Monitor, no line ending needed) ---
      ?   status: which PCA9685s answered, oscillator, servo frequency
      t   sweep channel 0 gently (1250–1750 µs) — proves wiring + power
-     y   same sweep on channel 16 (second board, 0x41)
+     y   same sweep on channel 16 (the second board found)
      x   stop the sweep and switch every output off
 
    --- binary protocol from PCA Studio, 115200 baud, 3-byte frames ---
-     byte0  0x80 | channel (0..63)       — high bit marks a frame start,
+     byte0  0x80 | channel (0..127)      — high bit marks a frame start,
      byte1  payload >> 7   (7 bits)        so a lost byte self-resyncs
      byte2  payload & 0x7F (7 bits)
-   channel 0..31  payload = PCA9685 ticks 0..4096; 8191 = pulses OFF
-                  board = channel/16 (0x40, 0x41), pin = channel%16
-   channel 62     payload = oscillator Hz / 10000 (e.g. 2500 = 25 MHz)
-   channel 63     payload = servo frequency in Hz (normally 50)
+   channel 0..125 payload = PCA9685 ticks 0..4096; 8191 = pulses OFF
+                  board = channel/16 (0..7), pin = channel%16
+   channel 126    payload = oscillator Hz / 10000 (e.g. 2500 = 25 MHz)
+   channel 127    payload = servo frequency in Hz (normally 50)
    Typed commands are all < 0x80, so they can never collide with a frame.
+
+   PROTOCOL 2, AND WHY THE NUMBERS MOVED. Version 1 read the channel as
+   `b & 0x3F` — six bits — and put its two config channels at 62 and 63,
+   which capped the whole thing at 32 servo channels: two boards. That is
+   fine for a dome and nothing else. A droid with a dome, a second dome
+   board and a body wants four, and there is no reason to stop there: the
+   header byte's high bit is the frame marker and the other SEVEN bits
+   were never all being used. Reading `b & 0x7F` costs nothing and gives
+   0..127 — eight boards.
+
+   The config channels move to the top of the new range, 126 and 127, and
+   the honest cost is that board 7's last two pins (channels 126 and 127)
+   cannot be driven live from the browser. They still work perfectly on
+   the standalone droid sketch, which does not use this wire format. If
+   you have eight boards and need those two pins live, put the servos
+   that matter on lower channels — every other channel is unaffected.
+
+   The banner says PCA-BRIDGE 2 and the app reads that number: a browser
+   that meets an older PCA-BRIDGE 1 falls back to six-bit frames and
+   refuses to send it a channel it cannot decode, rather than sending
+   channel 70 and watching channel 6 move. Flashing this sketch is what
+   unlocks the wide range; nothing else needs changing.
 
    Wiring: PCA9685 V+ from a real 5-6 V servo supply, never the Arduino.
    Common ground between Arduino, PCA9685 and the servo supply. */
@@ -81,13 +103,17 @@ uint8_t bridgeScan(uint8_t* out, uint8_t max){
   return n;
 }
 
-uint8_t ADDR[2] = { 0x40, 0x41 };      /* overwritten by the scan */
-Adafruit_PWMServoDriver pca[2] = {
-  Adafruit_PWMServoDriver(0x40),
-  Adafruit_PWMServoDriver(0x41)
-};
-bool present[2] = { false, false };
-uint8_t nFound = 0;                    /* everything on the bus, not just ours */
+/* Eight boards, 128 channels. Two of those channels (126, 127) are spent
+   on configuration, so 0..125 drive servos — see the note at the top. */
+const uint8_t BRIDGE_BOARDS = 8;
+const uint8_t BRIDGE_CH_CFG_OSC   = 126;
+const uint8_t BRIDGE_CH_CFG_SERVO = 127;
+
+uint8_t ADDR[BRIDGE_BOARDS];           /* filled by the scan */
+Adafruit_PWMServoDriver pca[BRIDGE_BOARDS];
+bool present[BRIDGE_BOARDS];
+uint8_t nBound = 0;                    /* boards this sketch drives */
+uint8_t nFound = 0;                    /* everything on the bus, ours or not */
 
 uint32_t oscHz   = 25000000UL;
 float    servoHz = 50.0f;
@@ -103,7 +129,7 @@ int16_t  sweepPos = SWEEP_LO;
 int8_t   sweepDir = 1;
 
 void applyClock(){
-  for(uint8_t b=0; b<2; b++){
+  for(uint8_t b=0; b<BRIDGE_BOARDS; b++){
     if(!present[b]) continue;
     pca[b].setOscillatorFrequency(oscHz);
     pca[b].setPWMFreq(servoHz);
@@ -111,7 +137,7 @@ void applyClock(){
 }
 
 void allOff(){
-  for(uint8_t b=0; b<2; b++){
+  for(uint8_t b=0; b<BRIDGE_BOARDS; b++){
     if(!present[b]) continue;
     for(uint8_t p=0; p<16; p++) pca[b].setPWM(p, 0, 4096);
   }
@@ -119,19 +145,19 @@ void allOff(){
 
 void status(){
   Serial.println(F("--- PCA bridge ---"));
-  for(uint8_t b=0; b<2; b++){
+  for(uint8_t b=0; b<nBound; b++){
     Serial.print(F("  0x")); Serial.print(ADDR[b], HEX);
     Serial.print(F("  channels ")); Serial.print(b*16);
     Serial.print(F("-")); Serial.print(b*16+15);
-    Serial.println(present[b] ? F("   FOUND") : F("   not present"));
+    Serial.println(F("   FOUND"));
   }
-  if(nFound > 2){
-    Serial.print(F("  ")); Serial.print(nFound - 2);
-    Serial.println(F(" more board(s) on the bus than this sketch drives (32 channels max)"));
+  if(nFound > BRIDGE_BOARDS){
+    Serial.print(F("  ")); Serial.print(nFound - BRIDGE_BOARDS);
+    Serial.println(F(" more board(s) on the bus than this sketch drives (8 boards, 128 channels max)"));
   }
   Serial.print(F("  oscillator ")); Serial.print(oscHz);
   Serial.print(F(" Hz   servo ")); Serial.print((int)servoHz); Serial.println(F(" Hz"));
-  if(!present[0] && !present[1]){
+  if(nBound == 0){
     Serial.println(F("  NOTHING ON THE BUS. Check: SDA/SCL not swapped"));
     Serial.println(F("  (Mega 20/21, Uno A4/A5), VCC to 5V, GND shared."));
     Serial.println(F("  Note VCC powers the CHIP; servo V+ is separate."));
@@ -139,15 +165,15 @@ void status(){
   Serial.println(F("  keys:  ? status   t sweep ch0   y sweep ch16   x off"));
 }
 
-void startSweep(uint8_t ch){
-  uint8_t b = ch >> 4;
-  if(!present[b]){
-    Serial.print(F("no board for channel ")); Serial.println(ch);
+void startSweep(uint8_t c){
+  uint8_t b = c >> 4;
+  if(b >= BRIDGE_BOARDS || !present[b]){
+    Serial.print(F("no board for channel ")); Serial.println(c);
     return;
   }
-  sweepCh = ch; sweepPos = SWEEP_LO; sweepDir = 1;
+  sweepCh = c; sweepPos = SWEEP_LO; sweepDir = 1;
   sweepOn = true; sweepAt = millis();
-  Serial.print(F("sweeping channel ")); Serial.print(ch);
+  Serial.print(F("sweeping channel ")); Serial.print(c);
   Serial.println(F(" between 1250 and 1750 us — press x to stop"));
   Serial.println(F("if nothing moves: servo V+ supply, or the servo is on another pin"));
 }
@@ -163,10 +189,11 @@ void setup(){
      its I2C device inside begin(): doing this afterwards would strand that
      allocation and leave the object talking to its old address through
      it. */
-  uint8_t found[2];
-  nFound = bridgeScan(found, 2);
-  for(uint8_t b=0; b<2; b++){
-    present[b] = (b < nFound);
+  uint8_t found[BRIDGE_BOARDS];
+  nFound = bridgeScan(found, BRIDGE_BOARDS);
+  nBound = nFound > BRIDGE_BOARDS ? BRIDGE_BOARDS : nFound;
+  for(uint8_t b=0; b<BRIDGE_BOARDS; b++){
+    present[b] = (b < nBound);
     if(!present[b]) continue;
     ADDR[b] = found[b];
     pca[b] = Adafruit_PWMServoDriver(found[b]);
@@ -175,7 +202,7 @@ void setup(){
   applyClock();
   allOff();          /* everything off until told otherwise — no surprise lunges */
 
-  Serial.println(F("PCA-BRIDGE 1"));
+  Serial.println(F("PCA-BRIDGE 2"));
   status();
 }
 
@@ -189,17 +216,17 @@ void loop(){
 
     if(b & 0x80){                       /* --- binary frame header --- */
       if(sweepOn){ sweepOn = false; }   /* the app is driving now */
-      ch = b & 0x3F; payload = 0; st = 1;
+      ch = b & 0x7F; payload = 0; st = 1;
       continue;
     }
     if(st == 1){ payload = (uint16_t)b << 7; st = 2; continue; }
     if(st == 2){
       payload |= b; st = 0;
-      if(ch == 62){ oscHz = (uint32_t)payload * 10000UL; applyClock(); }
-      else if(ch == 63){ servoHz = payload; applyClock(); }
-      else if(ch < 32){
+      if(ch == BRIDGE_CH_CFG_OSC){ oscHz = (uint32_t)payload * 10000UL; applyClock(); }
+      else if(ch == BRIDGE_CH_CFG_SERVO){ servoHz = payload; applyClock(); }
+      else {
         uint8_t board = ch >> 4, pin = ch & 15;
-        if(!present[board]) continue;
+        if(board >= BRIDGE_BOARDS || !present[board]) continue;
         if(payload == 8191) pca[board].setPWM(pin, 0, 4096);   /* full off */
         else                pca[board].setPWM(pin, 0, payload > 4096 ? 4096 : payload);
       }
