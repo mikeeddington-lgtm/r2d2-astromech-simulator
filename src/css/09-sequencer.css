@@ -198,3 +198,29 @@ button.b.act.warn:hover{background:var(--am);color:var(--onAcc)}
 @keyframes sqlive{0%,100%{opacity:1}50%{opacity:.62}}
 /* a blinking control is a distraction to anyone who did not ask for motion */
 @media (prefers-reduced-motion:reduce){ button.b.act.warn{animation:none} }
+
+/* ---------------------------------------------- frames → bricks (v1.49.0)
+   The review of a conversion. Amber, not red: nothing here is broken —
+   a frame list simply is not always brick-shaped, and the list is the
+   honest account of where the guess does not fit. Green once it does. */
+.note.blkconv{ border-left:3px solid var(--am); }
+.note.blkconv.ok{ border-left-color:var(--gn); }
+.blkconvlist{ margin:8px 0 2px; display:flex; flex-direction:column; gap:4px; }
+.blkconvrow{
+  display:flex; align-items:baseline; gap:8px; flex-wrap:wrap;
+  padding:5px 8px; border-radius:6px; cursor:pointer;
+  background:var(--bg2); border:1px solid var(--line);
+}
+.blkconvrow:hover, .blkconvrow:focus-visible{ border-color:var(--am); outline:none; }
+.blkconvrow.unmapped{ cursor:default; }
+.blkconvrow.unmapped:hover{ border-color:var(--line); }
+.blkconvwho{ flex:0 0 auto; color:var(--am); }
+.blkconvwhat{ flex:1 1 12rem; color:var(--dim); font-size:.92em; }
+/* the brick a pending conversion does not reproduce */
+.blkbrick.convbad{ outline:2px dashed var(--am); outline-offset:1px; }
+.blkconvline{
+  margin:2px 0 6px; padding:4px 8px; border-radius:5px;
+  font-size:.9em; background:var(--bg2); border:1px solid var(--line);
+}
+.blkconvline.bad{ color:var(--am); border-color:var(--am); }
+.blkconvline.ok{ color:var(--gn); }

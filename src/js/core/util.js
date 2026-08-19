@@ -7,7 +7,7 @@
 
 /* Shown top-left in the header so a stale copy is obvious at a glance.
    BUMP THIS on every delivery (HANDOVER §change log gets the same number). */
-const APP_VERSION = '1.48.1';
+const APP_VERSION = '1.49.0';
 /* The licence the app's own About box states — one string, one place.
    Scoped on purpose: MIT covers THIS project's code and artwork, and the
    About box has to say so rather than implying it covers the geometry, the

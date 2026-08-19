@@ -115,6 +115,18 @@ function parseFrameRow(text, servoCount){
 function parseMstr(text, fileName){
   return mstrApply(mstrParse(text, fileName));
 }
+/* v1.49.0 — a routine that arrived as poses is not a dead end any more,
+   and the log a person is already reading after an import is the one place
+   they will not think to look for that. Silent when everything came back
+   as bricks. */
+function traceOfferNote(){
+  if(typeof MSTR === 'undefined' || !MSTR.sequences) return;
+  const flat = MSTR.sequences.filter(s=>s && s.frames && s.frames.length && !s.blocks).length;
+  if(!flat || typeof lg !== 'function') return;
+  lg('mae','  '+flat+' routine(s) are hand-made frame lists — a Pololu file carries poses, not bricks. '
+    + 'The sequencer can work the bricks back out of them, and will show you anything it cannot reproduce.');
+}
+
 /* ------------------------------------------------- the r2sim:acts sidecar
    Written by export.js (an XML comment) and pca-gen.js (a C comment); read
    here for both, because "which panel is this channel" is one question
@@ -318,6 +330,7 @@ function mstrApply(P){
     });
     if(back) lg('mae','  '+back+' routine(s) restored EDITABLE — bricks intact from the file');
     if(kept) lg('mae','  '+kept+' routine(s) kept as plain frames — their bricks no longer recompile to the same motion');
+    traceOfferNote();
   }
   if(typeof servoStoreSave === 'function') servoStoreSave();
   const {servoCount, channels, sequences, subs, board} = P;
@@ -485,6 +498,7 @@ function mstrAdoptSequences(P){
   if(bricksKeptAsFrames) lg('mae','  '+bricksKeptAsFrames+' routine(s) kept as plain frames — their bricks would compile differently against your endpoints/speeds, so the frames won');
   /* NOT loadoutReset(): what reaches the board stays exactly what you chose */
   lg('mae','adopted '+added.length+' sequence(s) from '+P.fileName+' onto YOUR servo settings');
+  traceOfferNote();
   lg('mae','  channels matched: '+how.act+' by part, '+how.name+' by name, '+how.index+' by number'
      + (unmatched.length ? ' · dropped source channel(s) '+unmatched.join(', ')+' (no match on your droid)' : ''));
   if(dropped) lg('mae','  per-frame speed/accel rows discarded — your channel settings govern the motion');

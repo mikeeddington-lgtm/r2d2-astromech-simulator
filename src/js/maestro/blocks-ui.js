@@ -36,7 +36,12 @@ const BLK = {
      "primary" id — every existing reader of it keeps working untouched
      (see blkSelIds() below). selSet only ever holds MORE than one id; it
      is how a Shift/Ctrl-click builds on top of a plain click. */
-  selSet: new Set()
+  selSet: new Set(),
+  /* the pending frames→bricks conversion under review (v1.49.0,
+     blocks-trace.js). Null except between "Convert and review…" and
+     Accept/Discard; holds the ORIGINAL frame list, which is the thing
+     every measurement in review mode is measured against. */
+  conv: null
 };
 
 /* the four MOTION shapes a brick can be — see blockValueAt's own comment
@@ -146,6 +151,7 @@ function buildBlocks(){
   blkUndoRedoSync();          // before the early returns — the buttons live in #seqtop
   host.innerHTML = '';
   const seq = blkSeq();
+  blkConvCheckSeq(seq);       // a pending conversion belongs to ONE routine (v1.49.0)
 
   if(!MSTR.loaded){
     const n = el('div','note cy');
@@ -157,18 +163,36 @@ function buildBlocks(){
   }
   if(seq && !blockIsRoutine(seq)){
     const n = el('div','note');
-    n.innerHTML = '<b>“'+xmlEsc(seq.name)+'” is a hand-made frame list</b> ('+seq.frames.length+' frames). '
-      + 'You can keep editing it under <b>Frames</b>, or start building it out of bricks — its frames stay until you drop the first one.';
+    n.innerHTML = '<b>“'+xmlEsc(seq.name)+'” is a hand-made frame list</b> ('+seq.frames.length+' frames) — '
+      + 'a Pololu file carries poses and nothing else, so there are no bricks in it to read. '
+      + 'You can keep editing it under <b>Frames</b>, work out the bricks behind it, or start again from empty.';
     const bar = el('div','conbar');
-    const b = el('button','b prim','Build this one with bricks');
+    /* v1.49.0 — Mike: "two options, the first is where we guess and another
+       which highlights the issues and allows the user to use the bricks
+       sequence to see them, accept them or change each issue." Both run the
+       SAME analysis (blocks-trace.js); they differ only in whether you are
+       shown the disagreements before it lands. */
+    const bC = el('button','b prim','Work out the bricks');
+    bC.title = 'Read the frames back into bricks and keep the result. The original frame list is saved '
+             + 'beside it as a copy, so nothing is lost either way.';
+    bC.addEventListener('click',()=>blkConvRun(seq, false));
+    const bR = el('button','b','Work them out and review…');
+    bR.title = 'The same conversion, but it stops and shows you every channel the bricks do not reproduce '
+             + 'so you can fix them on the timeline before accepting.';
+    bR.addEventListener('click',()=>blkConvRun(seq, true));
+    const b = el('button','b','Start fresh with bricks');
+    b.title = 'An empty routine under this name. The frames stay until you drop the first brick, and then '
+            + 'this routine is whatever the bricks say — the imported motion is not kept.';
     b.addEventListener('click',()=>{ blockAdopt(seq); buildSequencer(); });
-    bar.appendChild(b); n.appendChild(bar);
+    bar.appendChild(bC); bar.appendChild(bR); bar.appendChild(b);
+    n.appendChild(bar);
     host.appendChild(n);
     blkInspectorRender(null);
     return;
   }
 
   host.appendChild(blkToolbar());
+  blkConvBanner(host, seq);          // above the lanes: it is the question the pane is asking
   host.appendChild(blkTimeline(seq));
   blkUnwiredBanner(host, seq);
   host.appendChild(blkActionLib(seq));
@@ -448,8 +472,15 @@ function blkBrick(seq, b){
      DOM, so "grey wherever bricks are drawn" cannot be true in the timeline
      and false somewhere else. */
   const wired = blockWired(b);
+  /* v1.49.0 — `.convbad` marks a brick a pending conversion does not
+     reproduce. Set HERE for the same reason `.unwired` is: one place a
+     brick becomes DOM, so the flag cannot be true in the timeline and
+     missing somewhere else. */
+  const bad = blkConvBadRefs();
+  const isBad = !!(bad && b.kind === 'act' && bad[b.ref]);
   const d = el('div','blkbrick'+(b.kind==='seq'?' seq':' pc')
-    + (wired?'':' unwired') + (blkSelIds().indexOf(b.id)>=0?' sel':''));
+    + (wired?'':' unwired') + (isBad?' convbad':'') + (blkSelIds().indexOf(b.id)>=0?' sel':''));
+  if(isBad) d.title = blkLabel(b.ref) + ' ' + bad[b.ref].what;
   if(b.kind !== 'seq'){
     const hex = blkColor(b.ref);
     d.style.setProperty('--pc', hex);
@@ -729,6 +760,207 @@ function blkActionLib(seq){
    says which bricks they are, by name, right under the timeline they are
    sitting in. blockUnwiredNote() (blocks.js) owns the wording; this is only
    where it is shown, plus the way out of it. */
+/* =====================================================================
+   THE CONVERSION, AND THE REVIEW OF IT (v1.49.0)
+
+   blocks-trace.js proposes the bricks and measures them; everything here
+   is about what a person does with that. Two doors, one analysis:
+
+     Work out the bricks          — apply it and keep it.
+     Work them out and review…    — apply it, but hold the original frames
+                                    alongside and show every channel the
+                                    bricks do not reproduce, live, while
+                                    you edit them on the real timeline.
+
+   BOTH doors save the original frame list as a copy first (Mike's answer
+   when asked how accepting should land). Accepting a conversion CHANGES
+   WHAT THE DROID DOES wherever the bricks disagree, and a conversion is a
+   guess by construction — so the thing it was guessing at has to survive
+   in the library, under its own name, for comparison and for going back.
+   ===================================================================== */
+
+/* the copy, made before anything is replaced. Returns the name it used. */
+function blkConvKeepOriginal(name, frames){
+  let n = name + ' (frames)';
+  while(MSTR.sequences.some(s=>s.name === n)) n = n + '·';
+  MSTR.sequences.push({ name:n, frames: JSON.parse(JSON.stringify(frames)), cat:'Imported' });
+  if(typeof reindexSubs === 'function') reindexSubs();
+  return n;
+}
+
+function blkConvRun(seq, review){
+  if(!seq || blockIsRoutine(seq)) return;
+  const t = blockTrace(seq);
+  if(!t.bricks.length){
+    const why = t.moved
+      ? 'every channel this routine moves is unmapped, so there is no panel for a brick to name. '
+        + 'Map them on the bench first.'
+      : 'nothing in this routine leaves its rest position, so there is nothing to make a brick out of.';
+    if(typeof toast === 'function') toast('Nothing to convert — ' + why, 'warn');
+    return;
+  }
+  const orig = JSON.parse(JSON.stringify(seq.frames));
+  seq.blocks = t.bricks;
+  blockSync(seq);                       // the routine is now its bricks
+  blockHistReset(seq);                  // a fresh history: undo must not reach behind the conversion
+
+  if(review){
+    BLK.conv = { seq: seq, name: seq.name, orig: orig, issues: t.issues };
+    blkSelClear(); BLK.sel = null;
+    if(typeof lg === 'function')
+      lg('mae','conversion proposed for “'+seq.name+'”: '+t.bricks.length+' brick(s) from '+orig.length
+        +' frame(s), '+t.issues.length+' issue(s) to review');
+    buildSequencer();
+    return;
+  }
+
+  const kept = blkConvKeepOriginal(seq.name, orig);
+  const bad = t.issues.filter(i=>i.kind === 'mismatch');
+  if(typeof HW !== 'undefined' && HW.save) HW.save();
+  if(typeof lg === 'function'){
+    lg('mae','converted “'+seq.name+'” to '+t.bricks.length+' brick(s); the frames are kept as “'+kept+'”');
+    t.issues.forEach(i=>lg(i.kind === 'mismatch' ? 'warn' : 'mae','  '+i.label+' '+i.what));
+  }
+  if(typeof toast === 'function')
+    toast(t.bricks.length + ' brick' + (t.bricks.length===1?'':'s') + ' from ' + orig.length + ' frames'
+      + (t.issues.length ? ' — ' + t.issues.length + ' channel' + (t.issues.length===1?'':'s')
+          + ' the bricks do not reproduce, see the log' : ' — every frame reproduced exactly')
+      + '. Your original is kept as “' + kept + '”.',
+      t.issues.length ? 'warn' : '');
+  buildSequencer();
+}
+
+/* Leaving the routine abandons the review rather than stranding it: a
+   pending conversion is a question about THIS routine, and a banner you
+   cannot see is not a question. */
+function blkConvCheckSeq(seq){
+  if(!BLK.conv) return;
+  if(BLK.conv.seq === seq) return;
+  const c = BLK.conv; BLK.conv = null;
+  if(c.seq){ c.seq.frames = c.orig; delete c.seq.blocks; }
+  if(typeof toast === 'function') toast('Conversion of “'+c.name+'” discarded — you left the routine. '
+    + 'It is a frame list again, exactly as it was.');
+}
+
+function blkConvAccept(){
+  const c = BLK.conv; if(!c) return;
+  const kept = blkConvKeepOriginal(c.name, c.orig);
+  BLK.conv = null;
+  if(typeof HW !== 'undefined' && HW.save) HW.save();
+  const left = blockTraceReview(c.seq, c.orig);
+  if(typeof lg === 'function')
+    lg('mae','conversion of “'+c.name+'” accepted with '+left.length+' difference(s); '
+      + 'the original frames are kept as “'+kept+'”');
+  if(typeof toast === 'function')
+    toast(left.length
+      ? 'Accepted with ' + left.length + ' channel' + (left.length===1?'':'s') + ' still different — '
+        + 'the droid now does what the bricks say. Your original is “' + kept + '”.'
+      : 'Accepted — the bricks reproduce every frame exactly. Your original is kept as “' + kept + '”.',
+      left.length ? 'warn' : '');
+  buildSequencer();
+}
+function blkConvDiscard(){
+  const c = BLK.conv; if(!c) return;
+  BLK.conv = null;
+  c.seq.frames = c.orig;
+  delete c.seq.blocks;
+  blockHistReset(c.seq);
+  if(typeof HW !== 'undefined' && HW.save) HW.save();
+  if(typeof lg === 'function') lg('mae','conversion of “'+c.name+'” discarded — nothing changed');
+  if(typeof toast === 'function') toast('Discarded — “'+c.name+'” is the frame list it was.');
+  buildSequencer();
+}
+
+/* which refs are currently wrong — read by blkBrick() so a flagged brick
+   is flagged in the ONE place a brick becomes DOM */
+function blkConvBadRefs(){
+  if(!BLK.conv) return null;
+  const set = {};
+  BLK.conv.issues.forEach(i=>{ if(i.ref) set[i.ref] = i; });
+  return set;
+}
+
+function blkConvBanner(host, seq){
+  if(!BLK.conv || BLK.conv.seq !== seq) return;
+  /* re-measure on every render, which is after every edit — the readout is
+     the current truth, not a verdict from a minute ago */
+  BLK.conv.issues = blockTraceReview(seq, BLK.conv.orig);
+  const issues = BLK.conv.issues;
+  const clean  = !issues.length;
+  const nBad   = issues.filter(i=>i.kind === 'mismatch').length;
+  const nUnmap = issues.length - nBad;
+  const said   = [];
+  if(nBad)   said.push(nBad + ' channel' + (nBad===1?'':'s') + ' the bricks do not reproduce yet');
+  if(nUnmap) said.push(nUnmap + ' that cannot be a brick at all');
+
+  const n = el('div','note blkconv' + (clean ? ' ok' : ''));
+  const h = el('b', null, clean
+    ? 'These bricks reproduce the original frames exactly.'
+    : said.join(', ') + '.');
+  n.appendChild(h);
+  n.appendChild(document.createTextNode(clean
+    ? ' Every instant the imported file had an opinion about, the bricks command the same pose. Accept it and '
+      + 'the routine is editable from now on; your original frame list is kept beside it either way.'
+    : ' A frame list is not always brick-shaped, so this is a guess and these are the places it does not fit. '
+      + 'Select one to jump to it — the brick is outlined on the timeline and the inspector shows the error as '
+      + 'you drag. Accept anyway and the droid does what the BRICKS say from here on.'));
+
+  if(issues.length){
+    const ul = el('div','blkconvlist');
+    issues.forEach(i=>{
+      const row = el('div','blkconvrow' + (i.kind === 'unmapped' ? ' unmapped' : ''));
+      row.appendChild(el('b','blkconvwho', i.label));
+      row.appendChild(el('span','blkconvwhat', i.what));
+      if(i.kind === 'unmapped'){
+        const bm = el('button','b','map it…');
+        bm.addEventListener('click',e=>{ e.stopPropagation(); blkMapPanelsOpen(); });
+        row.appendChild(bm);
+      }else{
+        row.tabIndex = 0;
+        row.addEventListener('click',()=>blkConvGoTo(i));
+        row.addEventListener('keydown',e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); blkConvGoTo(i); } });
+      }
+      ul.appendChild(row);
+    });
+    n.appendChild(ul);
+  }
+
+  const bar = el('div','conbar');
+  const ok = el('button','b prim', clean ? 'Accept the conversion' : 'Accept anyway');
+  ok.addEventListener('click', blkConvAccept);
+  const no = el('button','b danger','Discard');
+  no.title = 'Put the frame list back exactly as it was.';
+  no.addEventListener('click', blkConvDiscard);
+  bar.appendChild(ok); bar.appendChild(no);
+  n.appendChild(bar);
+  host.appendChild(n);
+}
+
+/* jump to the brick behind an issue: select it, park the playhead on the
+   worst moment, and scroll it into view — the three things you would
+   otherwise do by hand before you could look at it */
+function blkConvGoTo(issue){
+  const seq = BLK.conv && BLK.conv.seq; if(!seq) return;
+  const hit = blockList(seq).filter(b=>b.ref === issue.ref)
+    .sort((a,b)=>Math.abs(a.t0 + a.dur/2 - issue.at) - Math.abs(b.t0 + b.dur/2 - issue.at))[0];
+  if(hit){ blkSelClear(); BLK.sel = hit.id; }
+  BLK.play.t = issue.at;
+  buildSequencer();
+  if(typeof blkScrollToSel === 'function') blkScrollToSel();
+  if(typeof blkPlayheadPlace === 'function') blkPlayheadPlace();
+}
+
+/* the live error line in the inspector, for the brick you are dragging */
+function blkConvInspectorLine(seq, b){
+  if(!BLK.conv || BLK.conv.seq !== seq || !b || b.kind !== 'act') return null;
+  const i = (BLK.conv.issues || []).find(x=>x.ref === b.ref);
+  const d = el('div','blkconvline' + (i ? ' bad' : ' ok'));
+  d.textContent = i
+    ? 'against the original: off by ' + i.err + ' (' + i.pct + '%) at ' + (i.at/1000).toFixed(2) + ' s'
+    : 'against the original: this channel matches';
+  return d;
+}
+
 function blkUnwiredBanner(host, seq){
   const note = blockUnwiredNote(seq);
   if(!note) return;
@@ -928,6 +1160,12 @@ function blkInspector(seq){
   head.appendChild(el('b',null,label));
   head.appendChild(el('span','blkinspsub', 'starts at '+(b.t0/1000).toFixed(2)+'s'));
   host.appendChild(head);
+
+  /* v1.49.0 — under review, the error against the original frames sits at
+     the top of the fields you are about to drag, and is re-measured on
+     every rebuild. Watching it go to "matches" IS the fix. */
+  const cline = blkConvInspectorLine(seq, b);
+  if(cline) host.appendChild(cline);
 
   /* v1.46.0 — a grey brick says so where you are already looking when you
      click it, and offers the one thing that fixes it. Its timing fields

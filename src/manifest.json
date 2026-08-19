@@ -88,6 +88,7 @@
   "js/maestro/ui-pane.js",
   "js/maestro/blocks-host.js",
   "js/maestro/blocks.js",
+  "js/maestro/blocks-trace.js",
   "js/maestro/blocks-ui.js",
   "js/maestro/ui-sequencer.js",
   "js/maestro/music.js",
