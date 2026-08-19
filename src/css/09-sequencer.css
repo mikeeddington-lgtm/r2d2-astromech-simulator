@@ -224,3 +224,6 @@ button.b.act.warn:hover{background:var(--am);color:var(--onAcc)}
 }
 .blkconvline.bad{ color:var(--am); border-color:var(--am); }
 .blkconvline.ok{ color:var(--gn); }
+
+/* Pose and Frames are Advanced-only (v1.52.0, ui-sequencer.js sqAdvViews) */
+#sqViewPose.hide, #sqViewTable.hide{display:none}

@@ -306,7 +306,7 @@ Issues and pull requests are welcome, with two requests:
 1. **Read `HANDOVER.md` first** — most "why on earth is it done like that?"
    questions are answered there, usually with the bench session that caused it.
 2. **Run the suites.** `./test.sh` drives a headless Chromium over both builds
-   and PCA Studio. A change that breaks one of the ~2087 assertions has broken
+   and PCA Studio. A change that breaks one of the ~2092 assertions has broken
    something somebody found the hard way.
 
 If you are fixing a bug, the house style is to make the test go **red first**

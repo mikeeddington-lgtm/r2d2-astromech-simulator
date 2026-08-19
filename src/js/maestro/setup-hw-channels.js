@@ -417,12 +417,6 @@ function setupDomeRender(){
     + '<div class="calhead"><b>Dome map</b>'
     + '<span class="stat">click a channel’s <b>row</b> in the list, then click its panel here</span>'
     + '<span class="sp" style="flex:1"></span>'
-    /* turn the drawing to match the dome in front of you (v1.50.0) */
-    + '<label class="domrot" title="turn the drawing so it matches how you are looking at your dome. '
-    + 'The FRONT marker turns with it; the labels stay upright.">rotate '
-    + '<input type="range" id="domeRot" min="0" max="359" step="1" value="'+setupDomeRot()+'">'
-    + '<b id="domeRotN">'+setupDomeRot()+'°</b></label>'
-    + '<button class="mini" data-dome="0" title="put the drawing back with the droid’s front at the bottom">reset</button>'
     + '<button class="mini" data-dome="next" title="jump to the next channel that has no part yet">next unmapped</button>'
     + '<button class="mini" data-dome="close" title="close the map — the bench stays where it is">close</button>'
     + '</div>'
@@ -433,6 +427,17 @@ function setupDomeRender(){
           + (selC.act ? ' It already drives <b>'+esc(label(selC.act) || setupDomeLabel(selC.act))+'</b>; clicking moves it.' : '')
         : 'No channel selected. Click a channel’s <b>row</b> in the list, or press <b>next unmapped</b>.')
     + '</div><div id="domeSvg"></div>'
+    /* v1.52.0 — Mike: *"move rotate to under the image"*. It sat in the
+       panel header with the buttons, a hand's width from the thing it
+       turns; a control belongs beside what it changes, and the header is
+       where you go to LEAVE the map. */
+    + '<div class="domrotbar">'
+    + '<label class="domrot" title="turn the drawing so it matches how you are looking at your dome. '
+    + 'The FRONT marker turns with it; the labels stay upright.">rotate '
+    + '<input type="range" id="domeRot" min="0" max="359" step="1" value="'+setupDomeRot()+'">'
+    + '<b id="domeRotN">'+setupDomeRot()+'°</b></label>'
+    + '<button class="mini" data-dome="0" title="put the drawing back with the droid’s front at the bottom">reset</button>'
+    + '</div>'
     + '<div class="iwkey"><span class="k has"></span>mapped <span class="k dup"></span>two channels'
     + ' <span class="k lit"></span>lighting on the reference <span class="k"></span>free</div></div>'
     + '<div class="iwchans">'

@@ -331,3 +331,7 @@ body.light{
 /* the dial's "not on the channel yet" marker (v1.51.0) */
 .calpend{font-size:11px;padding:1px 8px;border-radius:9px;
   color:var(--am2);border:1px solid var(--am2)}
+/* the rotation control sits under the drawing it turns (v1.52.0) */
+.domrotbar{display:flex;align-items:center;gap:10px;margin:8px 0 2px}
+.domrotbar .domrot{flex:1}
+.domrotbar .domrot input[type=range]{flex:1;min-width:80px}

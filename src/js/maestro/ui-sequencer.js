@@ -123,7 +123,26 @@ function buildSnapPicker(hostNode){
 }
 /* three views on the same routine: the bricks, a live pose, the frames it
    compiles to. Body class drives the layout so nothing has to be hidden
-   one element at a time. */
+   one element at a time.
+
+   v1.52.0 — Mike: *"Pose and Frames should only be displayed when advanced
+   is ticked."* Which is his standing brief applied to the one place it had
+   not been: BRICKS is how you author a routine, and the other two are ways
+   of looking underneath it — a live pose you set channel by channel, and
+   the frame list the bricks compile to. Both are useful and neither is a
+   beginner's first move, so they go behind the same Advanced tick that
+   already reveals the per-brick speed overrides.
+
+   Hidden, never orphaning: if Advanced goes off while you are standing in
+   one of them, the view comes back to the bricks rather than leaving you
+   on a pane whose only door has just been removed. */
+function sqAdvViews(){
+  const on = !!BLK.adv;
+  [['sqViewPose','pose'], ['sqViewTable','table']].forEach(([id])=>{
+    const b = $(id); if(b) b.classList.toggle('hide', !on);
+  });
+  if(!on && (EDIT.view === 'pose' || EDIT.view === 'table')) setSeqView('blocks');
+}
 function setSeqView(v){
   EDIT.view = v;
   document.body.classList.remove('seqv-blocks','seqv-pose','seqv-table');
@@ -351,6 +370,7 @@ function sqBuildLabel(){
 $('sqAdv').addEventListener('change',()=>{
   BLK.adv = $('sqAdv').checked;
   PREFS.seqAdv = BLK.adv; prefsSave();
+  sqAdvViews();
   buildSequencer();
   lg('sys','sequencer advanced options: '+(BLK.adv?'on — per-brick speed overrides editable':'off — imported speeds apply'));
 });
@@ -390,6 +410,7 @@ $('sqViewBlocks').addEventListener('click',()=>setSeqView('blocks'));
 $('sqViewPose').addEventListener('click',()=>setSeqView('pose'));
 $('sqViewTable').addEventListener('click',()=>setSeqView('table'));
 setSeqView('blocks');
+sqAdvViews();          /* Pose and Frames are Advanced-only (v1.52.0) */
 
 /* restore the sequencer's remembered switches — called from main.js AFTER
    prefsLoad(), because PREFS itself lives in a later module (classic
@@ -398,4 +419,5 @@ function blkPrefsRestore(){
   BLK.snapMode = PREFS.seqSnap || 'auto';
   BLK.adv = !!PREFS.seqAdv;
   const a = $('sqAdv'); if(a) a.checked = BLK.adv;
+  sqAdvViews();
 }

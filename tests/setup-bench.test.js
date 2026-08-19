@@ -281,6 +281,17 @@ const ok = (n,c,x='') => { c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+' 
   await ev(()=>{ SETUP.sel = 0; setupDomeOpen(); });
   await page.waitForTimeout(200);
   ok('there is a rotation control', await ev(()=>!!$('domeRot')));
+  /* Mike, 2026-08-19: "move rotate to under the image" — a control belongs
+     beside what it changes, and the panel header is where you go to LEAVE */
+  ok('…and it sits under the drawing, not in the header', await ev(()=>{
+    const r = $('domeRot'), svg = $('domeSvg');
+    return !!r && !!svg
+        && r.getBoundingClientRect().top > svg.getBoundingClientRect().top
+        && !document.querySelector('.calhead #domeRot')
+        && !!document.querySelector('.domrotbar #domeRot');
+  }));
+  ok('…and reset came with it', await ev(()=>
+    !!document.querySelector('.domrotbar [data-dome="0"]')));
   const rot = await ev(()=>{
     const before = document.querySelector('#domeSvg g').getAttribute('transform') || '';
     const r = $('domeRot'); r.value = 90; r.dispatchEvent(new Event('input',{bubbles:true}));

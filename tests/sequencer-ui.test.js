@@ -1601,6 +1601,33 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
   ok('...and parks it closed when that slot ends', fwPad.settled === 0, 'settled='+fwPad.settled);
   await ev(()=>{ MSTR.sequences.splice(EDIT.seq,1); EDIT.seq=0; EDIT.frame=-1; reindexSubs(); BLK.sel=null; blkSelClear(); buildSequencer(); });
 
+  /* Mike, 2026-08-19: "Pose and Frames should only be displayed when
+     advanced is ticked." BRICKS is how you author a routine; the other two
+     are ways of looking underneath it, and neither is a beginner's first
+     move — so they go behind the tick that already reveals the per-brick
+     speed overrides. */
+  console.log('\n════ Pose and Frames are Advanced-only (v1.52.0) ════');
+  const advV = await ev(()=>{
+    const vis = id=>$(id).offsetParent !== null;
+    $('sqAdv').checked = false; $('sqAdv').dispatchEvent(new Event('change'));
+    const off = {bricks:vis('sqViewBlocks'), pose:vis('sqViewPose'), frames:vis('sqViewTable')};
+    $('sqAdv').checked = true; $('sqAdv').dispatchEvent(new Event('change'));
+    const on = {bricks:vis('sqViewBlocks'), pose:vis('sqViewPose'), frames:vis('sqViewTable')};
+    /* standing in Frames when the tick goes off must not strand you on a
+       pane whose only door has just been removed */
+    setSeqView('table');
+    $('sqAdv').checked = false; $('sqAdv').dispatchEvent(new Event('change'));
+    const stranded = {view:EDIT.view, cls:(document.body.className.match(/seqv-\w+/)||[''])[0]};
+    $('sqAdv').checked = true; $('sqAdv').dispatchEvent(new Event('change'));
+    return {off, on, stranded};
+  });
+  ok('with Advanced off, only Bricks is offered',
+     advV.off.bricks && !advV.off.pose && !advV.off.frames, JSON.stringify(advV.off));
+  ok('ticking it brings both back',
+     advV.on.pose && advV.on.frames, JSON.stringify(advV.on));
+  ok('and unticking it while you are IN one of them returns you to the bricks',
+     advV.stranded.view === 'blocks' && advV.stranded.cls === 'seqv-blocks', JSON.stringify(advV.stranded));
+
   console.log('\n════ no page errors ════');
   ok('nothing threw', errs.length===0, errs.join(' | '));
 
