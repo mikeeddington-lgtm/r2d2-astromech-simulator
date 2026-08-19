@@ -195,9 +195,7 @@ function setupChPanel(){
   const head = '<div class="chcfghead"><b>Configure</b>'
     + '<select id="chPick" title="which channel this panel is about">'+opts+'</select>'
     + '<span class="sp" style="flex:1"></span>'
-    + (on ? '<button class="mini prim" data-k="cal" data-ch="'+i+'"'
-            + ' title="drive this servo with a dial and record where it actually stops against the real linkage">'
-            + 'configure with the dial…</button>' : '')
+    + (on ? '<span class="stat">the dial below drives this one</span>' : '')
     + '</div>';
 
   if(!on){
@@ -207,6 +205,18 @@ function setupChPanel(){
            : '<b>No channel selected.</b> Click a row in the list above — everything about that channel is set here.')
       + '</div></div>';
   }
+
+  /* WHILE THE DIAL IS OPEN, THESE THREE NUMBERS ARE THE DIAL'S (v1.51.0).
+     setupCalOpen() widens the channel to the 1000–2000 µs working range so
+     the dial can reach past its own endpoints, so reading c.min/c.max here
+     would show the working range and not the builder's travel — two
+     controls on one screen disagreeing about the same servo. One set of
+     numbers, two ways to set it: type here or turn the dial, and `save
+     servo setting` is what puts them on the channel. */
+  const cal = (SETUP.cal && SETUP.cal.ch === i) ? SETUP.cal : null;
+  const vMin  = cal ? cal.min  : c.min;
+  const vMax  = cal ? cal.max  : c.max;
+  const vHome = cal ? cal.home : c.home;
 
   const q = v => ((v||0)/4).toFixed(0);
   const pw = (k, lab, val, tip) =>
@@ -220,16 +230,16 @@ function setupChPanel(){
     '<label class="chf chk" title="'+tip+'"><input type="checkbox" data-k="'+k+'" data-ch="'+i+'"'
     + (checked?' checked':'')+'><span>'+lab+'</span></label>';
 
-  const lo = Math.min(c.min,c.max), hi = Math.max(c.min,c.max);
+  const lo = Math.min(vMin,vMax), hi = Math.max(vMin,vMax);
   return '<div class="chcfg" id="chCfg">' + head
     + '<div class="chcfgwho"><b>'+esc(c.name || ('Channel '+i))+'</b>'
     + '<span class="stat">channel '+i+' · board '+(i>>4)+' pin '+(i&15)+'</span></div>'
 
     + '<h4>Travel</h4><div class="chcfgrow">'
-    + pw('minUs', 'shut',   c.min,  'the pulse width at the shut end of the travel')
-    + pw('ctrUs', 'centre', c.home, 'the pulse width it rests at — and goes to at power-up when boot is ticked')
-    + pw('maxUs', 'open',   c.max,  'the pulse width at the open end of the travel')
-    + tick('rev', 'reversed', c.min > c.max,
+    + pw('minUs', 'shut',   vMin,  'the pulse width at the shut end of the travel')
+    + pw('ctrUs', 'centre', vHome, 'the pulse width it rests at — and goes to at power-up when boot is ticked')
+    + pw('maxUs', 'open',   vMax,  'the pulse width at the open end of the travel')
+    + tick('rev', 'reversed', vMin > vMax,
         'the linkage runs the other way — ticking swaps this channel’s two ends, unticking puts them back')
     + tick('boot', 'go to centre at power-up', !/off|ignore/i.test(c.homemode||''),
         'at power-up, drive to the centre above. Unticked = no pulses at all, so the servo is limp and a panel does not buzz.')
@@ -766,7 +776,19 @@ function setupBindChannels(){
          anywhere downstream and there does not need to be, because every
          consumer takes Math.min/Math.max of the pair. The tick is checked
          when min > max, so unticking puts it back and the box is never out
-         of step with the numbers beside it. */
+         of step with the numbers beside it.
+         v1.51.0 — while the dial is open the pair being swapped is the
+         DIAL's, not the channel's: the channel is sitting at the widened
+         working range and swapping THAT would mean nothing. */
+      const cal = (SETUP.cal && SETUP.cal.ch === i) ? SETUP.cal : null;
+      if(cal){
+        const t2 = cal.min; cal.min = cal.max; cal.max = t2;
+        setupCalRender();
+        HW.say('channel '+i+' '+(cal.min>cal.max?'reversed':'back to normal')
+          +' — press save servo setting to keep it');
+        setupRender();
+        return;
+      }
       const t = c.min; c.min = c.max; c.max = t;
       HW.save(); HW.rebuild(true); setupRender();
       HW.say('channel '+i+' '+(c.min>c.max?'reversed':'back to normal')+' — '
@@ -777,12 +799,23 @@ function setupBindChannels(){
     if(k === 'name') c.name = e.target.value;
     else if(k === 'minUs' || k === 'maxUs' || k === 'ctrUs'){
       const q = Math.round((+e.target.value || 0) * 4);
-      if(k === 'minUs') c.min = q; else if(k === 'maxUs') c.max = q; else c.home = q;
+      const cal = (SETUP.cal && SETUP.cal.ch === i) ? SETUP.cal : null;
+      /* v1.51.0 — one set of numbers. With the dial open these fields ARE
+         its three ends (setupChPanel says why), so typing here moves the
+         dial and `save servo setting` is what reaches the channel. Without
+         it — Studio, or a channel the dial is not on — they write straight
+         through exactly as before. */
+      if(cal){
+        if(k === 'minUs') cal.min = q; else if(k === 'maxUs') cal.max = q; else cal.home = q;
+        if(typeof calPaint === 'function') calPaint();
+      }else{
+        if(k === 'minUs') c.min = q; else if(k === 'maxUs') c.max = q; else c.home = q;
+        HW.rebuild(true);
+      }
       /* band the cell as you type, without rebuilding the input under the
          caret — the dial learned this lesson the hard way (v0.7.1) */
       e.target.className = pwClass(q);
       e.target.title = pwTitle(q);
-      HW.rebuild(true);
     }
     else if(k === 'sleep'){
       const ms = document.querySelector('#chCfg [data-k=sleepMs]');

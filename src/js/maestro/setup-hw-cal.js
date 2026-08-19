@@ -10,22 +10,87 @@
 const CAL_SAFE = {lo:4000, hi:8000};      /* 1000–2000 µs, the cautious sweep */
 const CAL_FULL = {lo:2000, hi:10000};     /* 500–2500 µs, everything a servo takes */
 
-function setupCalOpen(ch){
-  setupCalCancel();
+/* ================================================ THE DIAL IS THE VIEW
+   v1.51.0. Mike sent a screenshot of the Channels step with the list, the
+   Configure panel AND the dial all on screen at once: *"this should be the
+   default view."*
+
+   It was a mode before — you pressed `configure…` to enter it and cancel or
+   commit to leave. Making it the default means three things had to change,
+   and each of them was a latent lie the mode was hiding:
+
+     · OPENING MUST NOT MOVE A SERVO. It used to drive the channel to its
+       centre on the way in, which was defensible when you had asked for the
+       dial and unforgivable when merely clicking down a list of rows would
+       walk every panel on the droid to mid-travel in turn.
+     · THE PANEL ABOVE MUST NOT SHOW THE WORKING RANGE. The dial widens the
+       channel to 1000–2000 µs so it can reach past its own endpoints, and
+       the Configure panel reads the same fields — so the two would have
+       disagreed the moment they were on screen together. While the dial is
+       open the panel shows the DIAL's pending ends (setupChPanel), which is
+       what the numbers in Mike's screenshot actually are.
+     · "NOTHING IS SAVED YET" HAD TO BECOME VISIBLE. In a mode you know you
+       are mid-edit. In the default view you do not, so the dial says
+       `unsaved` the moment its ends differ from the channel's, and the
+       button that ends it is called what it does. */
+function setupCalOpen(ch, opts){
+  setupCalLeave();
+  /* the dial and the selection are one thing now: opening it on a channel
+     IS selecting that channel, or the next render's setupCalEnsure would
+     move it straight back to whatever the list has highlighted */
+  SETUP.sel = ch;
   const c = setupEnsure(ch);
-  SETUP.calShown = false;
+  const o = opts || {};
+  if(!o.quiet) SETUP.calShown = false;
+  const mid = (Math.min(c.min,c.max)+Math.max(c.min,c.max))>>1;
+  /* where the servo already IS, if it is being driven — the dial should
+     open under the needle rather than jumping it somewhere */
+  const E = (typeof HW !== 'undefined' && HW.engine) ? HW.engine() : null;
+  const st = E && E.st && E.st[ch];
+  const at = (st && st.active && st.target) ? st.target : 0;
   SETUP.cal = {
     ch, wide:false,
     saveMin:c.min, saveMax:c.max, saveHome:c.home, saveMode:c.homemode,
-    min:c.min, max:c.max, home:c.home || ((Math.min(c.min,c.max)+Math.max(c.min,c.max))>>1),
-    pos: c.home || ((Math.min(c.min,c.max)+Math.max(c.min,c.max))>>1)
+    min:c.min, max:c.max, home:c.home || mid,
+    pos: at || c.home || mid
   };
-  /* open the working range so the dial can reach past the current endpoints
-     — otherwise pcaSetTarget clamps and the servo will not follow the dial */
-  c.min = CAL_SAFE.lo; c.max = CAL_SAFE.hi;
-  HW.rebuild(true);
-  HW.drive(ch, SETUP.cal.pos);
-  setupCalRender();
+  /* NOT HW.drive() any more (v1.51.0) — see above. The dial follows the
+     servo on the way in; the servo follows the dial only once you turn it.
+     And NOT a widened c.min/c.max either: see calDrive(). */
+  if(!o.quiet) setupCalRender();
+}
+/* the dial is open on THIS channel, whatever it was on before. The cancel
+   inside setupCalOpen puts the previous channel's ends back, so moving down
+   the list never leaves a widened working range behind. */
+function setupCalEnsure(ch){
+  if(SETUP.cal && SETUP.cal.ch === ch) return;
+  setupCalOpen(ch, {quiet:true});
+}
+/* has the dial got anything in it that is not on the channel yet? Only the
+   three CAPTURED ends count — turning the dial moves `pos`, which is where
+   the servo is standing and not a setting, so a nudge stages nothing. */
+function setupCalDirty(){
+  const cal = SETUP.cal; if(!cal) return false;
+  return cal.min !== cal.saveMin || cal.max !== cal.saveMax || cal.home !== cal.saveHome;
+}
+/* ================================================ LEAVING MEANS KEEPING
+   Mike, asked what should happen to a staged end when you click another
+   channel or close the bench: *"keep it — leaving means keeping."*
+
+   Which is the only answer consistent with the panel it now sits in. Every
+   other field there — speed, acceleration, ease, sleep, boot, the name —
+   writes the moment you change it; three of them silently reverting because
+   you looked at the next channel would be the trap, not the safeguard. The
+   `save servo setting` button is the affordance, not the gate: it is how you
+   commit WITHOUT leaving. `cancel` remains the real undo, and because only
+   a deliberate capture or a typed number stages anything (see
+   setupCalDirty), nudging the dial on a real linkage still commits nothing.
+
+   Every place that used to abandon the dial goes through here. */
+function setupCalLeave(){
+  if(!SETUP.cal) return;
+  if(setupCalDirty()) setupCalCommit();
+  else SETUP.cal = null;
 }
 function setupCalCancel(){
   const cal = SETUP.cal; if(!cal) return;
@@ -52,7 +117,10 @@ function setupCalCommit(){
   SETUP.cal = null;
   HW.rebuild(true);
   HW.save();
-  HW.say('channel '+cal.ch+' set: '+c.min+'–'+c.max+' qus ('+(c.min/4).toFixed(0)+'–'+(c.max/4).toFixed(0)+' µs)');
+  HW.say('channel '+cal.ch+' saved: '+(c.min/4).toFixed(0)+'–'+(c.max/4).toFixed(0)+' µs, centre '
+    + (c.home/4).toFixed(0)+' µs');
+  /* the dial does not go away — it is the view now, so it comes straight
+     back seeded from what was just saved (setupRender's setupCalEnsure) */
 }
 
 /* The stock ends. "Reset" means these: 1000 / 1500 / 2000 µs is what every
@@ -76,18 +144,37 @@ function calEndCell(cap, label, id){
 const CAL_R = 92, CAL_CX = 120, CAL_CY = 120, CAL_A0 = -210, CAL_SPAN = 240;
 function calRange(){ return SETUP.cal && SETUP.cal.wide ? CAL_FULL : CAL_SAFE; }
 
-/* v1.39.5: the unlock must widen the ENGINE's range too, or MAX captures a
-   position the servo never visited. calRange() only ever told the DIAL what
-   to offer — pcaSetTarget still clamps to c.min/c.max regardless of what
-   the dial shows, so "wide" has to move the channel's working range as well,
-   the same way setupCalOpen opens it when the dial first appears. Every place
-   that flips SETUP.cal.wide must call this straight after. */
-function calApplyRange(){
-  const cal = SETUP.cal; if(!cal) return;
-  const c = HW.channels()[cal.ch]; if(!c) return;
+/* ============================================ DRIVING PAST THE ENDPOINTS
+   `pcaSetTarget()` clamps to the channel's own min/max — it has to, it is
+   the board's model — so the dial cannot reach past the very endpoints it
+   exists to FIND. Until v1.51.0 the answer was to open the channel's range
+   to 1000–2000 µs for as long as the dial was on screen, and put it back on
+   cancel or commit.
+
+   That was survivable while the dial was a MODE. It is not survivable now
+   that the dial is the default view, because "for as long as the dial is on
+   screen" became "always": every `HW.save()` — changing a speed, ticking
+   boot, renaming a channel — would have written 1000–2000 µs over the
+   builder's measured travel, and the Configure panel would have read the
+   working range back out and shown it as the channel's ends.
+
+   So the widening lasts exactly one call instead. `pcaSetTarget` clamps at
+   SET time and the step never re-clamps (pcaseq.js), so opening the range,
+   commanding the target and closing it again lands the servo where the dial
+   asked and leaves the channel exactly as the builder measured it. Nothing
+   outside this function ever sees the working range.
+
+   `HW.drive` also normalises the target onto the 3D model through
+   `chanNorm(c, …)`, which reads the real ends — so a dial past the travel
+   pins the model at its own limit and the DROID does not pretend to have
+   travel it has not got. That is the right way round. */
+function calDrive(ch, qus){
+  const c = HW.channels()[ch]; if(!c){ HW.drive(ch, qus); return; }
   const r = calRange();
+  const sMin = c.min, sMax = c.max;
   c.min = r.lo; c.max = r.hi;
-  HW.rebuild(true);
+  try{ HW.drive(ch, qus); }
+  finally{ c.min = sMin; c.max = sMax; }
 }
 
 /* THE RULE FOR THIS PANEL: setupCalRender() builds the DOM, calPaint()
@@ -155,8 +242,14 @@ function setupCalRender(){
     + '<button class="mini" data-cal="off">pulses off</button>'
     + '<button class="mini" data-cal="reset" title="back to the stock 1000 / 1500 / 2000 µs every servo accepts">reset to default</button>'
     + '<span class="sp" style="flex:1"></span>'
-    + '<button class="mini" data-cal="cancel">cancel</button>'
-    + '<button class="prim" data-cal="ok">use these ends</button>'
+    + (setupCalDirty()
+        ? '<span class="calpend" title="these three numbers are not written to the channel yet. Press save, or just carry on — leaving this channel keeps them. Cancel puts back what was there.">not written yet</span>'
+        : '')
+    /* Mike, 2026-08-19: *"rename use these ends to save servo setting"* —
+       and he is right that the old words described the gesture rather than
+       the consequence. It is the button that makes this channel stick. */
+    + '<button class="mini" data-cal="cancel" title="put back the ends this channel had before you started turning the dial">cancel</button>'
+    + '<button class="prim" data-cal="ok" title="write these three pulse widths onto this channel and save">save servo setting</button>'
     + '</div></div></div></div>';
 
   calBind();
@@ -206,7 +299,7 @@ function calSet(qus){
   const cal = SETUP.cal; if(!cal) return;
   const range = calRange();
   cal.pos = Math.max(range.lo, Math.min(range.hi, Math.round(qus)));
-  HW.drive(cal.ch, cal.pos);
+  calDrive(cal.ch, cal.pos);
   calPaint();
 }
 
@@ -217,7 +310,6 @@ function calBind(){
   /* absent in simple mode — see SETUP.adv */
   if($('calWide')) $('calWide').onchange = e=>{
     SETUP.cal.wide = e.target.checked;
-    calApplyRange();          /* v1.39.5: widen/narrow the engine, not just the dial */
     setupCalRender();
     /* narrowing back can leave the dial sitting past the new endpoints —
        drive it back in bounds rather than show a position the engine no
@@ -248,7 +340,7 @@ function calBind(){
          calSet and the dial would show a number nobody typed — unlock the
          full sweep instead, which is what the value is asking for */
       const r = calRange();
-      if(q < r.lo || q > r.hi){ cal.wide = true; calApplyRange(); setupCalRender(); }
+      if(q < r.lo || q > r.hi){ cal.wide = true; setupCalRender(); }
       calSet(q);
     };
   });
@@ -299,7 +391,7 @@ function calBind(){
         const cal3 = SETUP.cal; if(!cal3) return;
         cal3.min = CAL_STOCK.min; cal3.home = CAL_STOCK.home; cal3.max = CAL_STOCK.max;
         calSet(cal3.home);
-        HW.say('ends reset to 1000 / 1500 / 2000 µs — nothing is saved until you press "use these ends"');
+        HW.say('ends reset to 1000 / 1500 / 2000 µs — nothing is saved until you press "save servo setting"');
       }, 'dial');
       setupCalRender();
       return;
@@ -324,21 +416,16 @@ function calArc(cx,cy,r,a0,a1){
 function calSweep(){
   const cal = SETUP.cal; if(!cal) return;
   if(!cal.min || !cal.max){ HW.say('capture a min and a max first','warn'); return; }
-  const c = HW.channels()[cal.ch];
   const lo = Math.min(cal.min, cal.max), hi = Math.max(cal.min, cal.max);
-  c.min = lo; c.max = hi; HW.rebuild(true);
+  /* v1.51.0 — no range surgery here either. calDrive() opens the working
+     range for the one call and closes it again, so a sweep that is
+     interrupted (the dial closes, the wizard closes, the tab is hidden mid
+     `setTimeout`) cannot leave a channel narrowed to the captured pair. */
   let at = 0;
   const seq = [lo, hi, cal.home || ((lo+hi)>>1)];
   const tick = ()=>{
-    if(!SETUP.cal || at >= seq.length){
-      /* v1.39.5: restore whatever range the unlock is currently offering,
-         not always CAL_SAFE — the wide tick outlives the sweep, and hard-
-         restoring the safe range here would silently re-narrow the engine
-         out from under a still-ticked "wide" box */
-      if(SETUP.cal) calApplyRange();
-      return;
-    }
-    HW.drive(cal.ch, seq[at++]);
+    if(!SETUP.cal || at >= seq.length) return;
+    calDrive(cal.ch, seq[at++]);
     setTimeout(tick, 1400);
   };
   tick();

@@ -328,3 +328,6 @@ body.light{
   text-underline-offset:2px;text-decoration-thickness:1px}
 :where(#setupWrap) a.setlinkout:hover{color:var(--ctaHi)}
 .setopt .sub a.setlinkout{font-weight:600}
+/* the dial's "not on the channel yet" marker (v1.51.0) */
+.calpend{font-size:11px;padding:1px 8px;border-radius:9px;
+  color:var(--am2);border:1px solid var(--am2)}

@@ -78,13 +78,134 @@ const ok = (n,c,x='') => { c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+' 
   ok('every setting that left the list is in the panel',
      await ev(()=>['minUs','ctrUs','maxUs','rev','boot','speed','acceleration','ease','sleep']
         .every(k=>!!document.querySelector('#chCfg [data-k="'+k+'"]'))));
-  ok('and so is the dial, and the live half',
-     await ev(()=>!!document.querySelector('#chCfg [data-k=cal]')
-        && !!document.querySelector('#chCfg [data-k=slide]')
+  ok('and so is the live half',
+     await ev(()=>!!document.querySelector('#chCfg [data-k=slide]')
         && !!document.querySelector('#chCfg [data-k=soff]')));
+  ok('…with the dial itself under it, behind no button (v1.51.0)',
+     await ev(()=>!!document.querySelector('#calWrap .calpanel')
+        && !document.querySelector('#chCfg [data-k=cal]')));
   ok('a channel not in use says so rather than showing empty fields',
      await ev(()=>{ SETUP.sel = 23; setupRender();
        return !document.querySelector('#chCfg [data-k=minUs]') && /not in use/.test($('chCfg').textContent); }));
+
+  console.log('\n════ the dial is the default view, not a mode (v1.51.0) ════');
+  const dial0 = await ev(()=>{
+    SETUP.sel = 5; setupRender();
+    const c = HW.channels()[5];
+    c.min = 4532; c.home = 6276; c.max = 7292; HW.save(); HW.rebuild(true);
+    HW.drive(5, c.home);
+    const targetBefore = HW.engine().st[5].target;
+    SETUP.cal = null;                       // as if arriving fresh
+    setupRender();
+    return {
+      open: !!document.querySelector('#calWrap .calpanel'),
+      onCh: SETUP.cal ? SETUP.cal.ch : -1,
+      pressedNothing: !document.querySelector('#chCfg [data-k=cal]'),
+      targetBefore, targetAfter: HW.engine().st[5].target,
+      ok: (document.querySelector('[data-cal=ok]')||{}).textContent,
+      panel: ['minUs','ctrUs','maxUs'].map(k=>document.querySelector('#chCfg [data-k='+k+']').value),
+      dial:  ['calLmin','calLctr','calLmax'].map(id=>$(id).value),
+      dirty: !!document.querySelector('.calpend')
+    };
+  });
+  console.log('  ' + JSON.stringify(dial0));
+  ok('it is there without pressing anything', dial0.open && dial0.onCh === 5 && dial0.pressedNothing);
+  ok('and opening it does NOT move the servo', dial0.targetAfter === dial0.targetBefore,
+     dial0.targetBefore+' → '+dial0.targetAfter);
+  ok('the button says what it does', dial0.ok === 'save servo setting', dial0.ok);
+  ok('the panel and the dial show the SAME three numbers',
+     JSON.stringify(dial0.panel) === JSON.stringify(dial0.dial), JSON.stringify([dial0.panel, dial0.dial]));
+  ok('…and they are the builder’s travel, not the dial’s 1000–2000 working range',
+     dial0.panel[0] === '1133' && dial0.panel[2] === '1823', JSON.stringify(dial0.panel));
+  ok('nothing is marked unsaved before anything is touched', !dial0.dirty);
+
+  const edit = await ev(()=>{
+    const c = HW.channels()[5];
+    const stored = {min:c.min, max:c.max};
+    const f = document.querySelector('#chCfg [data-k=maxUs]');
+    f.value = '1900'; f.dispatchEvent(new Event('input',{bubbles:true}));
+    return {stored, cal: SETUP.cal.max, chan: HW.channels()[5].max,
+            dialBox: $('calLmax').value,
+            dirty: (setupRender(), !!document.querySelector('.calpend'))};
+  });
+  ok('typing an end in the panel moves the DIAL, not the channel',
+     edit.cal === 7600 && edit.chan !== 7600, JSON.stringify(edit));
+  ok('…and the dial’s own box agrees', edit.dialBox === '1900', edit.dialBox);
+  ok('…and it is marked unsaved', edit.dirty);
+  const saved = await ev(()=>{
+    document.querySelector('[data-cal=ok]').click();
+    return {chan: HW.channels()[5].max, stillOpen: !!document.querySelector('#calWrap .calpanel'),
+            onCh: SETUP.cal ? SETUP.cal.ch : -1,
+            dirty: !!document.querySelector('.calpend'),
+            panel: document.querySelector('#chCfg [data-k=maxUs]').value};
+  });
+  ok('save servo setting writes it to the channel', saved.chan === 7600, JSON.stringify(saved));
+  ok('…the dial stays open, because it is the view', saved.stillOpen && saved.onCh === 5);
+  ok('…and it is not marked unsaved any more', !saved.dirty && saved.panel === '1900');
+  const undone = await ev(()=>{
+    const f = document.querySelector('#chCfg [data-k=minUs]');
+    f.value = '700'; f.dispatchEvent(new Event('input',{bubbles:true}));
+    document.querySelector('[data-cal=cancel]').click();
+    return {chan: HW.channels()[5].min, cal: SETUP.cal ? SETUP.cal.min : -1,
+            open: !!document.querySelector('#calWrap .calpanel')};
+  });
+  ok('cancel puts the ends back and the dial comes straight back with them',
+     undone.chan === 4532 && undone.cal === 4532 && undone.open, JSON.stringify(undone));
+
+  /* Mike, asked what a staged end should do when you walk away from it:
+     "keep it — leaving means keeping." Every other field in this panel saves
+     on change; three of them reverting because you looked at the next
+     channel would be the trap, not the safeguard. */
+  console.log('\n════ leaving a channel keeps what you staged ════');
+  const leave = await ev(()=>{
+    SETUP.sel = 5; setupRender();
+    const f = document.querySelector('#chCfg [data-k=ctrUs]');
+    f.value = '1600'; f.dispatchEvent(new Event('input',{bubbles:true}));
+    const staged = {cal: SETUP.cal.home, chan: HW.channels()[5].home};
+    SETUP.sel = 6; setupRender();                     // walk away
+    return {staged, kept: HW.channels()[5].home, nowOn: SETUP.cal ? SETUP.cal.ch : -1};
+  });
+  ok('a staged centre is written when you click another channel',
+     leave.staged.cal === 6400 && leave.staged.chan !== 6400 && leave.kept === 6400,
+     JSON.stringify(leave));
+  ok('…and the dial has moved to the channel you clicked', leave.nowOn === 6, String(leave.nowOn));
+  const shut = await ev(()=>{
+    SETUP.sel = 6; setupRender();
+    const f = document.querySelector('#chCfg [data-k=maxUs]');
+    f.value = '1750'; f.dispatchEvent(new Event('input',{bubbles:true}));
+    setupClose();
+    const kept = HW.channels()[6].max;
+    setupOpen(4);
+    return {kept, cal: !!SETUP.cal};
+  });
+  ok('and closing the bench keeps it too', shut.kept === 7000, JSON.stringify(shut));
+
+  console.log('\n════ the channel’s own ends are never left widened ════');
+  ok('opening the dial does not move the channel’s ends at all', await ev(()=>{
+    SETUP.sel = 8; setupRender();
+    const c = HW.channels()[8];
+    c.min = 4532; c.max = 7292; HW.save(); HW.rebuild(true);
+    SETUP.cal = null; setupRender();                  // arrive fresh, dial opens
+    return c.min === 4532 && c.max === 7292 && !!SETUP.cal;
+  }));
+  ok('…and neither does turning it past them', await ev(()=>{
+    const c = HW.channels()[8];
+    SETUP.cal.wide = true;
+    calSet(9600);
+    return c.min === 4532 && c.max === 7292 && HW.engine().st[8].target === 9600;
+  }));
+  ok('so an ordinary save cannot write the working range over the travel', await ev(()=>{
+    const c = HW.channels()[8];
+    const sp = document.querySelector('#chCfg [data-k=speed]');
+    sp.value = 77; sp.dispatchEvent(new Event('input',{bubbles:true}));
+    const raw = localStorage.getItem('r2sim.servo.v1') || '';
+    const back = JSON.parse(raw).channels[8];
+    return back.min === 4532 && back.max === 7292 && c.speed === 77;
+  }));
+  ok('a channel not in use gets no dial at all', await ev(()=>{
+    SETUP.sel = 23; setupRender();
+    return !document.querySelector('#calWrap .calpanel') && !SETUP.cal;
+  }));
 
   console.log('\n════ the panel writes to the channel it says it does ════');
   await ev(()=>{ SETUP.sel = 5; setupRender(); });
@@ -94,6 +215,7 @@ const ok = (n,c,x='') => { c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+' 
     sp.value = 123; sp.dispatchEvent(new Event('input',{bubbles:true}));
     const mn = document.querySelector('#chCfg [data-k=minUs]');
     mn.value = 900; mn.dispatchEvent(new Event('input',{bubbles:true}));
+    setupCalCommit(); setupRender();          // the ends are staged; commit them
     return {before, sp:HW.channels()[5].speed, min:HW.channels()[5].min, other:HW.channels()[6].speed};
   });
   ok('a number typed in the panel lands on that channel', wrote.sp === 123 && wrote.min === 3600, JSON.stringify(wrote));

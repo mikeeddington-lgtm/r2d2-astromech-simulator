@@ -119,17 +119,25 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
     const c = MSTR.channels[ch];
     out.shownMin = cell('minUs').value;
     out.storedMin = c.min;
+    /* v1.51.0 — the dial is open on the selected channel by default, and
+       the panel's three travel numbers ARE its pending ends. Typing stages;
+       `save servo setting` (or leaving the channel) writes. */
     cell('minUs').value = '1100'; cell('minUs').dispatchEvent(new Event('input',{bubbles:true}));
+    out.staged = SETUP.cal ? SETUP.cal.min : -1;
+    out.beforeSave = c.min;
+    setupCalCommit(); setupRender();
     out.afterType = c.min;
     /* centre stays editable with boot off — boot is WHEN, not WHETHER */
     c.homemode = 'Off'; setupRender();
     out.homeEditable = !cell('ctrUs').disabled;
-    /* reverse is drawn from the numbers, never stored */
-    out.revBefore = {checked:cell('rev').checked, min:c.min, max:c.max};
+    /* reverse is drawn from the numbers, never stored. With the dial open it
+       swaps the DIAL's pending pair (v1.51.0), so the assertion reads there. */
+    const pair = ()=>SETUP.cal ? {min:SETUP.cal.min, max:SETUP.cal.max} : {min:c.min, max:c.max};
+    out.revBefore = Object.assign({checked:cell('rev').checked}, pair());
     cell('rev').click();
-    out.revAfter = {checked:cell('rev').checked, min:c.min, max:c.max};
+    out.revAfter = Object.assign({checked:cell('rev').checked}, pair());
     cell('rev').click();
-    out.revBack = {min:c.min, max:c.max};
+    out.revBack = pair();
     /* the position bar and the µs readout move with the engine */
     HW.drive(ch, Math.max(c.min,c.max));
     for(let k=0;k<600;k++) HW.tick(10);
@@ -147,7 +155,9 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
      tbl.us && tbl.rev && tbl.ease, JSON.stringify({us:tbl.us,rev:tbl.rev,ease:tbl.ease}));
   ok('µs in, quarter-µs stored',
      tbl.shownMin === String(Math.round(tbl.storedMin/4)) && tbl.afterType === 4400,
-     'showed '+tbl.shownMin+', typing 1100 stored '+tbl.afterType);
+     'showed '+tbl.shownMin+', typing 1100 then saving stored '+tbl.afterType);
+  ok('…and typing STAGED it on the dial rather than writing it straight through',
+     tbl.staged === 4400 && tbl.beforeSave !== 4400, JSON.stringify([tbl.staged, tbl.beforeSave]));
   ok('centre is editable with boot off', tbl.homeEditable);
   ok('reverse swaps the ends and the tick follows the numbers',
      tbl.revBefore.checked === false && tbl.revAfter.checked === true
@@ -216,23 +226,37 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
   ok('applying closes it and does NOT resize the droid\'s channel table',
      wiz.applied && wiz.kept);
 
-  console.log('\n════ the bench\'s wide unlock widens the ENGINE range (v1.39.5) ════');
+  /* v1.51.0 — the widening is one call long now (calDrive), not one session
+     long, because the dial is the default view and a range left open would
+     be written over the builder's travel by the next HW.save(). The
+     contract it keeps is the same: the dial reaches where calRange() says. */
+  console.log('\n════ the dial reaches past the endpoints without moving them (v1.51.0) ════');
   const wide = await ev(()=>{
     const ch = MSTR.channels.findIndex(c=>c && /^servo/i.test(c.mode) && c.act);
+    const c = MSTR.channels[ch];
+    c.min = 4532; c.max = 7292; HW.save(); HW.rebuild(true);
     setupCalOpen(ch);
-    SETUP.cal.wide = true; calApplyRange();
-    HW.drive(ch, 9200);
+    const kept = {min:c.min, max:c.max};          // untouched by opening
+    SETUP.cal.wide = true;
+    calDrive(ch, 9200);
     const wideTarget = HW.engine().st[ch].target;
-    SETUP.cal.wide = false; calApplyRange();
-    HW.drive(ch, 9200);
+    const after = {min:c.min, max:c.max};          // and untouched by driving
+    SETUP.cal.wide = false;
+    calDrive(ch, 9200);
     const reClamped = HW.engine().st[ch].target;
     setupCalCancel();
-    return {wideTarget, reClamped};
+    return {wideTarget, reClamped, kept, after, ended:{min:c.min, max:c.max}};
   });
-  ok('ticking the wide unlock widens the engine range too — 9200 reaches the servo, not clamped to 8000',
+  ok('opening the dial does not touch the channel’s ends',
+     wide.kept.min === 4532 && wide.kept.max === 7292, JSON.stringify(wide.kept));
+  ok('with the wide unlock ticked, 9200 reaches the servo rather than clamping',
      wide.wideTarget === 9200, JSON.stringify(wide));
-  ok('unticking it re-clamps the engine back to the 8000 safe ceiling',
+  ok('…and driving there STILL did not touch the channel’s ends',
+     wide.after.min === 4532 && wide.after.max === 7292, JSON.stringify(wide.after));
+  ok('unticking it clamps back to the 8000 safe ceiling',
      wide.reClamped === 8000, JSON.stringify(wide));
+  ok('and the ends survive the whole exchange',
+     wide.ended.min === 4532 && wide.ended.max === 7292, JSON.stringify(wide.ended));
 
   console.log('\n════ the board link ════');
   const link = await ev(async ()=>{
@@ -633,9 +657,10 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
       nameAt: at('[data-k=name]'),
       useAt:  at('[data-k=use]'),
       pickAt: at('[data-k=pick]'),
-      /* the dial is in the panel now, and it is reachable without scrolling
-         sideways, which is the promise the pinning used to keep */
-      calInPanel: !!$('setBody').querySelector('#chCfg [data-k=cal]'),
+      /* v1.51.0 — the dial is not behind a button at all: it is on screen
+         for whatever channel is selected, which is the promise the pinning
+         used to keep, kept better */
+      calInPanel: !!$('setBody').querySelector('#calWrap .calpanel'),
       calInRow:   at('[data-k=cal]'),
       sticky: $('setBody').querySelectorAll('.chtab .cst').length,
       /* the pick-all tick still drives the apply bar */
@@ -655,7 +680,7 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
   ok('…and every cell sits under its own header, not one column adrift',
      cols.pickAt===0 && cols.useAt===3 && cols.nameAt===4 && cols.partAt===5 && cols.testAt===6,
      JSON.stringify([cols.pickAt,cols.useAt,cols.nameAt,cols.partAt,cols.testAt]));
-  ok('the dial moved to the panel, where it cannot scroll off at all',
+  ok('the dial is simply there, for the selected channel, behind no button at all',
      cols.calInPanel && cols.calInRow === -1, JSON.stringify([cols.calInPanel, cols.calInRow]));
   ok('…so the pinned-column machinery is gone with the table that needed it',
      cols.sticky === 0, String(cols.sticky));

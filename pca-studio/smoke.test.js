@@ -362,11 +362,15 @@ const LIVE = fs.readFileSync(path.resolve(__dirname,'..','examples','R2-dome-pad
     const wasMin = c.min, wasMax = c.max;
 
     setupCalOpen(1);
-    /* the working range must OPEN, or the dial cannot reach a new endpoint */
-    out.opensRange = (c.min < wasMin || c.max > wasMax || (c.min===4000 && c.max===8000));
-    /* the TARGET is what proves the clamp let go — the position eases there
-       over the next second at this channel's own speed */
-    out.reaches = (()=>{ pcaSetTarget(E, 1, 4100); return E.st[1].target <= 4200; })();
+    /* v1.51.0 — the working range opens for ONE CALL (calDrive) rather than
+       for as long as the dial is on screen, because the dial is the default
+       view now and a range left open would be saved over the builder's
+       travel. So the channel is untouched by opening… */
+    out.opensRange = (c.min === wasMin && c.max === wasMax);
+    /* …and the TARGET is still what proves the clamp let go, driven the way
+       the dial drives */
+    out.reaches = (()=>{ calDrive(1, 4100); return E.st[1].target <= 4200; })();
+    out.stillUntouched = (c.min === wasMin && c.max === wasMax);
 
     SETUP.cal.pos = 4300; document.querySelector('[data-cap=min]').click();
     SETUP.cal.pos = 7100; document.querySelector('[data-cap=max]').click();
@@ -421,7 +425,10 @@ const LIVE = fs.readFileSync(path.resolve(__dirname,'..','examples','R2-dome-pad
     out.revDial = {min:SETUP.cal.min, max:SETUP.cal.max, checked:document.getElementById('calRev').checked};
     setupCalCommit();
     setupRender();
-    document.querySelector('tr[data-ch="1"] [data-k=rev]').click();
+    /* v1.51.0 — `rev` lives in the Configure panel, not in the list */
+    SETUP.sel = 1; setupRender();
+    document.querySelector('#chCfg [data-k=rev]').click();
+    setupCalCommit();
     out.revRow = {min:PROJ.channels[1].min, max:PROJ.channels[1].max};
 
     /* sleep-when-idle is releaseMs, the engine's own field. boot has to be
@@ -437,44 +444,52 @@ const LIVE = fs.readFileSync(path.resolve(__dirname,'..','examples','R2-dome-pad
     const j = JSON.parse(setupJson());
     out.jKind = j.kind; out.jBoards = j.setup.boards; out.jChans = j.channels.length;
 
-    /* ---- v0.9.0: the table edits the pulse widths directly ---- */
-    setupRender();
-    const mi = document.querySelector('tr[data-ch="1"] [data-k=minUs]');
+    /* ---- v0.9.0: the pulse widths are edited directly. v1.51.0 — in the
+       Configure panel rather than in the row, and they stage on the dial
+       (setup-hw-channels.js), so committing is what reaches the channel. ---- */
+    SETUP.sel = 1; setupRender();
+    const mi = document.querySelector('#chCfg [data-k=minUs]');
     out.tableUsShown = mi.value;                       /* 4300 qus reads as 1075 µs */
     mi.value = '1100'; mi.dispatchEvent(new Event('input', {bubbles:true}));
+    setupCalCommit(); setupRender();
     out.tableUsSet = PROJ.channels[1].min;             /* and writes back in qus */
 
-    /* the two warning bands, on the cell as you type */
-    const mx = document.querySelector('tr[data-ch="1"] [data-k=maxUs]');
-    mx.value = '2400'; mx.dispatchEvent(new Event('input', {bubbles:true}));
-    out.clsWarn = mx.className;
-    mx.value = '2600'; mx.dispatchEvent(new Event('input', {bubbles:true}));
-    out.clsBad = mx.className;
+    /* the two warning bands, on the field as you type */
+    const mx = ()=>document.querySelector('#chCfg [data-k=maxUs]');
+    mx().value = '2400'; mx().dispatchEvent(new Event('input', {bubbles:true}));
+    out.clsWarn = mx().className;
+    mx().value = '2600'; mx().dispatchEvent(new Event('input', {bubbles:true}));
+    out.clsBad = mx().className;
+    setupCalCommit(); setupRender();
     out.auditBad = pwAudit().bad.indexOf(1) >= 0;
-    mx.value = '1775'; mx.dispatchEvent(new Event('input', {bubbles:true}));   /* put it back */
-    out.clsClean = mx.className === '' && pwAudit().bad.length === 0;
+    mx().value = '1775'; mx().dispatchEvent(new Event('input', {bubbles:true}));   /* put it back */
+    setupCalCommit(); setupRender();
+    out.clsClean = mx().className === '' && pwAudit().bad.length === 0;
     out.pwFn = [pwClass(6000), pwClass(3900), pwClass(8100), pwClass(1900), pwClass(10400), pwClass(0)].join(',');
 
     /* boot is what happens at power-up, and it is now its own tick */
-    setupRender();
-    const bt = document.querySelector('tr[data-ch="1"] [data-k=boot]');
+    SETUP.sel = 1; setupRender();
+    const bt = document.querySelector('#chCfg [data-k=boot]');
     out.bootWas = PROJ.channels[1].homemode;
     bt.click();
     out.bootNow = PROJ.channels[1].homemode;
     /* re-query: the tick's own handler re-renders the step, so `bt` is a
        detached node by now and clicking it again does nothing */
-    document.querySelector('tr[data-ch="1"] [data-k=boot]').click();
+    document.querySelector('#chCfg [data-k=boot]').click();
     out.bootBack = PROJ.channels[1].homemode;
 
     /* reverse is a TICK now, and its state is read back off the numbers —
-       so it can never disagree with the two boxes beside it */
-    setupRender();
-    const rv = ()=>document.querySelector('tr[data-ch="1"] [data-k=rev]');
-    out.revStart = {checked:rv().checked, min:PROJ.channels[1].min, max:PROJ.channels[1].max};
-    rv().click();
-    out.revOn  = {checked:rv().checked, min:PROJ.channels[1].min, max:PROJ.channels[1].max};
-    rv().click();
-    out.revOff = {checked:rv().checked, min:PROJ.channels[1].min, max:PROJ.channels[1].max};
+       so it can never disagree with the two boxes beside it. v1.51.0 — the
+       numbers it swaps are the dial's pending pair, so each click is
+       followed by the commit that writes them. */
+    SETUP.sel = 1; setupRender();
+    const rv = ()=>document.querySelector('#chCfg [data-k=rev]');
+    const pair = ()=>({min:PROJ.channels[1].min, max:PROJ.channels[1].max});
+    out.revStart = Object.assign({checked:rv().checked}, pair());
+    rv().click(); setupCalCommit(); setupRender();
+    out.revOn  = Object.assign({checked:rv().checked}, pair());
+    rv().click(); setupCalCommit(); setupRender();
+    out.revOff = Object.assign({checked:rv().checked}, pair());
 
     /* ---- apply to selected ---- */
     [2,3,4].forEach(i=>{ setupUse(i, true); PROJ.channels[i].speed = 10; });
@@ -534,8 +549,8 @@ const LIVE = fs.readFileSync(path.resolve(__dirname,'..','examples','R2-dome-pad
      setup.espCard && setup.espSketch === 'esp32');
   ok('  and its config block is ESP32-shaped: I2C pins, expanders not LEDC',
      setup.espCfg);
-  ok('calibration OPENS the working range, so the dial can pass the old ends',
-     setup.opensRange && setup.reaches);
+  ok('the dial passes the old ends WITHOUT moving them (v1.51.0)',
+     setup.opensRange && setup.reaches && setup.stillUntouched);
   ok('Min / Center / Max capture wherever the dial is',
      setup.captured.min===4300 && setup.captured.max===7100 && setup.captured.home===5800);
   ok('cancelling puts the old range back exactly', setup.restored);
@@ -546,7 +561,7 @@ const LIVE = fs.readFileSync(path.resolve(__dirname,'..','examples','R2-dome-pad
      setup.sameNode && setup.tracked);
   ok('  and it steps a quarter of a µs, or takes a typed value',
      setup.fine && setup.typed);
-  ok('reverse swaps the two ends, on the dial and on the row',
+  ok('reverse swaps the two ends, on the dial and in the panel',
      setup.revDial.min===7100 && setup.revDial.max===4300 && setup.revDial.checked===true
      && setup.revRow.min===4300 && setup.revRow.max===7100);
   ok('committing writes the captured pair, and leaves boot alone (v1.40.0)',

@@ -178,8 +178,11 @@ function setupDefaults(){
    closing the bench also puts the hardware down (setupExitHardware): Esc
    out of a dome map must not disconnect a board. */
 const setupEsc = escGuard(()=> SETUP.open, ()=>{
-  if(SETUP.cal){ setupCalCancel(); setupRender(); }
-  else if(SETUP.dome && SETUP.dome.open && typeof setupDomeClose === 'function') setupDomeClose();
+  /* v1.51.0 — the dial used to be the innermost thing Esc closed. It is the
+     default view now, so closing it would reopen on the next render and Esc
+     would look broken; reverting its ends silently would be worse. Esc is
+     the map, then the bench. `cancel` on the dial is the undo. */
+  if(SETUP.dome && SETUP.dome.open && typeof setupDomeClose === 'function') setupDomeClose();
   else setupClose();
 });
 
@@ -241,7 +244,7 @@ function setupExitHardware(){
 }
 
 function setupClose(){
-  setupCalCancel();
+  setupCalLeave();          // leaving means keeping (setup-hw-cal.js)
   /* the map is a panel on a step that is about to stop existing */
   SETUP.dome = null;
   setupExitHardware();
@@ -258,7 +261,7 @@ function setupClose(){
 }
 function setupGo(i){
   SETUP.step = Math.max(0, Math.min(SETUP_STEPS.length-1, i));
-  setupCalCancel();
+  setupCalLeave();
   setupRender();
 }
 
@@ -407,6 +410,16 @@ function setupRender(){
   if(step.key === 'channels'){
     setupBindLink(); setupBindChannels();
     if(typeof hwLinkRender === 'function' && $('hwLink')) hwLinkRender();
+    /* v1.51.0 — the dial is the default view, not a mode you enter. It
+       follows the selected channel, and setupCalEnsure's own cancel puts
+       the previous one's ends back, so moving down the list never strands a
+       widened working range. Only for a channel actually in use: there is
+       nothing to calibrate on a pin with nothing plugged into it. */
+    if(typeof setupCalEnsure === 'function'){
+      const selC = HW.channels()[SETUP.sel];
+      if(selC && /^servo/i.test(selC.mode||'')) setupCalEnsure(SETUP.sel);
+      else setupCalLeave();
+    }
     if(SETUP.cal) setupCalRender();
     if(SETUP.dome && SETUP.dome.open && typeof setupDomeRender === 'function') setupDomeRender();
   }
@@ -1057,7 +1070,7 @@ async function setupFinish(){
 }
 
 function setupApply(){
-  setupCalCancel();
+  setupCalLeave();          // leaving means keeping (setup-hw-cal.js)
   HW.setSetup(Object.assign({}, SETUP.hw));
   HW.setOsc(SETUP.hw.osc);
   /* trim the table to the boards you actually have — a channel with no pin
