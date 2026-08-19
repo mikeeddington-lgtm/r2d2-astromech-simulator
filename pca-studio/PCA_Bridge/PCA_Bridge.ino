@@ -34,20 +34,58 @@
 
 #include <Wire.h>
 #include <Adafruit_PWMServoDriver.h>
-#include <MpcaScan.h>            /* the bus scan — MaestroPCA library      */
 
-/* v1.53.0 — the addresses are FOUND, not assumed. A PCA9685 has six
-   address jumpers and which of them you bridge is a soldering decision
-   made inside a dome; this sketch used to insist on 0x40 and 0x41 and
-   report anything else as "not present" while the board sat there
-   answering. MpcaScan.h has the whole argument, including why the All
-   Call address has to be excluded from the sweep. */
+/* ================================================== THE BUS SCAN, INLINE
+   v1.53.1. The addresses are FOUND, not assumed: a PCA9685 has six address
+   jumpers and which of them you bridge is a soldering decision made inside
+   a dome. This sketch used to insist on 0x40 and 0x41 and report anything
+   else as "not present" while the board sat there on the bus answering.
+
+   WHY THIS IS A COPY OF `arduino/MaestroPCA/src/MpcaScan.h` AND NOT AN
+   INCLUDE OF IT. PCA_Bridge is the one sketch here that is not a library
+   example — it lives in `pca-studio/` because it is a TOOL, the thing you
+   flash to let the app drive your servos, and it has always compiled with
+   nothing installed but Wire and Adafruit_PWMServoDriver. Making it depend
+   on the MaestroPCA library to do a bus scan would mean the first sketch a
+   builder flashes now needs a library it does not otherwise use, and the
+   failure mode is a compile error on a file they did not write.
+
+   A copy is a liability, so it is not left as a promise:
+   `arduino/MaestroPCA/test/bridge_test.cpp` compiles THIS FILE and asserts,
+   over the same set of buses, that the copy still agrees with the original
+   answer for answer. Change one and the test tells you about the other.
+
+   THE ALL CALL is the part that is not obvious. A PCA9685 answers address
+   0x70 out of the box — MODE1 powers up with ALLCALL set and Adafruit's
+   begin() sets it again — so one chip ACKs at BOTH its own address and
+   0x70. A sweep that does not know that turns one board into two, the
+   phantom being every board at once: a write meant for "board 1" would
+   move every servo on the droid. 0x71-0x73 are the sub-call addresses,
+   off by default and excluded for the same reason.
+   ===================================================================== */
+bool bridgeAddrReserved(uint8_t a){
+  return a == 0x70 || (a >= 0x71 && a <= 0x73);
+}
+/* Returns the TOTAL found (which may exceed `max`), filling `out` with the
+   first `max` in ascending address order — so board 0 is the lowest
+   address on the bus, whatever its jumpers say. */
+uint8_t bridgeScan(uint8_t* out, uint8_t max){
+  uint8_t n = 0;
+  for(uint8_t a = 0x40; a <= 0x7F; a++){
+    if(bridgeAddrReserved(a)) continue;
+    Wire.beginTransmission(a);
+    if(Wire.endTransmission() != 0) continue;
+    if(n < max) out[n] = a;
+    n++;
+  }
+  return n;
+}
+
 uint8_t ADDR[2] = { 0x40, 0x41 };      /* overwritten by the scan */
 Adafruit_PWMServoDriver pca[2] = {
   Adafruit_PWMServoDriver(0x40),
   Adafruit_PWMServoDriver(0x41)
 };
-Adafruit_PWMServoDriver* const BOARDS[2] = { &pca[0], &pca[1] };
 bool present[2] = { false, false };
 uint8_t nFound = 0;                    /* everything on the bus, not just ours */
 
@@ -120,15 +158,19 @@ void setup(){
   Wire.setClock(400000);
   delay(50);
 
-  /* SCAN, then bind, then begin — in that order. mpcaBind() re-addresses
-     the driver objects and Adafruit allocates its I2C device inside
-     begin(), so binding afterwards would strand the allocation. */
+  /* SCAN, then re-address, then begin — in that order. A driver is
+     re-addressed by assigning a fresh one over it, and Adafruit allocates
+     its I2C device inside begin(): doing this afterwards would strand that
+     allocation and leave the object talking to its old address through
+     it. */
   uint8_t found[2];
-  nFound = mpcaScan(found, 2);
-  uint8_t n = mpcaBind(BOARDS, 2, found, nFound);
+  nFound = bridgeScan(found, 2);
   for(uint8_t b=0; b<2; b++){
-    present[b] = (b < n);
-    if(present[b]){ ADDR[b] = found[b]; pca[b].begin(); }
+    present[b] = (b < nFound);
+    if(!present[b]) continue;
+    ADDR[b] = found[b];
+    pca[b] = Adafruit_PWMServoDriver(found[b]);
+    pca[b].begin();
   }
   applyClock();
   allOff();          /* everything off until told otherwise — no surprise lunges */

@@ -49,6 +49,12 @@ g++ -std=c++11 -O1 -Wall -Wno-unused-variable \
 timeout 30 /tmp/maestroscan_test
 
 echo
+echo "== PCA_Bridge compiles, and its inlined scan matches MpcaScan.h =="
+g++ -std=c++11 -O1 -w \
+    -I shim bridge_test.cpp -o /tmp/maestrobridge_test
+timeout 30 /tmp/maestrobridge_test
+
+echo
 echo "== the ESP32 sketches compile (against a faked ESP32) =="
 g++ -std=c++11 -O0 -w \
     -I shim -I esp32shim -I ../src \
