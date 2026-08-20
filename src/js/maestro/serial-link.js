@@ -37,7 +37,12 @@ const SER = { port:null, writer:null, reader:null, q:[], flushing:false,
               lastTicks:{}, blocked:false, banner:'',
               /* narrow until a banner proves otherwise — the safe default,
                  because guessing wide at a v1 board misaddresses servos */
-              wide:false, chMax:61, cfgOsc:62, cfgServo:63, warnedWide:false };
+              wide:false, chMax:61, cfgOsc:62, cfgServo:63, warnedWide:false,
+              /* WHICH board is on the other end. '' until something proves it.
+                 'bridge'/'coproc'/'coproc-live' speak this file's own three-byte
+                 frames; 'maestro' speaks Pololu's protocol (maestro-link.js) and
+                 shares nothing with them but the port. */
+              kind:'' };
 
 /* SER.wide, and everything that follows from it, in one place so the
    encoder, the guard and the config frames can never disagree. */
@@ -115,6 +120,17 @@ function monWarn(html){
   const fs = $('bForceStream'), sm = $('bStayMon');
   if(fs) fs.onclick = ()=>serialSetMode('stream', '');
   if(sm) sm.onclick  = ()=>monWarn('Monitor only. Nothing is being streamed to the board.');
+  const mz = $('bIsMaestro');
+  if(mz) mz.onclick  = ()=>serialTryMaestro();
+  const mq = $('bMstQuiet');
+  if(mq) mq.onclick  = ()=>{
+    if(typeof mstrQuiet !== 'function') return;
+    mstrQuiet(!MST.quiet);
+    HW.say(MST.quiet
+      ? 'the board\'s speed and acceleration are set to unlimited — the sim is shaping the moves now. A power cycle restores the board\'s own values.'
+      : 'the board\'s own stored speed and acceleration are back.');
+    if(typeof mstrReadoutSync === 'function') mstrReadoutSync();
+  };
 }
 
 /* Read whatever the board says. Without this, connecting PCA Studio makes
@@ -129,6 +145,12 @@ async function serialRead(){
       for(;;){
         const {value, done} = await SER.reader.read();
         if(done) break;
+        /* A Maestro answers in BINARY. Two bytes of position decoded as text
+           are mojibake in the monitor AND gone from whoever asked for them,
+           so the raw bytes go to the query plumbing first; the monitor only
+           ever sees what nobody claimed. mstrRx() returns false when there is
+           no Maestro and no pending query, which is every byte a sketch sends. */
+        if(typeof mstrRx === 'function' && mstrRx(value)) continue;
         const text = dec.decode(value, {stream:true});
         SER.banner += text;
         if(SER.banner.length > 4000) SER.banner = SER.banner.slice(-2000);
@@ -240,15 +262,31 @@ async function serialConnect(){
       serialSetMode('stream', '');
       return;
     }
-    /* Neither answered. Do not guess — streaming into the wrong sketch is
-       what makes servos move on their own. Stay in monitor mode and let
-       the user decide. */
+    /* Neither sketch answered — which is exactly what a real Pololu Maestro
+       looks like, because a Maestro has no banner to print and does not
+       answer '?'. So this is where the Maestro question gets asked.
+
+       WHY IT IS ASKED HERE AND NOT FIRST. The Maestro's opening question is
+       Get Errors, 0xA1 — and 0xA1 has its HIGH BIT SET, which to PCA_Bridge
+       is a frame header: it would read channel 0x21, swallow the next two
+       bytes as a position and MOVE A SERVO. There is no harmless probe for
+       one that is not a live command to the other, so the text identify goes
+       first always, and the binary question is only asked once a sketch has
+       had its chance to answer and did not. */
+    if(serialBuildIsMaestro()){
+      monAppend('[no sketch answered, and this build is a Pololu Maestro — asking the board directly]\n','sys');
+      if(await serialTryMaestro()) return;
+    }
+    /* Still nothing. Do not guess — streaming into the wrong sketch is what
+       makes servos move on their own. Stay in monitor mode and let the user
+       decide, with the Maestro now among the answers. */
     serialSetMode('monitor',
         '<b>The board did not identify itself.</b> It may not be running either sketch, or '
         + 'this adapter cannot reset it. Streaming is held OFF for now, because sending the '
         + 'position protocol to the wrong sketch makes servos move on their own. '
         + 'Try the reset button, or type <code>?</code> below and see what answers — '
         + 'then choose: <button class="mini" id="bForceStream">stream anyway (it is PCA_Bridge)</button> '
+        + '<button class="mini" id="bIsMaestro">it is a Pololu Maestro</button> '
         + '<button class="mini" id="bStayMon">stay monitor-only</button>');
     /* the buttons above are wired by monWarn() itself now (v1.39.5) — it
        just wrote them, so it is the one place that can wire them and
@@ -266,8 +304,13 @@ function serialSetMode(mode, warnHtml){
     SER.lastTicks = {};
     serialConfig();
     serialSyncAll();
-    monAppend('[PCA_Bridge — streaming live positions]\n','sys');
-    HW.say('bridge connected — streaming live positions');
+    if(SER.kind === 'maestro'){
+      monAppend('[Pololu Maestro — driving, and reading positions back]\n','sys');
+      HW.say('Maestro connected — driving and reading back');
+    }else{
+      monAppend('[PCA_Bridge — streaming live positions]\n','sys');
+      HW.say('bridge connected — streaming live positions');
+    }
   }else{
     HW.say('monitor only — nothing is being streamed to the board','warn');
   }
@@ -280,10 +323,23 @@ async function serialDisconnect(){
   try{ if(SER.writer) SER.writer.releaseLock(); }catch(e){}
   try{ if(port) await port.close(); }catch(e){}
   SER.writer=null; SER.reader=null; SER.blocked=false;
+  SER.kind='';
+  if(typeof mstrReset === 'function') mstrReset();
   serialUiSync();
   monWarn('');
   monAppend('\n--- disconnected ---\n','sys');
   HW.say('bridge disconnected — virtual only');
+}
+/* The one door out for anything that is NOT a three-byte frame — the
+   Pololu protocol, which has its own lengths and its own replies. Port
+   ownership stays here; maestro-link.js never touches SER.writer. */
+function serialRaw(bytes){
+  if(!SER.writer) return;
+  const buf = (bytes instanceof Uint8Array) ? bytes : new Uint8Array(bytes);
+  SER.writer.write(buf).catch(e=>{
+    HW.say('serial write failed: '+e.message,'err');
+    serialDisconnect();
+  });
 }
 function serialFrame(ch, val){          /* val = 14-bit payload */
   if(!SER.writer) return;
@@ -299,6 +355,10 @@ function serialFrame(ch, val){          /* val = 14-bit payload */
 }
 function serialConfig(){
   if(SER.blocked) return;
+  /* channels 126/127 are a PCA_Bridge idea. On a Maestro they are two
+     perfectly valid Set Target commands aimed at channels that do not
+     exist, which is a protocol error flag for nothing. */
+  if(SER.kind === 'maestro') return;
   serialFrame(SER.cfgOsc,   Math.round(HW.osc()/10000));
   serialFrame(SER.cfgServo, HW.freq());
 }
@@ -319,6 +379,11 @@ function serialConfig(){
    This is a per-rig experiment, not a default. */
 function serialSetFreq(hz){
   hz = Math.max(40, Math.min(400, hz|0));
+  if(SER.kind === 'maestro'){
+    HW.say('the servo rate is a PCA9685 setting — a Maestro\'s period is its own, '
+         + 'and this board is a Maestro', 'warn');
+    return;
+  }
   HW.setFreq(hz);
   HW.save();
   if(!SER.port || SER.blocked){ HW.say('servo rate set to '+hz+' Hz — takes effect when a board is connected'); return; }
@@ -338,6 +403,26 @@ function serialAllOff(){
 function serialTicksFor(qus){ return (qus==null) ? 8191 : pcaQusToTicks(qus, 1000000/HW.freq()); }
 function serialWrite(ch, qus){          /* qus null = off */
   if(!SER.port || SER.blocked) return;
+  /* ---- a real Pololu Maestro. Same unit, different envelope: the target
+     IS quarter-µs, so there is nothing to convert. 0 means "stop pulsing"
+     on a Maestro exactly as 8191 does on the bridge (0J40 §5.e). */
+  if(SER.kind === 'maestro'){
+    if(ch >= MST.chCount){
+      if(!SER.warnedWide){
+        SER.warnedWide = true;
+        const msg = 'channel ' + ch + ' is not being sent: this Maestro has '
+                  + MST.chCount + ' channels (0-' + (MST.chCount-1) + ')';
+        HW.say(msg, 'warn');
+        monAppend('[' + msg + ']\n','sys');
+      }
+      return;
+    }
+    const t = (qus == null) ? 0 : (qus|0);
+    if(SER.lastTicks[ch] === t) return;   /* spare the wire, as below */
+    SER.lastTicks[ch] = t;
+    mstrSetTarget(ch, t);
+    return;
+  }
   /* Above the connected board's ceiling: DROP it, do not fold it. The old
      mask would have turned channel 70 into channel 6 and moved the wrong
      servo silently. Said once, because this fires per frame. */
@@ -363,4 +448,46 @@ function serialWrite(ch, qus){          /* qus null = off */
 function serialSyncAll(){
   const E = HW.engine();
   E.channels.forEach((c,i)=>{ if(E.st[i] && E.st[i].servo) serialWrite(i, E.st[i].active?pcaPos(E,i):null); });
+}
+
+
+/* ===================================================================== MAESTRO
+   Does the BUILD say the board on the other end is a real Pololu Maestro?
+   Only the four Pololu boards count: a MaestroPCA co-processor answers to
+   `boardIsPca` and speaks this file's frames, not Pololu's protocol. PCA
+   Studio has no Maestro in its catalogue at all, so this is false there and
+   the whole path stays dark — which is what it should be. */
+function serialBuildIsMaestro(){
+  return typeof boardIsPca === 'function'
+      && typeof MSTR !== 'undefined'
+      && !boardIsPca(MSTR.board);
+}
+/* Ask the board Pololu's own question and, if it answers, become a Maestro
+   link. Returns whether it did, so the connect flow can fall through to the
+   "nothing identified" warning when it did not. */
+async function serialTryMaestro(){
+  if(typeof mstrProbe !== 'function' || !SER.port) return false;
+  const ok = await mstrProbe();
+  if(!ok){
+    monAppend('[no answer to Get Errors — this is not a Maestro command port. '
+            + 'If the board is in USB Chained mode, or you picked the TTL port '
+            + 'of a Dual Port pair, neither will answer here]\n','sys');
+    return false;
+  }
+  MST.on = true;
+  MST.chCount = mstrChCount();
+  SER.kind = 'maestro';
+  SER.chMax = MST.chCount - 1;
+  SER.warnedWide = false;
+  const errs = mstrErrText(MST.err);
+  monAppend('[Pololu Maestro on the command port — ' + MST.chCount + ' channels; '
+          + (errs.length ? 'errors, now cleared: ' + errs.join(', ') : 'no errors') + ']\n','sys');
+  serialSetMode('stream',
+      'Connected to a <b>Pololu Maestro</b> over its USB command port, so the bench '
+    + 'reads positions back and can tell you when the board <b>clamps</b> one. '
+    + '<b>The port drives but it does not configure</b>: each channel\'s stored min, '
+    + 'max, neutral, home and mode still come from Control Center. '
+    + 'This board is also applying its own speed and acceleration on top of the sim\'s — '
+    + '<button class="mini" id="bMstQuiet">let the sim shape the moves</button>');
+  return true;
 }

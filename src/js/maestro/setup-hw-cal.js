@@ -57,6 +57,11 @@ function setupCalOpen(ch, opts){
   /* NOT HW.drive() any more (v1.51.0) — see above. The dial follows the
      servo on the way in; the servo follows the dial only once you turn it.
      And NOT a widened c.min/c.max either: see calDrive(). */
+  /* v1.56.0: the read-back follows the dial. One channel is polled at a
+     time — the wire is shared with every target the engine sends, and the
+     channel you are turning is the only one whose position anybody is
+     looking at. mstrWatch() is a no-op unless the board is a Maestro. */
+  if(typeof mstrWatch === 'function') mstrWatch(ch);
   if(!o.quiet) setupCalRender();
 }
 /* the dial is open on THIS channel, whatever it was on before. The cancel
@@ -89,11 +94,14 @@ function setupCalDirty(){
    Every place that used to abandon the dial goes through here. */
 function setupCalLeave(){
   if(!SETUP.cal) return;
+  /* no dial, nobody looking at a position — stop asking for one */
+  if(typeof mstrUnwatch === 'function') mstrUnwatch();
   if(setupCalDirty()) setupCalCommit();
   else SETUP.cal = null;
 }
 function setupCalCancel(){
   const cal = SETUP.cal; if(!cal) return;
+  if(typeof mstrUnwatch === 'function') mstrUnwatch();
   const c = HW.channels()[cal.ch];
   if(c){ c.min = cal.saveMin; c.max = cal.saveMax; c.home = cal.saveHome; c.homemode = cal.saveMode; }
   SETUP.cal = null;
@@ -232,6 +240,11 @@ function setupCalRender(){
     + 'or type the pulse width straight into the box under it, which is quicker when you already know the number. '
     + 'If the part goes the wrong way, tick <b>reverse</b> — it swaps the two ends, which is all a reversed linkage ever means.</div>'
     + setupAskHtml('dial')
+    /* v1.56.0. Empty unless a real Pololu Maestro is connected — it is the
+       only board on the link that can be ASKED where it actually is. Filled
+       by mstrReadoutSync() rather than by this render, because it changes
+       five times a second and the panel around it must not. */
+    + '<div class="calboard" id="calBoard"></div>'
     + '<div class="calbar">'
     /* the same control as the table's, and the same rule: the tick is READ
        BACK off min > max rather than stored, so the two can never disagree

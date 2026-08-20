@@ -24,6 +24,7 @@
     "src/js/maestro/travel.js",
     "src/js/maestro/pca-gen.js",
     "pca-studio/src/js/10-mstr-mini.js",
+    "src/js/maestro/maestro-link.js",
     "src/js/maestro/serial-link.js",
     "pca-studio/src/js/30-project.js",
     "pca-studio/src/js/44-hw-host.js",

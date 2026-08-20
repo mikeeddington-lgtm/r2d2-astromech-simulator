@@ -335,3 +335,22 @@ body.light{
 .domrotbar{display:flex;align-items:center;gap:10px;margin:8px 0 2px}
 .domrotbar .domrot{flex:1}
 .domrotbar .domrot input[type=range]{flex:1;min-width:80px}
+
+/* ---- the Maestro read-back (v1.56.0) -------------------------------------
+   Empty and invisible on every board that cannot be asked where it is, which
+   is every board but a real Pololu Maestro — so it costs a PCA9685 build and
+   PCA Studio nothing but an empty div. */
+.calboard{ display:none; }
+.calboard.on{
+  display:flex; flex-wrap:wrap; align-items:baseline; gap:8px;
+  margin:8px 0 0; padding:8px 10px; border-radius:8px;
+  border:1px solid var(--setEdge); background:var(--setFace); font-size:12px;
+}
+.calboard.on.bad{ border-color:var(--setBad); }
+.calboard .calbnum{ font-family:monospace; font-size:15px; color:var(--setInk); }
+.calboard .calbbad{ flex:1 1 100%; color:var(--setBad); line-height:1.45; }
+.calboard .calbwarn{ flex:1 1 100%; color:var(--setWarn,#b8860b); line-height:1.45; }
+/* the ordered/unordered lists inside a setnote (v1.56.0) — the Control
+   Center steps, which are a sequence and must read as one */
+.setnote .setul{ margin:6px 0 2px; padding-left:20px; line-height:1.5; }
+.setnote .setul li{ margin:2px 0; }

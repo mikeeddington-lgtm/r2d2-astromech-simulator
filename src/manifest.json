@@ -76,6 +76,7 @@
   "js/maestro/servo-cfg.js",
   "js/maestro/pca-gen.js",
   "js/maestro/pca-gen-sim.js",
+  "js/maestro/maestro-link.js",
   "js/maestro/serial-link.js",
   "js/maestro/live-drive.js",
   "js/maestro/hw-host.js",

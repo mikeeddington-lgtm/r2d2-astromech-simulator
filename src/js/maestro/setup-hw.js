@@ -436,6 +436,7 @@ function setupClick(e){
   else if(a === 'back') setupGo(SETUP.step-1);
   else if(a === 'next') setupGo(SETUP.step+1);
   else if(a === 'apply') setupFinish();
+  else if(a === 'mstrfile') setupMaestroSettingsFile();
 }
 
 /* ------------------------------------------------------- 1 · controller */
@@ -923,6 +924,7 @@ function setupStepDone(){
         ? '<div class="setnote warn"><b>'+uncal.length+' channel'+(uncal.length===1?' has':'s have')+' endpoints you have not set on the dial.</b> '
           + 'Whatever numbers are in the table are a guess until a real horn has been to both ends — go back and use <b>configure</b> before you run a sequence into a panel.</div>'
         : '<div class="setnote">Every channel in use has endpoints you captured yourself, on the dial, against the real linkage.</div>')
+    + setupStepMaestro()
     + setupStepExports();
 }
 
@@ -1115,4 +1117,60 @@ function setupApply(){
   setupClose();
   const used = HW.channels().filter(c=>c && /^servo/i.test(c.mode)).length;
   HW.say('setup applied — '+used+' channels on '+SETUP.hw.boards+' board'+(SETUP.hw.boards===1?'':'s')+'. Endpoints are yours; sequences build on top of them.');
+}
+
+
+/* ============================================ THE HALF THE WIRE CANNOT DO
+   v1.56.0. The bench can now drive a real Pololu Maestro over its USB
+   command port and read the positions back (maestro-link.js) — which
+   covers everything you DO on a bench and nothing you SET on one. A
+   channel's stored min, max, neutral, home and mode live behind the
+   board's native USB interface, which a virtual COM port cannot reach
+   (Pololu 0J40 §8).
+
+   That is not a footnote to bury. It is the difference between "I measured
+   my travel here and the droid has it" and "I measured my travel here and
+   the board is quietly clamping every sequence to numbers I set months
+   ago" — and the board does not say which of those is happening. So the
+   Finish step says it out loud, on a Maestro build only, and hands over
+   the one file that closes the gap.
+
+   The file is the bench's ordinary .mstr export: `genChannelsXml()` already
+   regenerates the <Channels> block from live channel state, so the endpoints
+   you captured on the dial are already in it. Nothing new is written here —
+   what was missing was anyone telling you WHY you would open it in Control
+   Center, and in what order. */
+function setupStepMaestro(){
+  if(typeof serialBuildIsMaestro !== 'function' || !serialBuildIsMaestro()) return '';
+  const a = (typeof mstrSettingsAdvice === 'function') ? mstrSettingsAdvice() : null;
+  if(!a) return '';
+  /* Anything the board was caught clamping while you were on the dial is
+     named here, because those are exactly the channels whose stored limits
+     are about to matter. */
+  const clamped = (typeof MST !== 'undefined') ? Object.keys(MST.clamp || {}) : [];
+  return '<div class="setnote"><b>Your Maestro\'s own settings still come from Control Center.</b> '
+    + a.why + '</div>'
+    + (clamped.length
+        ? '<div class="setnote bad"><b>The board was clamping ' + clamped.length + ' channel'
+          + (clamped.length === 1 ? '' : 's') + ' while you worked</b> — ch ' + clamped.join(', ')
+          + '. Those channels did not reach the travel you measured, and they will not in a '
+          + 'sequence either until the settings below are applied.</div>'
+        : '')
+    + '<div class="setnote"><b>Set once, in Control Center:</b><ul class="setul"><li>'
+    + a.once.join('</li><li>') + '</li></ul>'
+    + '<b>Then:</b><ol class="setul"><li>' + a.how.join('</li><li>') + '</li></ol></div>'
+    + '<div class="setrow"><button class="mini" data-act="mstrfile">write the settings file '
+    + 'for Control Center</button><span class="stat">a .mstr carrying the endpoints you '
+    + 'captured here — open it with File → Open, then Apply Settings</span></div>';
+}
+/* One button, one file, and a toast that says the thing people forget:
+   the port can only be held by one program at a time. */
+function setupMaestroSettingsFile(){
+  if(typeof exportMstr !== 'function'){
+    HW.say('the .mstr writer is not loaded in this app', 'err');
+    return;
+  }
+  exportMstr();
+  HW.say('Disconnect here before you open it — Control Center and this app '
+       + 'cannot hold the same COM port at once.', 'warn');
 }
