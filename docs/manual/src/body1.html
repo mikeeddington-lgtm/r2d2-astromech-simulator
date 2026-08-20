@@ -1,0 +1,173 @@
+<div class="hdr">
+  <span class="tag">Builder's manual</span>
+  <h1>R2-D2 Astromech Simulator</h1>
+  <p class="lead">Build your droid in a browser before you wire a single servo — then use the same
+  browser to set the real servos up, choreograph them, and drive them.</p>
+</div>
+
+<h2 id="what">1 · What this is, and what it is not</h2>
+
+<p>This is one HTML file. You download it, you open it, it works. No installation, no build tools,
+no account, no internet connection — everything, including the 3D model and the fonts, is inside
+the file. If it is on a USB stick it works from the USB stick.</p>
+
+<p>What it does that a normal animation does not: it takes the <b>real firmware sketches</b> — the
+ones you would actually flash onto the droid — and runs them against a model of the hardware they
+expect. Sabertooth and Syren motor drivers, PCA9685 expanders, Pololu Maestro servo controllers,
+DY-SV5W and MD-YX5300 sound boards, an Xbox 360 receiver. When a panel opens on screen, it opens
+because the sketch told a modelled board to open it.</p>
+
+<p>That distinction is the whole point, and it earns its keep: several real firmware bugs have been
+found here before they ever reached a droid — a dome-automation collision, an inverted volume
+convention, an integer <code>map()</code> truncation. A simulator that models the boards honestly
+will disagree with a sketch that is wrong.</p>
+
+<div class="warn">
+  <span class="lbl">The one thing to understand before you start</span>
+  <p><b>The model approximates; it never matches.</b> On screen, a channel sitting at its
+  <code>min</code> is drawn <i>shut</i> and at its <code>max</code> is drawn <i>fully open</i> —
+  whatever the actual microsecond numbers are, and whichever way round they run. So a servo with a
+  200&nbsp;µs span, a 700&nbsp;µs offset, or a reversed linkage all animate the same clean full sweep.</p>
+  <p>The real board always gets the microseconds you measured. The model only ever gets
+  "shut" and "open". This is deliberate: it stops an awkward linkage on your droid from making the
+  picture on screen lie to you. Do not expect the on-screen panel angle to match your droid's.</p>
+</div>
+
+<h3>Who this manual is for</h3>
+<p>Two people, often the same person on different days:</p>
+<div class="two">
+  <div class="card">
+    <h4>You have no hardware yet</h4>
+    <p>Use it to decide what to buy, learn the control map, and find out what a build actually
+    involves before you spend money. Chapters 1–4 and 10–12.</p>
+  </div>
+  <div class="card">
+    <h4>You have a board on the bench</h4>
+    <p>Use it as the setup tool: find where each panel really stops, name the channels, choreograph
+    them, and drive the real servos over USB. Chapters 5–16.</p>
+  </div>
+</div>
+
+<h2 id="open">2 · Open it</h2>
+
+<ol class="steps">
+  <li>Download <code>R2D2-Simulator.html</code> from the
+  <a href="https://github.com/mikeeddington-lgtm/r2d2-astromech-simulator/releases/latest">latest
+  release</a>.</li>
+  <li>Open it in <b>Chrome</b> or <b>Edge</b>. Double-clicking the file is enough.</li>
+  <li>It opens on the setup wizard. Work through it, or press <b>SKIP THE REST</b> — nothing here
+  is locked in and every answer can be changed later.</li>
+</ol>
+
+<div class="note">
+  <span class="lbl">Why Chrome or Edge</span>
+  <p>Everything except one feature works in any modern browser. The exception is <b>talking to real
+  hardware over USB</b>, which uses Web Serial — and Web Serial only exists in Chromium-based
+  browsers. Firefox and Safari will run the simulator perfectly and simply will not offer the
+  Connect hardware button.</p>
+</div>
+
+<h3>The four workspaces</h3>
+<p>Along the top of the window, after the status chips:</p>
+<table>
+  <tr><th>Workspace</th><th>What you do there</th></tr>
+  <tr><td><b>DRIVE</b></td><td>Drive the droid with a pad or the keyboard. Lessons, environments,
+    the practice circuit, and the live output tables.</td></tr>
+  <tr><td><b>SEQUENCE</b></td><td>The sequencer desk — build routines out of bricks on a timeline,
+    snap them to music, preview them on the model.</td></tr>
+  <tr><td><b>CONFIGURE</b></td><td>The build: which boards, which sketch, the pin maps, the wiring.</td></tr>
+  <tr><td><b>BOARD</b></td><td>The servo config and the sequence library — what is on the board, in
+    which slot, and the import/export doors.</td></tr>
+</table>
+<p>To their right: <b>SETUP</b> reopens the wizard at any time, <b>?</b> shows the keyboard card,
+and <b>MENU</b> holds themes, the About box with the credits, and Reset.</p>
+{{IMG:drive|The Drive workspace. The droid on its stage, the pad along the bottom, and — down the right — the control map belonging to the sketch you chose, not a generic one.}}
+
+<h2 id="setup">3 · The nine questions</h2>
+
+<p>The wizard asks what is bolted into your droid, and configures the whole simulator from your
+answers. <b>Every answer applies straight away</b> — the droid on screen changes as you go, and the
+chip in the rail fills in behind you.</p>
+
+{{CLIP:setup|The nine build questions, answered in order. Each card carries a picture of the board,
+so you can match what is in your hand rather than a part number you have to look up.}}
+
+<table>
+  <tr><th>#</th><th>Question</th><th>What it decides</th></tr>
+  <tr><td>1</td><td><b>Model</b></td><td>What stands on the stage — the R2-D2 MK4, the Anzellan
+    puppet head, the Polar Mouse, or your own mechanism from the Builder. One at a time.</td></tr>
+  <tr><td>2</td><td><b>Controller</b></td><td>What you hold. Xbox 360 wireless, an RC transmitter,
+    or the on-screen pad.</td></tr>
+  <tr><td>3</td><td><b>Controller board</b></td><td>What runs the sketch — Mega ADK, Mega 2560,
+    ESP32, and so on.</td></tr>
+  <tr><td>4</td><td><b>Servo hardware</b></td><td>The big one. Pololu Maestro or PCA9685 expanders,
+    then that family's own question: how many boards, and how they reach the host.</td></tr>
+  <tr><td>5</td><td><b>Dome motor</b></td><td>Syren10 or equivalent.</td></tr>
+  <tr><td>6</td><td><b>Dome lighting</b></td><td>AstroPixels and friends.</td></tr>
+  <tr><td>7</td><td><b>Foot drive</b></td><td>Sabertooth 2x25 or equivalent.</td></tr>
+  <tr><td>8</td><td><b>Sound</b></td><td>DY-SV5W, MD-YX5300, MP3Trigger.</td></tr>
+  <tr><td>9</td><td><b>Firmware</b></td><td>Which sketch you will flash. Asked last, on purpose —
+    the sketch has to fit the hardware, not the other way round.</td></tr>
+</table>
+
+<div class="tip">
+  <span class="lbl">If a card says your answers disagree</span>
+  <p>A sketch that cannot drive the board you picked says so, in plain words, on the Firmware card —
+  and offers you one click to fix it. It never silently swaps your sketch. A fresh install ships with
+  a deliberate disagreement in it (the default sound board and the default sketch do not know about
+  each other) so you see what an objection looks like the first time you get there.</p>
+</div>
+
+<h3>The jobs</h3>
+<p>Under the nine answers is a second rail: <b>Servo setup · Wiring · Panels · Colours · Scene ·
+Finish</b>. These are not questions, they are jobs, and you can come back to any of them at any
+time. Servo setup and Panels are the two that matter for a real build; they get their own chapters
+below.</p>
+{{IMG:servoset|The Servo setup job. Its first question is whether you have already done this once — because if you have, you should not do it again.}}
+
+<h2 id="drive">4 · Drive it</h2>
+
+<p>Close the wizard and you land on the Drive workspace: the droid on a stage, the pad along the
+bottom, and the sketch's own control map down the right.</p>
+
+{{CLIP:drive|START arms the feet; then drive, turn, spin the dome, open the pies, put the utility
+arms out, light the holoprojectors, and disarm. The keyboard mirrors the pad throughout.}}
+
+<div class="note">
+  <span class="lbl">Nothing drives until you press START</span>
+  <p>Both firmware families boot disarmed, and so does this. Press <b>START</b> (<kbd>Enter</kbd>)
+  to arm the feet. The dome is on its own controller and is <i>always</i> live, armed or not — which
+  is exactly how it behaves on the real droid.</p>
+  <p>If your real droid's feet ever move before you press START, something is wrong with your build.</p>
+</div>
+
+<h3>Learn to drive</h3>
+<p>The <b>LEARN</b> tab on the right rail is a set of thirteen lessons, one at a time, each with a
+"how" and a "why", and each detecting for itself when you have done it. They are worth an
+afternoon — several of them exist because the thing they teach is a bug that has bitten a real
+build:</p>
+<ul>
+  <li><b>Open the dome</b> — <i>tap</i> <kbd>RT</kbd>+<kbd>▲</kbd>, do not hold. A held d-pad
+  restarts the sequence every couple of milliseconds and it never gets past its first frames. That
+  is the bug this simulator found.</li>
+  <li><b>Turn it down</b> — on the Maestro sketches the volume is backwards, because the constant
+  was inherited from a board where 0 was loudest.</li>
+  <li><b>Let it run itself</b> — on both Maestro sketches an automated dome turn blocks the whole
+  loop for 750&nbsp;ms. The HUD flags it while it happens.</li>
+  <li><b>Put it to sleep</b> — finish every session disarmed. On the 2022 BETA a controller dropout
+  does <i>not</i> disarm, so the droid can re-arm itself on reconnect.</li>
+</ul>
+{{IMG:learn|Thirteen lessons, each with a <b>how</b> and a <b>why</b>, each detecting for itself when you have done it.}}
+
+<h3>Somewhere to drive</h3>
+<p>The stage buttons under the model: <b>FOLLOW</b> chases the droid, <b>GRID</b> puts a floor
+reference down, <b>BG</b> cycles the environments (studio, workshop, desert, hangar deck),
+<b>TRACK</b> lays out a practice circuit with gates and a timing line, and <b>EDIT</b> opens the
+track builder if you want your own lap. <b>STUDIO</b> and <b>LEARN</b> switch the right rail.</p>
+
+<div class="tip">
+  <span class="lbl">Handing the laptop to someone else</span>
+  <p><b>Sim only</b> (Menu) is a public driving mode. It hides everything except the droid and the
+  pad, and asks you to set a temporary password on the way out, so you can let a queue of people at
+  a con drive your droid on screen without them finding the servo config.</p>
+</div>

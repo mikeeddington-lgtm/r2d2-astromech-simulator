@@ -1,0 +1,187 @@
+<h2 id="panels">5 · Which servo moves what</h2>
+
+<p>A channel number means nothing until something is on the end of it. The <b>Panels</b> job (in the
+setup rail) is where you say which servo moves which part: one channel per part, and moving a part
+to a new channel frees the one it was on. The droid is beside you the whole time — press <b>▶</b> to
+prove the travel before you believe the mapping.</p>
+
+<p>The same job is reachable three other ways, because you will want it from wherever you are
+standing: the <b>drives</b> column in the channel table, the <i>Assign panels…</i> button on the
+Board pane, and the <b>dome map</b>.</p>
+{{IMG:panels|The Panels job — every moving part on the droid, and the channel that moves it. The droid is beside you; ▶ proves the travel.}}
+
+<h3>The dome map</h3>
+<p>Inside the servo setup tool, <b>dome map…</b> gives you a top-down drawing of the dome. Click the
+panel; the selected channel takes it. That is faster and far less error-prone than hunting a
+dropdown, because you are pointing at the thing rather than remembering its name.</p>
+{{CLIP:domemap|The map counts what is placed and what is not, and <b>next unmapped</b> walks you through the ones that are left. A panel that already has a channel is not blocked — clicking it <i>moves</i> the mapping, and frees the channel it was on.}}
+
+<div class="tip">
+  <span class="lbl">Rotate it to match your droid</span>
+  <p>The map has a rotation slider sitting directly under the drawing it turns, 0–359°, and it
+  remembers where you left it. Turn the drawing until it is oriented the way you stand when you work
+  on your droid — every label stays upright as it turns.</p>
+</div>
+
+<div class="warn">
+  <span class="lbl">Your numbering is not the model's numbering</span>
+  <p>Builders number panels their own way. If you call a channel "Panel7" and it drives what the
+  model calls <code>panel5</code>, that is completely fine — but it means <b>the name is not the
+  mapping</b>. The app keeps the mapping as real data and carries it through exports, so a file you
+  wrote comes back wired the way you wired it. A file from <i>somebody else</i>, or a plain Pololu
+  <code>.mstr</code>, carries no mapping at all and has to be guessed from the names — see
+  chapter 16.</p>
+</div>
+
+<h2 id="bench">6 · The servo setup tool</h2>
+
+<p>This is the workbench, and it is the part of a build that takes the longest. Open it from
+<b>Setup ▸ Servo setup ▸ Open the servo setup tool</b>, or from the Board workspace. It opens
+already carrying everything you answered in the wizard — your controller, your expanders, your
+channel count.</p>
+
+<p>Six steps across the top:</p>
+<table>
+  <tr><th>Step</th><th>What it asks</th></tr>
+  <tr><td><b>1 Controller</b></td><td>Which board is running the bench sketch — Nano, Uno, Mega,
+    Mega ADK, ESP32. It only asks because the answer changes the I2C pins it draws and whether there
+    is a spare hardware UART.</td></tr>
+  <tr><td><b>2 PCA9685s</b></td><td>How many boards. One question; chained-or-star, power routing and
+    supply amps are behind <b>ADVANCED</b>, where the wiring diagram can still read them.</td></tr>
+  <tr><td><b>3 Wiring</b></td><td>The loom for what you just described. Control signals only —
+    every V+ line is deliberately left off, because power distribution is your call.</td></tr>
+  <tr><td><b>4 Sketch</b></td><td>Which sketch to flash right now, with a link to it on GitHub.</td></tr>
+  <tr><td><b>5 Channels</b></td><td>The real work. Below.</td></tr>
+  <tr><td><b>6 Finish</b></td><td>Hands you the file of everything you measured.</td></tr>
+</table>
+
+<h3>Step 5 — the channels</h3>
+
+<p>The list is <b>who each channel is</b>: use · # · board·pin · name · drives · test. Click a row
+and the <b>Configure</b> panel below follows it, holding everything else about that channel — its
+ends, its centre, reversed, boot behaviour, speed, acceleration, ease, sleep, the dial and the live
+drive.</p>
+
+<ul>
+  <li><b>use</b> — tick the pins that have a servo on them. The count at the top is honest about how
+  many of how many.</li>
+  <li><b>name</b> — what you call it. Yours, not the model's.</li>
+  <li><b>drives</b> — which part on screen it moves. This is the mapping from chapter 5.</li>
+  <li><b>test</b> — opens and closes the channel off the <i>directed</i> pair, so a reversed channel
+  really shuts. Press it to find out which panel you are actually looking at.</li>
+</ul>
+{{IMG:channels|The Channels step. A list of who each channel is, and one Configure panel that follows whichever row you click.}}
+
+<div class="note">
+  <span class="lbl">Bulk edits</span>
+  <p>Tick the left-hand column on several rows and the <b>Apply</b> bar at the bottom sets one
+  setting — speed, acceleration, ease — on all of them at once. The button says "apply this setting
+  to all N selected" so you know what you are about to do.</p>
+</div>
+
+<h2 id="dial">7 · Finding the ends</h2>
+
+<p>This is the heart of it. A servo's endpoints are a property of <i>your linkage</i>, not of the
+datasheet — so you find them by turning a dial with the panel in front of you, and record where it
+actually stops.</p>
+
+{{CLIP:bench|Pick a channel, turn the dial until the panel is where you want it, and press
+<b>Set MAX</b>. Turn it the other way and press <b>Set MIN</b>. The three numbers in the Configure
+panel and on the dial are the same three numbers throughout.}}
+
+<ol class="steps">
+  <li><b>Select the channel.</b> The dial is not a mode you enter — it is simply there for whichever
+  row you click.</li>
+  <li><b>Turn the dial</b> until the panel is exactly shut. Press <b>Set MIN</b>.</li>
+  <li><b>Turn it the other way</b> until the panel is exactly as far open as you want it — which is
+  usually <i>not</i> as far as the servo can go. Press <b>Set MAX</b>.</li>
+  <li><b>Set centre</b> if the part needs a rest position that is not either end (a gimbal, not a
+  door).</li>
+  <li><b>Give it speed and acceleration.</b> This matters more than it looks — see the warning
+  below.</li>
+  <li>Move to the next channel. <b>Leaving means keeping</b>: moving channel or closing the bench
+  commits a staged end; <b>cancel</b> is the real undo.</li>
+</ol>
+{{IMG:dial|The dial, with the three ends under it. The tick marks on the dial are min, centre and max — where they sit is where your linkage actually stops.}}
+
+<div class="note">
+  <span class="lbl">Three things the dial deliberately does not do</span>
+  <p><b>Opening it does not move a servo.</b> Clicking down a list would otherwise walk every panel
+  on your droid to mid-travel in turn.</p>
+  <p><b>It does not permanently widen the channel.</b> The dial can reach a little past your recorded
+  endpoints (1000–2000&nbsp;µs, a safe range that stops a horn hitting a hard stop) for exactly one
+  move at a time — so a later save can never overwrite the travel you measured with the range you
+  were searching in. If you genuinely need the full sweep, tick <b>Advanced</b>.</p>
+  <p><b>It does not hide a pending change.</b> The panel and the dial show the same three numbers,
+  marked <i>not written yet</i> when they differ from what is stored.</p>
+</div>
+
+<div class="trap">
+  <span class="lbl">Leave speed and acceleration at zero and you will blame the wrong thing</span>
+  <p>A channel with <code>speed 0, accel 0</code> means <b>unlimited</b>, and the engine takes that
+  literally: it jumps straight from where it is to where you asked, in one step. On screen that looks
+  fine. On real hardware it is a <b>full-torque lunge</b> on every servo at once, and the inrush
+  stacks at exactly the same instant.</p>
+  <p>This is the single most common cause of "two servos are fine, three judder and stall". Give the
+  channels real numbers — <b>speed 80 / acceleration 10</b> is a proven starting point — and the peak
+  current drops enormously.</p>
+</div>
+
+<h2 id="physical">8 · The bench, physically</h2>
+
+<p>None of the above helps if the electricity is wrong. Before you measure anything:</p>
+
+<ol class="steps">
+  <li><b>Power the servo boards from their own 5–6&nbsp;V supply.</b> The PCA9685's V+ rail is the
+  servo rail. It does not come from the Arduino, and it must not.</li>
+  <li><b>Join the grounds.</b> The co-processor, the expanders, the servo supply and the droid's
+  Arduino all share 0&nbsp;V. Everything else in this manual assumes you have done this.</li>
+  <li><b>Budget the current.</b> Roughly 1&nbsp;A per small servo and 2–3&nbsp;A per MG996R-class
+  servo <i>that is moving at the same time</i>. Not per servo installed — per servo moving.</li>
+  <li><b>Put a fat electrolytic across V+/GND at the board</b> — 1000–4700&nbsp;µF. This is not
+  optional on a multi-servo droid.</li>
+  <li><b>Flash the bench sketch</b> (<code>PCA_Bridge</code>), plug the board in over USB, and press
+  <b>Connect hardware</b> on the Channels step.</li>
+</ol>
+
+<div class="trap">
+  <span class="lbl">A deep sag can reset the PCA9685</b></span>
+  <p>If the supply dips far enough the chip loses its prescaler and its outputs simply stop until it
+  is reconfigured. The tell is <b>channels going dead until the app reconnects</b> — connecting
+  re-sends the clock configuration and a full sync. If you see that, it is a power problem, not a
+  software one. Put a multimeter on V+ during a three-servo open and watch it.</p>
+</div>
+
+<div class="note">
+  <span class="lbl">Not connected is still useful</span>
+  <p>Without hardware the dial drives the on-screen model only, and the bench says so plainly at the
+  top of the step. You can lay out the whole channel table, name everything and map every panel
+  before a single board arrives — then connect and measure the real travel later.</p>
+</div>
+
+<h2 id="import">9 · A config you already have</h2>
+
+<p>If you have set your servos up before, do not do it again. The Servo setup step's first question
+is exactly this, and the left-hand card takes:</p>
+
+<ul>
+  <li>a <b>servo config .json</b> — this app's own export;</li>
+  <li>a PCA9685 <b>servos.h</b> — the header you compiled from;</li>
+  <li>a Pololu <b>.mstr</b> or <b>.xml</b> — a Maestro settings file;</li>
+  <li>a <b>whole-setup .json</b> — everything, including the build answers.</li>
+</ul>
+
+<p>An import brings the <b>travel only</b> by default — names, min, centre, max, speed and
+acceleration — and leaves your board, your sequences and your panel mapping exactly as they are.</p>
+{{IMG:jobwiz|Four jobs, one door. Everything behind it is still on the tab underneath if you would rather press the buttons yourself.}}
+
+<div class="note">
+  <span class="lbl">Three visible choices, and it says what it will replace</span>
+  <p>When a file could bring more than one thing, you pick: <b>servo config only</b> ·
+  <b>servo config and choreography</b> · <b>choreography only</b>. Each names what it touches and
+  what it leaves alone, and a choice the file cannot satisfy is greyed out <i>with the reason</i>.
+  If it is about to replace work, it says so first and offers <b>cancel · save a copy first ·
+  replace</b> — and "save a copy" writes a timestamped file that must land before the import
+  proceeds.</p>
+</div>
+{{CLIP:import|Drop a file in and the three choices appear, each with its own <b>touches</b> and <b>leaves alone</b>. Pick one and it counts what you are about to lose before it takes it — eighteen named channels, in this case.}}

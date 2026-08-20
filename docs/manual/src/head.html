@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>R2-D2 Astromech Simulator — Builder's Manual</title>
+<style>
+:root{
+  --bg:#e7ebf0; --bg2:#f4f6f9; --panel:#ffffff; --panel2:#edf0f5;
+  --line:#d6dbe2; --line2:#c0c8d2;
+  --txt:#161e28; --dim:#414d5b; --dimmer:#65707c;
+  --cy:#0c7d8b; --am:#a86500; --rd:#b8362c; --gn:#1c7a4c; --vi:#6f45a8;
+  --cta:#2b5aa7; --onCta:#fff; --ctaD:#1e4276;
+  --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --rail:290px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--txt);font:14px/1.6 var(--sans);}
+
+/* ---------- layout ---------- */
+.wrap{display:grid;grid-template-columns:var(--rail) minmax(0,1fr);align-items:start;max-width:1500px;margin:0 auto}
+nav{position:sticky;top:0;height:100vh;overflow:auto;padding:22px 14px 60px;border-right:1px solid var(--line);background:var(--bg2)}
+main{padding:34px 46px 140px;background:var(--panel);min-height:100vh}
+@media (max-width:900px){
+  .wrap{grid-template-columns:1fr}
+  nav{position:static;height:auto;border-right:0;border-bottom:1px solid var(--line)}
+  main{padding:24px 18px 90px}
+}
+
+/* ---------- nav ---------- */
+nav .brand{font:600 12px/1.35 var(--mono);letter-spacing:.09em;text-transform:uppercase;color:var(--txt);margin-bottom:2px}
+nav .ver{font:11px/1.4 var(--mono);color:var(--dimmer);margin-bottom:18px}
+nav h4{font:600 10px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--dimmer);margin:20px 0 7px}
+nav a{display:block;padding:4px 8px;border-radius:4px;color:var(--dim);text-decoration:none;font-size:13px}
+nav a:hover{background:var(--panel);color:var(--txt)}
+nav a.on{background:var(--cta);color:var(--onCta)}
+
+/* ---------- type ---------- */
+h1{font:600 30px/1.2 var(--sans);letter-spacing:-.01em;margin:0 0 6px}
+h2{font:600 22px/1.25 var(--sans);margin:54px 0 4px;padding-top:16px;border-top:1px solid var(--line)}
+h2:first-of-type{border-top:0;margin-top:26px}
+h3{font:600 16px/1.3 var(--sans);margin:26px 0 6px}
+h4{font:600 13px/1.3 var(--sans);margin:18px 0 4px}
+p{margin:9px 0;max-width:74ch;color:var(--dim)}
+p.lead{font-size:15.5px;color:var(--txt)}
+li{margin:5px 0;color:var(--dim);max-width:74ch}
+ul,ol{margin:9px 0 9px 22px}
+b,strong{color:var(--txt);font-weight:600}
+a{color:var(--cta)}
+code,kbd{font-family:var(--mono);font-size:.88em}
+code{background:var(--panel2);border:1px solid var(--line);border-radius:3px;padding:1px 5px;color:var(--txt)}
+kbd{background:var(--panel2);border:1px solid var(--line2);border-bottom-width:2px;border-radius:4px;
+    padding:1px 6px;color:var(--txt);white-space:nowrap;font-size:.85em}
+.sub{font:11px/1.5 var(--mono);color:var(--dimmer);text-transform:uppercase;letter-spacing:.09em}
+
+/* ---------- blocks ---------- */
+.note,.warn,.trap,.tip{border-left:3px solid var(--cta);background:var(--panel2);
+  padding:11px 15px;margin:16px 0;border-radius:0 5px 5px 0;max-width:78ch}
+.note p,.warn p,.trap p,.tip p{margin:5px 0;max-width:none}
+.warn{border-left-color:var(--am);background:#fdf6e9}
+.trap{border-left-color:var(--rd);background:#fdf0ef}
+.tip{border-left-color:var(--gn);background:#eef8f2}
+.lbl{display:block;font:600 10px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;margin-bottom:6px}
+.note .lbl{color:var(--cta)} .warn .lbl{color:var(--am)} .trap .lbl{color:var(--rd)} .tip .lbl{color:var(--gn)}
+
+figure{margin:20px 0;max-width:1100px}
+figure img,figure video{width:100%;display:block;border:1px solid var(--line2);border-radius:6px;background:#fff}
+figcaption{font:12px/1.5 var(--mono);color:var(--dimmer);margin-top:7px}
+figcaption b{color:var(--dim);font-weight:600}
+
+table{border-collapse:collapse;margin:16px 0;width:100%;max-width:1000px;font-size:13px}
+th{font:600 10px/1.4 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--dimmer);
+   text-align:left;padding:7px 11px;border-bottom:2px solid var(--line2);vertical-align:bottom}
+td{padding:8px 11px;border-bottom:1px solid var(--line);color:var(--dim);vertical-align:top}
+td b{color:var(--txt)}
+tr:hover td{background:var(--bg2)}
+
+.steps{counter-reset:s;list-style:none;margin:14px 0 14px 0;padding:0}
+.steps>li{counter-increment:s;position:relative;padding:0 0 0 38px;margin:13px 0}
+.steps>li::before{content:counter(s);position:absolute;left:0;top:1px;width:25px;height:25px;
+  border-radius:50%;background:var(--cta);color:#fff;font:600 12px/25px var(--mono);text-align:center}
+
+.hdr{border-bottom:1px solid var(--line);padding-bottom:20px;margin-bottom:6px}
+.hdr .tag{display:inline-block;font:600 10px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;
+  background:var(--cta);color:#fff;padding:5px 9px;border-radius:3px;margin-bottom:12px}
+.foot{margin-top:70px;padding-top:18px;border-top:1px solid var(--line);font:11.5px/1.6 var(--mono);color:var(--dimmer)}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin:16px 0;max-width:1000px}
+@media (max-width:760px){.two{grid-template-columns:1fr}}
+.card{border:1px solid var(--line);border-radius:6px;padding:14px 16px;background:var(--bg2)}
+.card h4{margin-top:0}
+.card p{margin:5px 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+<nav>
+  <div class="brand">R2-D2 Astromech Simulator</div>
+  <div class="ver">Builder's manual · v1.56.0</div>
+  <h4>Start here</h4>
+  <a href="#what">1 · What this is</a>
+  <a href="#open">2 · Open it</a>
+  <a href="#setup">3 · The nine questions</a>
+  <a href="#drive">4 · Drive it</a>
+  <h4>Your servos</h4>
+  <a href="#panels">5 · Which servo moves what</a>
+  <a href="#bench">6 · The servo setup tool</a>
+  <a href="#dial">7 · Finding the ends</a>
+  <a href="#physical">8 · The bench, physically</a>
+  <a href="#import">9 · A config you already have</a>
+  <h4>Making it move</h4>
+  <a href="#bricks">10 · Bricks</a>
+  <a href="#music">11 · Snap to music</a>
+  <a href="#board">12 · Onto the board</a>
+  <a href="#live">13 · Driving real servos</a>
+  <h4>Onto the droid</h4>
+  <a href="#sketches">14 · Which sketch, when</a>
+  <a href="#maestro">15 · A real Maestro over USB</a>
+  <a href="#files">16 · Files in and out</a>
+  <h4>Reference</h4>
+  <a href="#trouble">17 · When nothing moves</a>
+  <a href="#keys">18 · Keyboard</a>
+  <a href="#saved">19 · What is saved</a>
+  <a href="#glossary">20 · Glossary</a>
+</nav>
+<main>

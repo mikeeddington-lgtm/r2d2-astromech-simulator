@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Servo bench card — R2-D2 Astromech Simulator</title>
+<style>
+:root{
+  --ink:#0f1620; --dim:#39434f; --dimmer:#606b78; --line:#cfd6de; --line2:#aab4c0;
+  --cta:#2b5aa7; --am:#8f5600; --rd:#a82f26; --gn:#166b43; --bg2:#f1f4f8;
+  --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#e7ebf0;font:11.4px/1.42 var(--sans);color:var(--dim);padding:20px}
+.sheet{width:210mm;min-height:297mm;margin:0 auto 16px;background:#fff;padding:11mm 11mm 8mm;
+  box-shadow:0 2px 22px rgba(20,30,45,.16)}
+.top{display:flex;align-items:flex-end;justify-content:space-between;border-bottom:2.5px solid var(--ink);padding-bottom:7px}
+h1{font:600 19px/1.1 var(--sans);color:var(--ink);letter-spacing:-.01em}
+.pg{font:400 12px/1 var(--mono);color:var(--dimmer);letter-spacing:.1em;text-transform:uppercase}
+.top .r{font:10px/1.4 var(--mono);color:var(--dimmer);text-align:right;text-transform:uppercase;letter-spacing:.09em}
+.cols{column-count:2;column-gap:7mm;margin-top:7px}
+.cols>div{display:contents}
+section{break-inside:avoid;margin-bottom:5.5mm}
+h2{font:600 9.5px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:#fff;
+   background:var(--ink);padding:5px 7px;margin:0 0 6px}
+h2.a{background:var(--rd)} h2.b{background:var(--am)} h2.c{background:var(--gn)} h2.d{background:var(--cta)}
+h3{font:600 11.5px/1.3 var(--sans);color:var(--ink);margin:7px 0 2px}
+b,strong{color:var(--ink);font-weight:600}
+p{margin:3px 0}
+ol,ul{margin:2px 0 2px 15px}
+li{margin:2.5px 0}
+code{font-family:var(--mono);font-size:.9em;color:var(--ink);background:var(--bg2);padding:0 3px;border-radius:2px}
+table{border-collapse:collapse;width:100%;font-size:10.8px;margin:3px 0}
+th{font:600 8.5px/1.3 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--dimmer);
+   text-align:left;padding:3px 6px 3px 0;border-bottom:1.5px solid var(--line2)}
+td{padding:3.5px 6px 3.5px 0;border-bottom:1px solid var(--line);vertical-align:top}
+td:first-child{width:44%;color:var(--ink)}
+.big{border:2px solid var(--rd);padding:8px 10px;margin:5px 0}
+.big .t{display:block;font:600 9px/1 var(--mono);letter-spacing:.13em;text-transform:uppercase;color:var(--rd);margin-bottom:4px}
+.chk{list-style:none;margin:3px 0 0}
+.chk li{position:relative;padding-left:17px}
+.chk li::before{content:"";position:absolute;left:0;top:2px;width:10px;height:10px;border:1.4px solid var(--line2);border-radius:2px}
+.num{counter-reset:n;list-style:none;margin:3px 0 0}
+.num li{counter-increment:n;position:relative;padding-left:20px;margin:4px 0}
+.num li::before{content:counter(n);position:absolute;left:0;top:0;width:14px;height:14px;border-radius:50%;
+  background:var(--ink);color:#fff;font:600 9px/14px var(--mono);text-align:center}
+.foot{margin-top:5mm;padding-top:4px;border-top:1px solid var(--line);
+  font:9.5px/1.5 var(--mono);color:var(--dimmer);display:flex;justify-content:space-between}
+@media print{
+  body{background:#fff;padding:0}
+  .sheet{width:auto;min-height:0;box-shadow:none;padding:0;margin:0}
+  .sheet + .sheet{break-before:page;page-break-before:always}
+  @page{size:A4;margin:9mm}
+}
+</style>
+</head>
+<body>
+<div class="sheet">
+
+<div class="top">
+  <h1>Servo bench card</h1>
+  <div class="r">R2-D2 astromech simulator<br>pin this above the bench</div>
+</div>
+
+<div class="cols">
+<div>
+
+<section>
+<h2 class="a">Power — before anything else</h2>
+<ul class="chk">
+  <li><b>V+ is the servo rail.</b> Its own 5–6 V supply. <b>Never</b> from the Arduino.</li>
+  <li><b>Common ground.</b> Co-processor, expanders, servo supply and the droid's Arduino all share 0 V.</li>
+  <li><b>Budget per servo <i>moving</i>, not per servo installed:</b> ~1 A small, 2–3 A MG996R-class.</li>
+  <li><b>1000–4700 µF electrolytic across V+/GND at the board.</b> Not optional on a multi-servo droid.</li>
+  <li><b>ESP32 is 3.3 V logic.</b> The PCA9685 reads 3.3 V as a valid high. Power the board from 5 V and
+  never feed 5 V back into an ESP32 pin.</li>
+</ul>
+<div class="big">
+  <span class="t">Two servos fine, three judder and stall</span>
+  <p>That is <b>V+ sag</b>, not protocol. The stack is not the limit: the wire carries 3 bytes per
+  update at 115200 with 4× headroom even with 32 moving, and the PCA9685 generates all 16 PWMs in
+  hardware.</p>
+  <p><b>Aggravated by speed 0 / accel 0</b> — which means <i>unlimited</i>, so every "open" is one
+  full-jump write and a full-torque lunge, with the inrush of every servo stacking at the same
+  instant. Give the channels real numbers: <b>speed 80 / accel 10</b> is a proven start.</p>
+  <p>Multimeter on V+ during a three-servo open settles it.</p>
+</div>
+</section>
+
+<section>
+<h2 class="d">Order of work</h2>
+<ol class="num">
+  <li>Power up as above. Grounds joined.</li>
+  <li>Flash <b>PCA_Bridge</b> (bench sketch). Plug in over USB.</li>
+  <li>Simulator ▸ <b>Setup ▸ Servo setup ▸ Open the servo setup tool ▸ Channels ▸ Connect hardware</b>.</li>
+  <li>Tick the pins in use. Name each. <b>test</b> to identify the panel.</li>
+  <li>Per channel: dial to shut → <b>Set MIN</b>; dial to open → <b>Set MAX</b>; set speed and accel.</li>
+  <li>Map each channel to the part it drives (dome map is quickest).</li>
+  <li><b>Finish</b> → export the config file. Keep it with the build notes.</li>
+  <li>Build routines ▸ put them on slots 0–7 ▸ export <code>sequences.h</code>.</li>
+  <li>Flash <b>MaestroReplacement</b> (droid sketch) with that header.</li>
+</ol>
+</section>
+
+<section>
+<h2 class="c">Diagnostic order — most decisive first</h2>
+<ol class="num">
+  <li><b>Is the board receiving?</b> Watch <b>channel 0's Target box on Control Center's Status
+  tab</b> while the Arduino sends <code>setTarget</code>. That is the board's own register:
+  independent of servo power, the servo, the linkage and the script. <b>Moves ⇒ the byte arrived.</b>
+  Every other test is ambiguous.</li>
+  <li><b>Is it power?</b> Multimeter on V+ during a multi-servo move.</li>
+  <li><b>Is it the address?</b> Read the scan line the sketch prints at boot.</li>
+  <li><b>Is it the pin?</b> Measure at the board's own RX pad, never at the Arduino end.</li>
+  <li><b>Loopback.</b> Maestro TX→RX in USB Dual Port mode, or Mega pin 18→19.</li>
+</ol>
+</section>
+
+</div>
+</div>
+
+<div class="foot">
+  <span>R2-D2 Astromech Simulator · servo bench card · v1.56.0 · <b>front</b></span>
+  <span>every line here cost somebody a bench session</span>
+</div>
+
+</div><!-- /sheet 1 -->
+
+<div class="sheet">
+
+<div class="top">
+  <h1>Servo bench card <span class="pg">· back</span></h1>
+  <div class="r">silent failures &amp; the numbers<br>print double-sided, one sheet</div>
+</div>
+
+<div class="cols">
+<div>
+
+<section>
+<h2 class="b">Silent failures — each looks like "nothing works"</h2>
+<table>
+  <tr><th>What you see</th><th>What it is</th></tr>
+  <tr><td>Serial chopped mid-sentence, one corrupt byte, then nothing</td>
+      <td><b>DY-SV5W dropped Serial to 9600.</b> <code>DY::Player</code> defaults to
+      <code>Serial</code>; <code>begin()</code> calls <code>Serial.begin(9600)</code>. Reads as a hang
+      inside <code>player.begin()</code>. Watch at 9600, or put the player on another port.</td></tr>
+  <tr><td>Not one byte, no clue anywhere</td>
+      <td>Stock Padawan <code>Usb.Init()</code> fails to a bare <code>while(1);</code> with the print
+      commented out. Bad USB Host Shield halts in <code>setup()</code>; <code>loop()</code> never runs.</td></tr>
+  <tr><td>Freshly reset Maestro ignores its RX pin</td>
+      <td>It boots in <b>USB Dual Port</b>, which ignores RX <i>by design</i>. Any test before Serial
+      Settings are applied is meaningless.</td></tr>
+  <tr><td>Wire on the Mini Maestro's third serial pin does nothing</td>
+      <td><b>TXIN</b> — daisy-chain input, used only in USB Chained mode, dead in UART mode.
+      Indistinguishable from a dead board.</td></tr>
+  <tr><td>Yellow LED double-flashing</td>
+      <td><b>Normal.</b> "At least one servo enabled or output driven high." Single flash = none
+      enabled. Status, not fault.</td></tr>
+  <tr><td>5 V at the Arduino pin whether connected or not</td>
+      <td>Rules out a <i>short</i>, nothing else. A broken wire and an internally open input are
+      identical from that side.</td></tr>
+  <tr><td>A write moves <b>every</b> servo on the droid</td>
+      <td><b>All Call 0x70.</b> Every PCA9685 answers it out of the box, so a naive scan finds a
+      phantom board that is really all of them. 0x71–0x73 are the subaddresses.</td></tr>
+  <tr><td>Channels die until you reconnect</td>
+      <td>A deep sag <b>reset the PCA9685</b> — prescaler lost, outputs stop. Reconnecting re-sends
+      the clock config and a full sync. Power problem.</td></tr>
+  <tr><td>Channel 70 moves the servo on channel 6</td>
+      <td>Old bridge firmware reads 6 bits, not 7: <code>70 &amp; 0x3F</code> = 6. Re-flash to unlock
+      channels 32 and up.</td></tr>
+  <tr><td>Dial keeps turning, panel stops moving (Maestro)</td>
+      <td><b>Silent clamp</b> to a stored limit — no error, no reply. Reads exactly like a binding
+      linkage. Fix in Control Center; the simulator's read-back names it.</td></tr>
+</table>
+</section>
+
+<section>
+<h2>Maestro RX loopback — no Arduino needed</h2>
+<ol class="num">
+  <li>Serial Settings → <b>USB Dual Port</b> → Apply. The TTL Port's COM port is then wired straight
+  through to the physical RX/TX pins.</li>
+  <li>Jumper the Maestro's <b>own TX to its own RX</b>.</li>
+  <li>Open the <b>TTL Port</b> (not the Command Port) at 9600 in Pololu's Serial Transmitter; send a
+  byte.</li>
+</ol>
+<p><b>Returns ⇒ RX alive. Nothing ⇒ RX dead.</b> Run a known-good board first as a control.</p>
+</section>
+
+<section>
+<h2>Numbers worth having on the wall</h2>
+<table>
+  <tr><td>Servo pulse frequency</td><td>50 Hz</td></tr>
+  <tr><td>Safe working range on the dial</td><td>1000–2000 µs</td></tr>
+  <tr><td>Maestro target unit</td><td>quarter-microseconds</td></tr>
+  <tr><td>PCA9685 address range (6 jumpers)</td><td>0x40–0x7F</td></tr>
+  <tr><td>All Call / subaddresses (never boards)</td><td>0x70 / 0x71–0x73</td></tr>
+  <tr><td>Live-drive channels</td><td>0–125 servo · 126 osc · 127 rate</td></tr>
+  <tr><td>Expanders supported</td><td>8 (128 channels)</td></tr>
+  <tr><td>Sequence slots the sketch can call</td><td>0–7</td></tr>
+  <tr><td>Proven starting speed / acceleration</td><td>80 / 10</td></tr>
+  <tr><td>I2C bus speed</td><td>400 kHz</td></tr>
+  <tr><td>Bridge link baud</td><td>115200</td></tr>
+</table>
+</section>
+
+</div>
+</div>
+
+<div class="foot">
+  <span>R2-D2 Astromech Simulator · servo bench card · v1.56.0 · <b>back</b></span>
+  <span>pololu 0J40 · PCA9685 datasheet · HANDOVER §7</span>
+</div>
+
+</div>
+</body>
+</html>

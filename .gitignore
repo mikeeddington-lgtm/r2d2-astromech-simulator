@@ -15,6 +15,10 @@ R2D2-Simulator.html
 # without needing a build first. ./test.sh runs against it, so a stale one
 # fails loudly rather than silently.
 docs/shots/shot-*.png
+# The builder's manual is assembled the same way and ignored for the same
+# reason — 4.8 MB of inlined video that `docs/manual/src/build.py` can
+# regenerate. The two PRINTABLE pages beside it are hand-written and tracked.
+docs/manual/R2D2-Simulator-Manual.html
 
 # ---- dependencies ----
 node_modules/
@@ -54,6 +58,10 @@ R2.old/
 *.step
 *.stl
 *.mp4
+# ...except the manual's clips, which are small, deliberate and part of the
+# document. Every clip is ALSO encoded as VP9 webm, because a Chromium built
+# without proprietary codecs cannot decode H.264 and would show nothing.
+!docs/manual/media/*.mp4
 
 # ---- the sound pack: 18 MB of MP3s that are not ours to ship ----
 # Drop the Padawan sound-pack zip onto the running app instead; it keeps it

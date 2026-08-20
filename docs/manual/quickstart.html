@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>R2-D2 Astromech Simulator — your first hour</title>
+<style>
+:root{
+  --ink:#161e28; --dim:#414d5b; --dimmer:#65707c; --line:#d6dbe2; --line2:#b9c2cd;
+  --cta:#2b5aa7; --am:#a86500; --rd:#b8362c; --gn:#1c7a4c; --bg2:#f2f5f8;
+  --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#e7ebf0;font:11.2px/1.4 var(--sans);color:var(--dim);padding:20px}
+.sheet{width:210mm;min-height:297mm;margin:0 auto;background:#fff;padding:10mm 11mm 8mm;
+  box-shadow:0 2px 22px rgba(20,30,45,.16)}
+h1{font:600 20px/1.12 var(--sans);color:var(--ink);letter-spacing:-.01em}
+.sub{font:11px/1.5 var(--mono);color:var(--dimmer);text-transform:uppercase;letter-spacing:.1em;margin-top:3px}
+.rule{height:2px;background:var(--ink);margin:8px 0 11px}
+h2{font:600 9.5px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--cta);
+   margin:0 0 5px;padding-bottom:4px;border-bottom:1px solid var(--line)}
+.cols{column-count:2;column-gap:8mm}
+.cols>div{display:contents}
+section{margin-bottom:4.5mm;break-inside:avoid}
+b,strong{color:var(--ink);font-weight:600}
+ol,ul{margin:0 0 0 17px}
+li{margin:2.5px 0}
+p{margin:3.5px 0}
+kbd{font-family:var(--mono);font-size:.86em;background:var(--bg2);border:1px solid var(--line2);
+    border-bottom-width:2px;border-radius:3px;padding:0 4px;color:var(--ink);white-space:nowrap}
+code{font-family:var(--mono);font-size:.88em;color:var(--ink)}
+.big{counter-reset:q;list-style:none;margin:0}
+.big>li{counter-increment:q;position:relative;padding-left:23px;margin:4.5px 0}
+.big>li::before{content:counter(q);position:absolute;left:0;top:0;width:16px;height:16px;border-radius:50%;
+  background:var(--cta);color:#fff;font:600 9.5px/16px var(--mono);text-align:center}
+.box{border-left:3px solid var(--cta);background:var(--bg2);padding:6px 9px;margin:5px 0}
+.box.warn{border-left-color:var(--am);background:#fdf7ec}
+.box.stop{border-left-color:var(--rd);background:#fdf1f0}
+.box .t{display:block;font:600 9px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;margin-bottom:4px}
+.box .t{color:var(--cta)} .box.warn .t{color:var(--am)} .box.stop .t{color:var(--rd)}
+table{border-collapse:collapse;width:100%;font-size:10.8px;margin:4px 0}
+td{padding:2.5px 6px 2.5px 0;border-bottom:1px solid var(--line);vertical-align:top}
+td:first-child{white-space:nowrap;width:1%;padding-right:12px}
+.foot{margin-top:4mm;padding-top:5px;border-top:1px solid var(--line);
+  font:10px/1.5 var(--mono);color:var(--dimmer);display:flex;justify-content:space-between}
+@media print{
+  body{background:#fff;padding:0}
+  .sheet{width:auto;min-height:0;box-shadow:none;padding:0}
+  @page{size:A4;margin:9mm}
+}
+</style>
+</head>
+<body>
+<div class="sheet">
+
+<h1>Your first hour with the simulator</h1>
+<div class="sub">R2-D2 Astromech Simulator · quick start · one page</div>
+<div class="rule"></div>
+
+<div class="cols">
+<div>
+
+<section>
+<h2>0 · Get it open</h2>
+<ol class="big">
+  <li>Download <code>R2D2-Simulator.html</code> from the project's latest release.</li>
+  <li>Double-click it. <b>Chrome</b> or <b>Edge</b> — everything works elsewhere except talking to
+  real hardware over USB, which only Chromium browsers can do.</li>
+  <li>No install, no internet, no account. It runs from the file. It runs from a USB stick.</li>
+</ol>
+</section>
+
+<section>
+<h2>1 · Tell it what your droid is</h2>
+<p>It opens on the setup wizard: <b>nine questions</b>, each with pictures of the actual boards.
+Answer what you know and press <b>SKIP THE REST</b> for the rest — every answer applies straight
+away and nothing is locked in.</p>
+<p>The one that matters most is <b>Servo hardware</b>: Pololu Maestro or PCA9685 expanders. Almost
+everything downstream follows from it.</p>
+<div class="box">
+  <span class="t">Firmware is asked last, on purpose</span>
+  <p>The sketch has to fit the hardware, not the other way round. If your answers disagree, the card
+  says so in plain words and offers one click to fix it — it never swaps your sketch silently.</p>
+</div>
+</section>
+
+<section>
+<h2>2 · Drive it (10 minutes)</h2>
+<p>Press <kbd>Enter</kbd> — that is START, and <b>nothing drives until you press it</b>. Then:</p>
+<table>
+  <tr><td><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></td><td>drive and turn (left stick)</td></tr>
+  <tr><td><kbd>J</kbd> <kbd>L</kbd></td><td>spin the dome — always live, armed or not</td></tr>
+  <tr><td><kbd>R</kbd></td><td>drive speed 1‑2‑3</td></tr>
+  <tr><td><kbd>C</kbd>+<kbd>↑</kbd></td><td>dome pie panels open (<i>tap</i>, don't hold)</td></tr>
+  <tr><td><kbd>Q</kbd>+<kbd>→</kbd></td><td>utility arms out</td></tr>
+  <tr><td><kbd>F</kbd></td><td>holoprojector lights</td></tr>
+  <tr><td><kbd>Enter</kbd></td><td>disarm — finish every session disarmed</td></tr>
+</table>
+<p>Then open the <b>LEARN</b> tab and work down the thirteen lessons. Several of them exist because
+the thing they teach is a bug that has bitten a real build.</p>
+</section>
+
+</div>
+<div>
+
+<section>
+<h2>3 · Then the servos (the long part)</h2>
+<p><b>Setup ▸ Servo setup</b>. Its first question is whether you already have a config — if you do,
+import it and skip everything below.</p>
+<ol class="big">
+  <li><b>Power the boards properly first.</b> Own 5–6 V supply, common ground, big capacitor. See
+  the bench card.</li>
+  <li>Flash <b>PCA_Bridge</b>, plug the board in over USB, press <b>Connect hardware</b>.</li>
+  <li>Tick the pins that have a servo on them. Name each one. Press <b>test</b> to find out which
+  panel you are actually looking at.</li>
+  <li>Click a row: the dial appears for that channel. Turn it until the panel is exactly shut →
+  <b>Set MIN</b>. Turn it until it is as open as you want → <b>Set MAX</b>.</li>
+  <li><b>Give every channel a speed and an acceleration</b> — 80 and 10 is a proven start.</li>
+  <li><b>Finish</b> hands you the whole thing as one file. Keep it with your build notes.</li>
+</ol>
+<div class="box stop">
+  <span class="t">Do not leave speed at 0</span>
+  <p>0 means <b>unlimited</b>, and the engine takes it literally: every move becomes a full-torque
+  lunge, and the inrush of several servos stacks at the same instant. This is the number one cause
+  of "two servos are fine, three judder and stall".</p>
+</div>
+</section>
+
+<section>
+<h2>4 · Make it dance</h2>
+<p><b>SEQUENCE</b> workspace. <b>＋ New sequence</b>, then either drag parts onto the timeline or
+use <b>Ready-made</b>: pick a set of panels, pick a shape, and the whole figure lands at once.
+<b>▶ PLAY</b> previews it on the model.</p>
+<p>Then <b>BOARD ▸ Build your sequences.h</b> and choose which routines land on <b>slots 0–7</b> —
+those eight subroutine numbers are the entire interface between the droid's Arduino and its servo
+controller.</p>
+<div class="box warn">
+  <span class="t">Saving is not loading</span>
+  <p><b>Save</b> keeps a routine in your library. Only <b>Build your sequences.h</b> puts it on the
+  board. A faded chip in the library is one that is not loaded.</p>
+</div>
+</section>
+
+<section>
+<h2>The one thing to understand</h2>
+<div class="box">
+  <span class="t">The model approximates; it never matches</span>
+  <p>On screen a channel at its <code>min</code> is drawn <b>shut</b> and at its <code>max</code> is
+  drawn <b>fully open</b> — whatever the real numbers are and whichever way round they run. The real
+  board always gets the microseconds you measured; the model only ever gets "shut" and "open".</p>
+  <p>So do not expect the on-screen panel angle to match your droid's. That is deliberate: it stops
+  an awkward linkage from making the picture lie to you.</p>
+</div>
+</section>
+
+</div>
+</div>
+
+<div class="foot">
+  <span>R2-D2 Astromech Simulator · quick start · written against v1.56.0</span>
+  <span>full manual: docs/manual/</span>
+</div>
+
+</div>
+</body>
+</html>

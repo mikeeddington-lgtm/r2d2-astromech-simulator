@@ -1,0 +1,242 @@
+<h2 id="files">16 · Files in and out</h2>
+
+<p>Everything this app reads and writes, in one table. The rule of thumb: <b>its own formats carry
+everything; other people's formats carry what their format has room for</b>, and anything that
+cannot cross the boundary is <i>named</i> rather than silently dropped.</p>
+
+<table>
+  <tr><th>Format</th><th>In</th><th>Out</th><th>Carries</th></tr>
+  <tr><td><b>servo config .json</b></td><td>yes</td><td>yes</td>
+      <td>Names, travel, speed, acceleration <i>and</i> which part each channel drives.</td></tr>
+  <tr><td><b>whole-setup .json</b></td><td>yes</td><td>yes</td>
+      <td>All of the above plus the build answers — the entire session in one file.</td></tr>
+  <tr><td><b>Pololu .mstr / .xml</b></td><td>yes</td><td>yes</td>
+      <td>A Maestro settings file. Opens in Control Center. Carries channels and sequences.</td></tr>
+  <tr><td><b>servos.h</b></td><td>yes</td><td>yes</td>
+      <td>The PCA9685 channel table, as a C header you compile with.</td></tr>
+  <tr><td><b>sequences.h</b></td><td>yes</td><td>yes</td>
+      <td>The routines, as a C header for the MaestroPCA library.</td></tr>
+  <tr><td><b>choreography .json</b></td><td>yes</td><td>yes</td>
+      <td>The sequence library, bricks and all.</td></tr>
+</table>
+
+<h3>The round trip</h3>
+<p>Export, wipe the browser's storage, reload, rebuild the droid, import — and the frames come back
+target-for-target identical on every route. That is a tested property, not a hope.</p>
+
+<p>Two things ride along inside the files, in comments that Control Center and the compiler both
+ignore: <b>the brick structure</b> and <b>the part mapping</b>. So a routine you exported comes back
+as bricks you can edit, and a channel you wired to a panel comes back wired to the same panel.</p>
+
+<div class="warn">
+  <span class="lbl">Somebody else's .mstr cannot carry your wiring</span>
+  <p>A Pololu <code>&lt;Channel&gt;</code> is a name, a mode, travel, speed and acceleration —
+  nothing else. There is no field for "which panel is this?". A file from another builder therefore
+  has to have its mapping <i>guessed</i> from the channel names, and if their numbering disagrees
+  with the model's, some channels will land on the wrong part. The app tells you which; fix them on
+  the Panels step or the dome map.</p>
+</div>
+
+<h3>Frames back into bricks</h3>
+<p>A Pololu file carries poses and nothing else — no bricks. The app can work them out: each
+channel's curve is cut into excursions, each excursion becomes one rise-hold-fall brick, and then
+the proposal is <b>measured against the original</b> at every instant the file had an opinion about.</p>
+
+<p>Two doors, and they do different things:</p>
+<div class="two">
+  <div class="card">
+    <h4>Work out the bricks</h4>
+    <p>Applies it and keeps it. Use this when the file came from here in the first place, or when the
+    routine is simple.</p>
+  </div>
+  <div class="card">
+    <h4>Work them out and review…</h4>
+    <p>Applies it but holds the original alongside, flags every channel the bricks do not reproduce
+    on the timeline, and shows the error live while you drag a brick until it says <i>matches</i>.</p>
+  </div>
+</div>
+<p><b>Both keep your original frame list</b> in the library as "&lt;name&gt; (frames)". Accepting a
+guess changes what the droid does, so the thing it was guessing at has to survive. Discarding
+restores the frame list byte for byte.</p>
+
+<h2 id="trouble">17 · When nothing moves</h2>
+
+<p>Every entry here cost somebody a bench session. They all look identical from the outside —
+"nothing works" — and they all have a specific tell.</p>
+
+<h3>The one diagnostic that settles "is the Maestro receiving?"</h3>
+<p>Watch <b>channel 0's Target box on Control Center's Status tab</b> while the Arduino sends a
+<code>setTarget</code>. That box reads the board's <i>own internal register</i>, so it is independent
+of servo power, the servo, the linkage and the script. Target moves ⇒ the byte arrived. Target dead
+still ⇒ it did not. Reach for this first; almost every other test is ambiguous.</p>
+
+<h3>Servos</h3>
+<table>
+  <tr><th>Symptom</th><th>Cause</th></tr>
+  <tr><td>Two servos fine, three judder and stall</td>
+      <td><b>V+ supply sag</b>, nine times out of ten — aggravated by channels left at speed 0 /
+      acceleration 0, which makes every move a full-torque lunge. See chapters 7 and 8.</td></tr>
+  <tr><td>Channels go dead until you reconnect</td>
+      <td>A deep sag <b>reset the PCA9685</b>. It lost its prescaler. Power problem.</td></tr>
+  <tr><td>The dial turns, the panel stops moving</td>
+      <td>On a Maestro: the board is <b>silently clamping</b> to a stored limit. The app names it.
+      Fix in Control Center.</td></tr>
+  <tr><td>One board's channels do nothing</td>
+      <td>Its address is not what the sketch assumed. Read the scan line the sketch prints.</td></tr>
+  <tr><td>A write moves <i>every</i> servo</td>
+      <td>The <b>All Call address 0x70</b> got treated as a board. See chapter 14.</td></tr>
+  <tr><td>Channel 70 moves the servo on channel 6</td>
+      <td>Old bridge firmware, six-bit channel field. Re-flash.</td></tr>
+</table>
+
+<h3>Boards and serial</h3>
+<table>
+  <tr><th>Symptom</th><th>Cause</th></tr>
+  <tr><td>Serial output chopped mid-sentence, one corrupt byte, then silence</td>
+      <td><b>The DY-SV5W player dropped Serial to 9600.</b> <code>DY::Player</code> defaults to
+      <code>Serial</code> and its <code>begin()</code> calls <code>Serial.begin(9600)</code>. Looks
+      exactly like a hang inside <code>player.begin()</code>. Either watch the monitor at 9600 or
+      construct the player on another port.</td></tr>
+  <tr><td>Nothing at all, not one byte, no clue anywhere</td>
+      <td>The stock Padawan <code>Usb.Init()</code> failure path is a bare <code>while(1);</code> with
+      the diagnostic print commented out. A bad USB Host Shield halts in <code>setup()</code> and
+      <code>loop()</code> never runs.</td></tr>
+  <tr><td>A freshly factory-reset Maestro ignores its RX pin</td>
+      <td>It comes up in <b>USB Dual Port</b> mode, which ignores the RX pin <i>by design</i>. Any
+      test on a reset board is meaningless until Serial Settings are applied.</td></tr>
+  <tr><td>Wire on the Mini Maestro's third serial pin does nothing</td>
+      <td><b>TXIN</b> is a daisy-chain input used only in USB Chained mode, and dead in UART mode. A
+      wire on it is indistinguishable from a dead board.</td></tr>
+  <tr><td>The yellow LED double-flashes</td>
+      <td>That is <b>normal</b> — "at least one servo enabled or output driven high". Single flash
+      means no servos enabled. It is a status indicator, not a fault code.</td></tr>
+  <tr><td>Multimeter at the Arduino end reads 5 V either way</td>
+      <td>Proves less than it looks. A broken wire and an internally open input are identical from
+      that side. <b>Measure at the Maestro's own RX pad.</b></td></tr>
+</table>
+
+<h3>Proving a Maestro's RX pin is alive — no Arduino, no second board</h3>
+<ol class="steps">
+  <li>Serial Settings → <b>USB Dual Port</b> → Apply. In this mode the TTL Port's COM port is wired
+  straight through to the physical RX and TX pins.</li>
+  <li>Jumper the Maestro's <b>own TX to its own RX</b>.</li>
+  <li>Open the <b>TTL Port</b> — not the Command Port — at 9600 in Pololu's Serial Transmitter and
+  send a byte.</li>
+</ol>
+<p>Byte returns ⇒ RX is alive. Nothing ⇒ RX is dead. Run a known-good board first as a control.</p>
+
+<h3>The panels on screen are all standing half open</h3>
+<p>That was a real bug, fixed in v1.46.1, and the fix is worth knowing as a principle: <b>a
+channel's stored "home" or "neutral" microseconds are not a pose.</b> Shut and open come from the
+directed pair — <code>min</code> and <code>max</code>, in that order — and nothing sorts them. If you
+see it again on a newer version, that is what regressed.</p>
+
+<h2 id="keys">18 · Keyboard</h2>
+
+<p>The on-screen pad mirrors a real one, and the keyboard mirrors the pad. <b>?</b> in the header
+shows this card at any time.</p>
+
+<table>
+  <tr><th colspan="2">Driving</th><th colspan="2">Everything else</th></tr>
+  <tr><td>Left stick — drive and turn</td><td><kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd></td>
+      <td>Arm / disarm the feet (START)</td><td><kbd>Enter</kbd></td></tr>
+  <tr><td>Right stick — dome</td><td><kbd>I</kbd> <kbd>J</kbd> <kbd>K</kbd> <kbd>L</kbd></td>
+      <td>Automation mode (BACK)</td><td><kbd>N</kbd></td></tr>
+  <tr><td>D-pad</td><td><kbd>↑</kbd> <kbd>↓</kbd> <kbd>←</kbd> <kbd>→</kbd></td>
+      <td>Drive speed 1‑2‑3 (L3)</td><td><kbd>R</kbd></td></tr>
+  <tr><td>LB / RB</td><td><kbd>Q</kbd> <kbd>E</kbd></td>
+      <td>Holoprojector lights (R3)</td><td><kbd>F</kbd></td></tr>
+  <tr><td>LT / RT</td><td><kbd>Z</kbd> <kbd>C</kbd></td>
+      <td>Guide</td><td><kbd>G</kbd></td></tr>
+  <tr><td>A / B / X / Y</td><td><kbd>Spc</kbd> <kbd>B</kbd> <kbd>V</kbd> <kbd>Y</kbd></td>
+      <td>Undo / redo (sequencer)</td><td><kbd>Ctrl</kbd>+<kbd>Z</kbd> / <kbd>Ctrl</kbd>+<kbd>Y</kbd></td></tr>
+  <tr><td colspan="2"><i>Sticks are held keys; buttons are taps.</i></td>
+      <td>Close a dialog, menu or picker</td><td><kbd>Esc</kbd></td></tr>
+</table>
+
+<p>Some useful combinations, all listed in full on the <b>Controls</b> tab:</p>
+<table>
+  <tr><th>Combination</th><th>Does</th></tr>
+  <tr><td><kbd>RT</kbd> + <kbd>▲</kbd> / <kbd>▼</kbd></td><td>Dome pie panels open / close</td></tr>
+  <tr><td><kbd>LB</kbd> + <kbd>◄</kbd> / <kbd>►</kbd></td><td>Utility arms in / out</td></tr>
+  <tr><td><kbd>RT</kbd> + <kbd>◄</kbd> / <kbd>►</kbd></td><td>Dataport door / chargebay door</td></tr>
+  <tr><td><kbd>RB</kbd> + <kbd>▲</kbd> / <kbd>▼</kbd></td><td>Volume up / down</td></tr>
+</table>
+<p>Plug a real pad in and the on-screen one mirrors it.</p>
+{{IMG:keys|The keyboard card, from <b>?</b> in the header.}}
+
+<h2 id="saved">19 · What is saved, and where</h2>
+
+<p>Two stores in your browser, kept deliberately separate:</p>
+<table>
+  <tr><th>Store</th><th>Holds</th></tr>
+  <tr><td><b>Preferences</b></td><td>Theme, scale, your build answers, the RC map, the track, the
+    Model Builder, paint, and the sequencer's brick colours.</td></tr>
+  <tr><td><b>Servo config</b></td><td>The channel table — names, endpoints, part mapping, speeds —
+    and the sequence library.</td></tr>
+</table>
+
+<div class="warn">
+  <span class="lbl">Back it up as a file</span>
+  <p>Browser storage is per-browser and per-machine, and clearing site data clears it. An afternoon
+  of measuring is worth thirty seconds of export: <b>Finish</b> in the servo setup tool offers the
+  whole thing as one file. Keep it with your build notes.</p>
+</div>
+
+<p><b>Reset</b> (Menu) really does clear the servo config as well as the preferences — it is a full
+reset, not a cosmetic one.</p>
+
+<h2 id="glossary">20 · Glossary</h2>
+
+<table>
+  <tr><th>Term</th><th>Means</th></tr>
+  <tr><td><b>Brick</b></td><td>One part moving on the sequencer timeline: it opens, holds, closes.
+    Bricks compile to frames.</td></tr>
+  <tr><td><b>Frame</b></td><td>A pose — every channel's target at one instant. What the board
+    actually plays.</td></tr>
+  <tr><td><b>Channel</b></td><td>One servo output. Numbered per board and pin.</td></tr>
+  <tr><td><b>Part / act</b></td><td>A moving thing on the model — a pie panel, a door, an arm. A
+    channel <i>drives</i> a part.</td></tr>
+  <tr><td><b>Directed pair</b></td><td>A channel's <code>min</code> and <code>max</code> in the order
+    given: min is shut, max is open. Never sorted. Reversing a linkage <i>is</i> swapping them.</td></tr>
+  <tr><td><b>Slot</b></td><td>One of the eight subroutine numbers the droid's Arduino can call —
+    <code>restartScript(0..7)</code>.</td></tr>
+  <tr><td><b>Quarter-µs</b></td><td>The Maestro's own unit for a target. This app has spoken it since
+    its first import, which is why talking to a real Maestro needed no conversion.</td></tr>
+  <tr><td><b>All Call</b></td><td>I2C address 0x70, which every PCA9685 answers by default. A phantom
+    board that is really <i>all</i> the boards.</td></tr>
+  <tr><td><b>Grey brick</b></td><td>A brick for a part with no channel yet. Moves the model, compiles
+    to nothing, starts driving the moment you map it.</td></tr>
+</table>
+
+<div class="foot">
+  <p>R2-D2 Astromech Simulator · builder's manual · written against v1.56.0</p>
+  <p>The geometry is MrBaddeley's, published with permission. Padawan360 is BSD-3-Clause;
+  three.js is MIT; the board photographs are the manufacturers'. This project's own code, artwork and
+  documentation are MIT — see the LICENSE file and Menu ▸ About ▸ Credits for what that does and does
+  not cover.</p>
+</div>
+</main>
+</div>
+<script>
+(function(){
+  var links=[].slice.call(document.querySelectorAll('nav a'));
+  var secs=links.map(function(a){return document.getElementById(a.getAttribute('href').slice(1));});
+  function mark(){
+    var y=window.scrollY+140,best=0;
+    secs.forEach(function(s,i){ if(s&&s.offsetTop<=y) best=i; });
+    links.forEach(function(a,i){ a.classList.toggle('on', i===best); });
+  }
+  window.addEventListener('scroll',mark,{passive:true}); mark();
+  /* clips loop quietly and only while they are on screen */
+  var vids=[].slice.call(document.querySelectorAll('video'));
+  if('IntersectionObserver' in window){
+    var io=new IntersectionObserver(function(es){
+      es.forEach(function(e){ if(e.isIntersecting) e.target.play().catch(function(){}); else e.target.pause(); });
+    },{threshold:.25});
+    vids.forEach(function(v){ io.observe(v); });
+  }
+})();
+</script>
+</body>
+</html>

@@ -93,6 +93,19 @@ Chrome or Edge specifically, and only for the hardware half: **Web Serial** —
 the thing that lets the bench drive a real board over USB — does not exist in
 Firefox or Safari. Everything else runs anywhere.
 
+### The manual
+
+**[`docs/manual/`](docs/manual/)** is written for the person holding a servo
+rather than a compiler: twenty chapters from *open the file* to *drive the real
+board*, with seven short screen-capture clips of the flows they describe. Two
+printable pages sit beside it — **[your first
+hour](docs/manual/quickstart.html)**, and a **[servo bench
+card](docs/manual/bench-card.html)** for the workshop wall, which is every
+silent failure mode this project has paid for on one double-sided sheet.
+
+The manual itself is assembled rather than tracked, for the same reason the
+dist is; `docs/manual/README.md` has the two commands that rebuild it.
+
 ### Working on it
 
 ```

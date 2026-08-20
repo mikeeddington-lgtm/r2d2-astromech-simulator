@@ -1,0 +1,184 @@
+<h2 id="bricks">10 · Bricks</h2>
+
+<p>The sequencer desk is where a routine gets made. A <b>brick</b> is one part moving: it opens, it
+holds, it closes. You drag bricks onto a timeline, set how long each runs, and the desk compiles the
+lot into the frames your board actually plays.</p>
+
+{{CLIP:bricks|A whole figure in three clicks — pick a set of parts, pick a ready-made shape, press
+play. The droid performs it on the right while the timeline scrubs.}}
+
+<h3>Making one</h3>
+<ol class="steps">
+  <li><b>＋ New sequence</b>, and name it.</li>
+  <li>Drag a part from the <b>PARTS</b> tray onto the timeline — or use <b>Ready-made</b>: pick a set
+  (all pies, all side panels) and a shape, and the whole figure lands at once as a single undoable
+  gesture.</li>
+  <li>Drag a brick's edges to stretch it. Click one to open its inspector: how long it runs, and its
+  <b>motion</b> — open, open-and-close, or close.</li>
+  <li>Select several bricks and set <b>Runs for</b> or <b>Motion</b> on all of them together.</li>
+  <li><b>▶ PLAY</b> previews it on the model.</li>
+</ol>
+
+<h3>Things worth knowing</h3>
+<ul>
+  <li><b>The snap picker lives in the timeline ruler's corner</b>, next to the timing line it
+  governs.</li>
+  <li><b>Each part has its own colour</b>, and "Colour the model to match" paints the droid the same
+  way, so you can see at a glance which brick is which panel.</li>
+  <li><b>You can choreograph a panel you have not wired yet.</b> Drag in a part with no channel and
+  it stays <b>grey</b>: it keeps its place and its timing, it moves the model in preview, and it is
+  left out of the compiled frames with a named warning. The moment you give it a channel it starts
+  driving the real servo. Nothing is lost in the meantime.</li>
+  <li><b>Advanced</b> reveals two other ways of looking underneath a routine: <b>Pose</b> (set the
+  droid channel by channel, live) and <b>Frames</b> (the frame list the bricks compile to). Both are
+  useful; neither is a beginner's first move. Unticking Advanced while you are standing in one of
+  them returns you to the bricks.</li>
+  <li><b>Ctrl+Z / Ctrl+Y</b> undo and redo, and a whole ready-made figure is one step.</li>
+</ul>
+{{IMG:seq|The sequencer desk. Bricks on the left, the inspector for the selected one on the right, the library along the bottom, and the droid performing on the far right.}}
+
+<h2 id="music">11 · Snap to music</h2>
+
+<p><b>♪ LOAD MUSIC</b> takes an audio file and puts its beats on the timeline. Set the snap to the
+beat and every brick edge you drag lands on it, so a routine can be choreographed to a track rather
+than to a stopwatch.</p>
+
+<div class="note">
+  <span class="lbl">It stays on your machine</span>
+  <p>The track never leaves the browser. Nothing is uploaded anywhere — there is nowhere for it to
+  go, because the whole app is a file on your disk.</p>
+</div>
+
+<h2 id="board">12 · Onto the board</h2>
+
+<p>A routine in your library is not yet a routine your droid can run. The board holds <b>eight
+slots, 0–7</b>, and the sketch only ever calls <code>restartScript(0)</code> …
+<code>restartScript(7)</code>. That is the whole interface between the droid's Arduino and its servo
+controller.</p>
+
+<ol class="steps">
+  <li>Build the routines you want in the sequencer.</li>
+  <li>Open <b>BOARD ▸ Build your sequences.h…</b> — the builder is the only thing that changes what
+  is on the board, and in what order.</li>
+  <li>Choose which library routines land on slots 0–7. A routine past 7, or one not loaded, is
+  simply unreachable from the controller — the list says so.</li>
+  <li>Export. On a Maestro build you get a <code>.mstr</code>; on a PCA9685 build you get
+  <code>sequences.h</code> for the MaestroPCA library.</li>
+</ol>
+{{CLIP:slots|The builder: your library on the left, the eight slots in order in the middle, and the validation on the right — errors, warnings, script bytes, subroutines used, and the slowest throw in the whole loadout.}}
+
+
+<div class="note">
+  <span class="lbl">Saving is not the same as loading</span>
+  <p><b>Save</b> keeps a sequence in your library. It does not change the Maestro script. Only
+  <b>Build your sequences.h</b> does that. A faded chip in the library is one that is not loaded.</p>
+  <p>Rename freely — spaces become underscores in the generated <code>sub</code> name.</p>
+</div>
+{{IMG:board|The Board workspace. Slot badges are subroutine numbers — the sketch only ever calls restartScript(0) … (7).}}
+
+<h2 id="live">13 · Driving real servos from the desk</h2>
+
+<p>With hardware connected, the amber <b>⚡ arm</b> switch beside the transport sends the sequencer's
+output to the actual board. Play a routine and the droid performs it in front of you.</p>
+
+<p>It drives <b>through the engine</b>, never straight at the wire — so your measured end stops, your
+speeds and your accelerations all apply exactly as they will when the routine is running off the
+board on its own.</p>
+
+<div class="warn">
+  <span class="lbl">The arm disarms itself when you leave</span>
+  <p>Leaving the sequencer drops the arm, and leaving the servo bench disconnects the board. Both are
+  deliberate: an arm whose amber button is off screen is an arm you have forgotten. The link stays
+  open and the servos hold where they are.</p>
+</div>
+
+<h2 id="sketches">14 · Which sketch, and when</h2>
+
+<p>On a PCA9685 build there are two, and they are used at different times:</p>
+<table>
+  <tr><th>Sketch</th><th>Where</th><th>When</th></tr>
+  <tr><td><b>PCA_Bridge</b></td><td><code>pca-studio/PCA_Bridge/PCA_Bridge.ino</code></td>
+      <td>The <b>bench</b> sketch. Flash it while you are measuring. It does nothing but take
+      commands from this simulator over USB — it turns the Channels page into the droid's control
+      surface.</td></tr>
+  <tr><td><b>MaestroReplacement</b></td><td><code>arduino/MaestroPCA/examples/MaestroReplacement/</code></td>
+      <td>The <b>droid</b> sketch. Flash it when you are done, with your measured travel baked into
+      <code>sequences.h</code>. From then on it answers <code>restartScript(n)</code> exactly as a
+      Maestro does, and Padawan360 cannot tell the difference.</td></tr>
+</table>
+
+<h3>The boards find themselves</h3>
+<p>Every sketch <b>scans the I2C bus</b> for PCA9685s rather than assuming they sit at 0x40 and 0x41.
+It sweeps the real jumper range (0x40–0x7F — six address jumpers) and numbers what it finds in
+ascending address order, so 0x40 + 0x42 behaves exactly as 0x40 + 0x41 would. Every sketch prints
+the mapping it settled on; read that line, it is the ground truth for your bus.</p>
+
+<div class="trap">
+  <span class="lbl">Why you must never trust a hand-rolled bus scan</span>
+  <p><b>A PCA9685 answers 0x70 out of the box.</b> That is the <i>All Call</i> address, and it is
+  enabled by default — so one chip acknowledges at its own address <i>and</i> at 0x70. A naive sweep
+  turns one board into two, and the phantom board is <b>every board at once</b>: a write meant for
+  "board 1" moves every servo on the droid. 0x71–0x73 are the subaddresses and are excluded for the
+  same reason. The shared scan header exists so this is got right once rather than four times.</p>
+  <p>The trade-off, which every sketch prints: if a board drops off the bus, everything above it
+  renumbers.</p>
+</div>
+
+<h3>Eight boards, 128 channels</h3>
+<p>The live-drive wire protocol carries channels <b>0–125</b> for servos, with <b>126</b> the
+oscillator and <b>127</b> the servo rate — enough for eight expanders. Two boards for the dome and
+one for the body is comfortably inside it.</p>
+
+<div class="trap">
+  <span class="lbl">Old and new firmware are indistinguishable on the wire</span>
+  <p>An older bridge reads the channel out of six bits instead of seven. Send channel 70 to one and
+  it decodes <code>70 &amp; 0x3F</code> = 6 and moves a completely different servo — no error, no
+  clue. So the app reads the width off the <b>banner at connect</b> (<code>PCA-BRIDGE 2</code>+ or
+  <code>MAESTRO-PCA 3</code>+ is wide; anything unrecognised is treated as narrow) and <i>drops</i>
+  what the connected board cannot decode, with one plain warning, rather than folding it onto the
+  wrong servo. Nothing needs re-flashing to keep working; re-flashing is what unlocks channels 32 and
+  up.</p>
+</div>
+
+<h2 id="maestro">15 · A real Maestro over USB</h2>
+
+<p>If your droid uses a Pololu Maestro, the simulator can talk to it directly. Plug it in, press
+<b>Connect hardware</b>, and the bench drives real servos — and, uniquely, <b>reads back where they
+actually are</b>.</p>
+
+<ol class="steps">
+  <li>Put the Maestro in <b>USB Dual Port</b> mode (Pololu's Control Center, Serial Settings) — or
+  any mode where the command port is not ignored.</li>
+  <li><b>Close Control Center.</b> One program per COM port; it will not work with both open.</li>
+  <li>Pick the <b>command</b> port of the pair the board presents, not the TTL one.</li>
+  <li>Connect. If nothing identifies itself, press <i>it is a Pololu Maestro</i>.</li>
+</ol>
+
+<div class="warn">
+  <span class="lbl">The port drives. It cannot configure.</span>
+  <p>This is a hard limit of the Maestro, not of this app. <b>Min, max, neutral, home, channel mode
+  and serial mode live behind the board's native USB interface</b>, which a COM port cannot reach.
+  Control Center writes those, once. There is no serial command for it — do not go looking.</p>
+  <p>The <b>Finish</b> step on a Maestro build says exactly what Control Center is still for, and
+  hands you the settings <code>.mstr</code> that closes the gap.</p>
+</div>
+
+<div class="trap">
+  <span class="lbl">The silent clamp — and why the read-back exists</span>
+  <p>A target outside a channel's <i>stored</i> limits is clamped by the board <b>with no error and
+  no reply</b>. Ask 1000&nbsp;µs of a channel whose stored minimum is 1136 and the servo stops at
+  1136: the dial keeps turning, the panel stops moving, and it reads exactly like a binding linkage
+  or a dying servo. Control Center does not tell you either — it simply will not let you ask.</p>
+  <p>So the simulator asks the board where the servo actually is, several times a second, on whichever
+  channel is under the dial. A servo that has <b>settled somewhere other than where it was asked</b>
+  is named in microseconds, with the stored limit identified as the cause. If you see that message,
+  the fix is in Control Center, not on your linkage.</p>
+</div>
+
+<div class="note">
+  <span class="lbl">Speed and acceleration, on the board vs in the app</span>
+  <p>A Maestro shapes every move itself, and this app has already shaped it. Both at once is slower
+  than either, and it reads as "the model and the droid disagree". By default the board's stored
+  speed and acceleration are <b>left alone</b>. One opt-in button zeroes them for the session so the
+  engine alone shapes the move — a runtime change only, undone by a power cycle, and it says so.</p>
+</div>
