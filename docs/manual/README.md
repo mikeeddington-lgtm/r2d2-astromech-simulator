@@ -40,6 +40,21 @@ python3 docs/manual/src/build.py
 `build.py` fails loudly on an unresolved `{{CLIP:…}}` or `{{IMG:…}}`
 placeholder rather than shipping a manual with a hole in it.
 
+### Assembling with no captures at all
+
+Step 2 works on its own. `media/` is tracked, so a fresh clone — or the release
+workflow on a `v*` tag — assembles the whole manual from the encoded clips and
+stills already in the repository: no browser, no ffmpeg, about two seconds.
+
+```bash
+python3 docs/manual/src/build.py     # reuses media/, says so per clip
+```
+
+That is what makes the download link in the top-level README work: the manual is
+attached to the release beside `R2D2-Simulator.html`, built the same way, for
+the same reason. Step 1 is a **human** job — run it when the UI a clip points at
+has actually moved.
+
 ### Why two video codecs
 
 Every clip is encoded **twice** — VP9 in a `.webm` and H.264 in an `.mp4`, both

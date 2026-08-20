@@ -12,17 +12,17 @@
   --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
 }
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:#e7ebf0;font:11.2px/1.4 var(--sans);color:var(--dim);padding:20px}
+body{background:#e7ebf0;font:11px/1.38 var(--sans);color:var(--dim);padding:20px}
 .sheet{width:210mm;min-height:297mm;margin:0 auto;background:#fff;padding:10mm 11mm 8mm;
   box-shadow:0 2px 22px rgba(20,30,45,.16)}
 h1{font:600 20px/1.12 var(--sans);color:var(--ink);letter-spacing:-.01em}
 .sub{font:11px/1.5 var(--mono);color:var(--dimmer);text-transform:uppercase;letter-spacing:.1em;margin-top:3px}
-.rule{height:2px;background:var(--ink);margin:8px 0 11px}
+.rule{height:2px;background:var(--ink);margin:7px 0 9px}
 h2{font:600 9.5px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--cta);
-   margin:0 0 5px;padding-bottom:4px;border-bottom:1px solid var(--line)}
+   margin:0 0 4px;padding-bottom:3px;border-bottom:1px solid var(--line)}
 .cols{column-count:2;column-gap:8mm}
 .cols>div{display:contents}
-section{margin-bottom:4.5mm;break-inside:avoid}
+section{margin-bottom:3.6mm;break-inside:avoid}
 b,strong{color:var(--ink);font-weight:600}
 ol,ul{margin:0 0 0 17px}
 li{margin:2.5px 0}
@@ -34,7 +34,7 @@ code{font-family:var(--mono);font-size:.88em;color:var(--ink)}
 .big>li{counter-increment:q;position:relative;padding-left:23px;margin:4.5px 0}
 .big>li::before{content:counter(q);position:absolute;left:0;top:0;width:16px;height:16px;border-radius:50%;
   background:var(--cta);color:#fff;font:600 9.5px/16px var(--mono);text-align:center}
-.box{border-left:3px solid var(--cta);background:var(--bg2);padding:6px 9px;margin:5px 0}
+.box{border-left:3px solid var(--cta);background:var(--bg2);padding:5px 8px;margin:4px 0}
 .box.warn{border-left-color:var(--am);background:#fdf7ec}
 .box.stop{border-left-color:var(--rd);background:#fdf1f0}
 .box .t{display:block;font:600 9px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;margin-bottom:4px}
@@ -42,12 +42,12 @@ code{font-family:var(--mono);font-size:.88em;color:var(--ink)}
 table{border-collapse:collapse;width:100%;font-size:10.8px;margin:4px 0}
 td{padding:2.5px 6px 2.5px 0;border-bottom:1px solid var(--line);vertical-align:top}
 td:first-child{white-space:nowrap;width:1%;padding-right:12px}
-.foot{margin-top:4mm;padding-top:5px;border-top:1px solid var(--line);
+.foot{margin-top:3mm;padding-top:5px;border-top:1px solid var(--line);
   font:10px/1.5 var(--mono);color:var(--dimmer);display:flex;justify-content:space-between}
 @media print{
   body{background:#fff;padding:0}
   .sheet{width:auto;min-height:0;box-shadow:none;padding:0}
-  @page{size:A4;margin:9mm}
+  @page{size:A4;margin:8mm}
 }
 </style>
 </head>
@@ -67,7 +67,7 @@ td:first-child{white-space:nowrap;width:1%;padding-right:12px}
   <li>Download <code>R2D2-Simulator.html</code> from the project's latest release.</li>
   <li>Double-click it. <b>Chrome</b> or <b>Edge</b> — everything works elsewhere except talking to
   real hardware over USB, which only Chromium browsers can do.</li>
-  <li>No install, no internet, no account. It runs from the file. It runs from a USB stick.</li>
+  <li>No install, no internet, no account. It runs from a USB stick.</li>
 </ol>
 </section>
 
@@ -75,9 +75,8 @@ td:first-child{white-space:nowrap;width:1%;padding-right:12px}
 <h2>1 · Tell it what your droid is</h2>
 <p>It opens on the setup wizard: <b>nine questions</b>, each with pictures of the actual boards.
 Answer what you know and press <b>SKIP THE REST</b> for the rest — every answer applies straight
-away and nothing is locked in.</p>
-<p>The one that matters most is <b>Servo hardware</b>: Pololu Maestro or PCA9685 expanders. Almost
-everything downstream follows from it.</p>
+away and nothing is locked in. The one that matters most is <b>Servo hardware</b>: Pololu Maestro
+or PCA9685 expanders. Almost everything downstream follows from it.</p>
 <div class="box">
   <span class="t">Firmware is asked last, on purpose</span>
   <p>The sketch has to fit the hardware, not the other way round. If your answers disagree, the card
@@ -93,12 +92,11 @@ everything downstream follows from it.</p>
   <tr><td><kbd>J</kbd> <kbd>L</kbd></td><td>spin the dome — always live, armed or not</td></tr>
   <tr><td><kbd>R</kbd></td><td>drive speed 1‑2‑3</td></tr>
   <tr><td><kbd>C</kbd>+<kbd>↑</kbd></td><td>dome pie panels open (<i>tap</i>, don't hold)</td></tr>
-  <tr><td><kbd>Q</kbd>+<kbd>→</kbd></td><td>utility arms out</td></tr>
-  <tr><td><kbd>F</kbd></td><td>holoprojector lights</td></tr>
+  <tr><td><kbd>Q</kbd>+<kbd>→</kbd></td><td>utility arms out · <kbd>F</kbd> holoprojectors</td></tr>
   <tr><td><kbd>Enter</kbd></td><td>disarm — finish every session disarmed</td></tr>
 </table>
-<p>Then open the <b>LEARN</b> tab and work down the thirteen lessons. Several of them exist because
-the thing they teach is a bug that has bitten a real build.</p>
+<p>Then work down the thirteen lessons on the <b>LEARN</b> tab. Several exist because the thing
+they teach is a bug that has bitten a real build.</p>
 </section>
 
 </div>
@@ -129,12 +127,11 @@ import it and skip everything below.</p>
 
 <section>
 <h2>4 · Make it dance</h2>
-<p><b>SEQUENCE</b> workspace. <b>＋ New sequence</b>, then either drag parts onto the timeline or
-use <b>Ready-made</b>: pick a set of panels, pick a shape, and the whole figure lands at once.
-<b>▶ PLAY</b> previews it on the model.</p>
-<p>Then <b>BOARD ▸ Build your sequences.h</b> and choose which routines land on <b>slots 0–7</b> —
-those eight subroutine numbers are the entire interface between the droid's Arduino and its servo
-controller.</p>
+<p><b>SEQUENCE</b> workspace. <b>＋ New sequence</b>, then drag parts onto the timeline — or use
+<b>Ready-made</b>: pick a set of panels, pick a shape, and the whole figure lands at once.
+<b>▶ PLAY</b> previews it. Then <b>BOARD ▸ Build your sequences.h</b> and choose which routines land
+on <b>slots 0–7</b> — those eight subroutine numbers are the entire interface between the droid's
+Arduino and its servo controller.</p>
 <div class="box warn">
   <span class="t">Saving is not loading</span>
   <p><b>Save</b> keeps a routine in your library. Only <b>Build your sequences.h</b> puts it on the
@@ -149,8 +146,14 @@ controller.</p>
   <p>On screen a channel at its <code>min</code> is drawn <b>shut</b> and at its <code>max</code> is
   drawn <b>fully open</b> — whatever the real numbers are and whichever way round they run. The real
   board always gets the microseconds you measured; the model only ever gets "shut" and "open".</p>
-  <p>So do not expect the on-screen panel angle to match your droid's. That is deliberate: it stops
-  an awkward linkage from making the picture lie to you.</p>
+  <p>So do not expect the on-screen panel angle to match your droid's — that is deliberate.</p>
+</div>
+<div class="box stop">
+  <span class="t">Use at your own risk</span>
+  <p>No warranty, of any kind. This models hardware — it cannot see your wiring, your supply or
+  your linkage. <b>Check what you are about to do before you do it</b>, keep the power switch in
+  reach, and verify every figure on your own bench. Your boards, your servos and your fingers are
+  your responsibility.</p>
 </div>
 </section>
 
@@ -158,7 +161,7 @@ controller.</p>
 </div>
 
 <div class="foot">
-  <span>R2-D2 Astromech Simulator · quick start · written against v1.56.0</span>
+  <span>R2-D2 Astromech Simulator · quick start · v1.56.0 · <b>no warranty · use at your own risk</b></span>
   <span>full manual: docs/manual/</span>
 </div>
 

@@ -1196,6 +1196,29 @@ build is how the shipped file went four versions stale. `src/` (prose split
 five ways), `media/` and `build.py` are tracked, so it rebuilds in two commands.
 `*.mp4` is ignored repository-wide, so the media folder needed a negation.
 
+**"At your own risk", in plain words, four times.** Mike: *"can you also add that
+anything you do or run with this is at your own risk type wording in case
+something goes wrong"*. `LICENSE` has disclaimed warranty since the project went
+public, but MIT's all-caps paragraph is not what somebody about to wire a servo
+reads. So: a red block in **chapter 1 of the manual** (linked from its footer), a
+box on the **quick start**, a line on **both sides of the bench card**, and a
+section of its own in the **README** under the download. Same content each time —
+it models hardware and cannot see your wiring; check before you do it; keep a way
+to cut the power in reach; verify every figure on your own bench; what happens to
+your boards and your fingers is yours. The plain-English version, next to the
+thing it is about. *(Written by a language model, not a lawyer — if the wording
+needs to hold up legally, have somebody qualified read it.)*
+
+**So it is attached to the release beside the dist**, and the README's download
+block links it there — a link to a path in the tree would 404 on exactly the
+file people want. That works because **`build.py` assembles with no captures at
+all**: `media/` is tracked, so `python3 docs/manual/src/build.py` on a bare CI
+runner reuses the encoded clips and stills and writes the 4.8 MB file in about
+two seconds, with no browser and no ffmpeg. `release.yml` runs it between
+`./build.sh` and the upload. **Capturing stays a human job** — the frames only
+need re-taking when the UI a clip points at has moved, and that is a judgement
+nothing in CI can make.
+
 ### 2026-08-20 — v1.56.0: the bench talks to a real Maestro
 
 Mike, on the physical droid rather than the simulator: *"if a maestro is

@@ -11,6 +11,21 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/mikeeddington-lgtm/r2d2-astromech-simulator/releases/latest/download/R2D2-Simulator-Manual.html">📖 <strong>The builder's manual</strong></a>
+  &nbsp;·&nbsp;
+  <a href="docs/manual/quickstart.html">your first hour</a>
+  &nbsp;·&nbsp;
+  <a href="docs/manual/bench-card.html">servo bench card</a><br>
+  <sub>Twenty chapters from <i>open the file</i> to <i>drive the real board</i>, with seven short
+  screen-capture clips · also one file, also offline</sub>
+</p>
+
+<p align="center">
+  <sub><b>No warranty. You use this, and anything you build with it, at your own risk.</b><br>
+  It models hardware — it cannot see your wiring, your supply or your linkage.</sub>
+</p>
+
+<p align="center">
   <img src="docs/shots/drive.png" alt="The simulator driving the MK4 model, with the Padawan sketch's own control map alongside" width="100%">
 </p>
 
@@ -318,6 +333,25 @@ from [him](https://www.patreon.com/mrbaddeley). The Padawan360 lineage stays
 BSD-3-Clause, three.js is MIT, and the board photographs are the
 manufacturers'. [`LICENSE`](LICENSE) spells all four out, because a licence
 can only give away what the licensor owns.
+
+## Use at your own risk
+
+Everything here — the simulator, the manual, the sketches and every number in
+them — is offered **as is, with no warranty of any kind**, and **you use it at
+your own risk**.
+
+It models hardware. It cannot see your wiring, your supply, your linkages or
+your servo. Servos stall and get hot, a battery will happily push a great deal
+of current into a short, and a panel closing on a finger still hurts. Check what
+you are about to do before you do it, keep a way to cut the power within reach,
+and treat every figure here as a starting point to verify on your own bench
+rather than a setting to trust.
+
+If something goes wrong — a damaged board, a stripped gear, a burnt-out servo,
+or worse — that is on you, not on this project or on anyone who has contributed
+to it. [`LICENSE`](LICENSE) says the same thing in the legal register; this is
+the plain-English version, put where somebody about to wire a servo will
+actually read it.
 
 ## Contributing
 

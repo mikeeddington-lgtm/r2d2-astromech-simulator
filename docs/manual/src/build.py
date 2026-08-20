@@ -9,6 +9,11 @@ manual is one self-contained file that opens offline.
 
 Reads frames from <repo>/captures/<name>/f####.jpg, which is where
 tools/video-rig/cap_docs.js puts them. Override with R2_CAPTURES.
+
+**It also runs with no captures at all.** `media/` is tracked, so a clone --
+or a CI runner on a release tag -- can assemble the manual from the encoded
+clips and stills already in the repository, with no browser and no ffmpeg.
+Re-capture only when the UI it points at has moved.
 """
 import base64, os, re, subprocess, sys
 
@@ -40,10 +45,13 @@ def encode_clips():
     os.makedirs(MED, exist_ok=True)
     for name, fps in CLIPS.items():
         src = os.path.join(CAP, name)
-        if not os.path.isdir(src):
-            print('  ! no frames for', name); continue
         mp4 = os.path.join(MED, name + '.mp4')
         webm = os.path.join(MED, name + '.webm')
+        if not os.path.isdir(src):
+            # no frames — fine, as long as the encoded pair is already here
+            if os.path.exists(mp4) and os.path.exists(webm):
+                print('  clip %-8s reusing media/ (no captures)' % name); continue
+            print('  ! no frames and no media for', name); continue
         sh(['ffmpeg', '-y', '-loglevel', 'error',
             '-framerate', str(fps), '-i', os.path.join(src, 'f%04d.jpg'),
             '-vf', f'scale={WIDTH}:-2:flags=lanczos',
@@ -62,9 +70,14 @@ def encode_clips():
                os.path.getsize(mp4)/1024))
 
 def prep_img(rel, out_name):
-    """rel is a path under captures/; returns the media path."""
+    """rel is a path under captures/; returns the media path.
+
+    Falls back to the copy already in media/ when there are no captures --
+    same reasoning as encode_clips()."""
     src = os.path.join(CAP, rel)
     dst = os.path.join(MED, out_name + '.jpg')
+    if not os.path.exists(src):
+        return dst if os.path.exists(dst) else None
     sh(['ffmpeg', '-y', '-loglevel', 'error', '-i', src,
         '-vf', f'scale={WIDTH}:-2:flags=lanczos', '-q:v', '5', dst])
     return dst
@@ -93,12 +106,17 @@ def main():
     print('encoding clips…')
     encode_clips()
     print('preparing stills…')
-    stills = {}
+    stills, reused = {}, 0
     for name, rel in IMAGES.items():
-        if os.path.exists(os.path.join(CAP, rel)):
-            stills[name] = prep_img(rel, 'img-' + name)
+        p = prep_img(rel, 'img-' + name)
+        if p:
+            stills[name] = p
+            if not os.path.exists(os.path.join(CAP, rel)):
+                reused += 1
         else:
-            print('  ! missing', rel)
+            print('  ! no capture and no media for', name)
+    if reused:
+        print('  %d still(s) reused from media/' % reused)
 
     html = ''.join(open(os.path.join(SRC, f)).read()
                    for f in ('head.html', 'body1.html', 'body2.html',

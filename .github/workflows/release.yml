@@ -1,4 +1,4 @@
-# Tag a version, get a downloadable simulator.
+# Tag a version, get a downloadable simulator — and the manual with it.
 #
 # The single-file build is NOT in the repository — it is 7.7 MB of generated
 # output and a tracked copy goes stale (see .gitignore). So it is built here
@@ -42,6 +42,12 @@ jobs:
       - name: Build
         run: ./build.sh
 
+      # The manual assembles from docs/manual/media/, which IS tracked — no
+      # browser, no ffmpeg, no capture pass. Re-capturing is a human job
+      # (tools/video-rig/cap_docs.js) done when the UI it points at moves.
+      - name: Assemble the builder's manual
+        run: python3 docs/manual/src/build.py
+
       - name: Run the suites before publishing anything
         run: ./test.sh
 
@@ -51,10 +57,19 @@ jobs:
           files: |
             R2D2-Simulator.html
             pca-studio/PCA-Studio.html
+            docs/manual/R2D2-Simulator-Manual.html
+            docs/manual/quickstart.html
+            docs/manual/bench-card.html
           body: |
             **Download `R2D2-Simulator.html` and open it in Chrome or Edge.**
             That is the whole installation — one self-contained file, no server,
             no internet. `PCA-Studio.html` is the standalone servo bench.
+
+            **New to it?** `R2D2-Simulator-Manual.html` is the builder's
+            manual — twenty chapters with seven screen-capture clips, in one
+            offline file like the simulator itself. `quickstart.html` is the
+            first hour on one printed side; `bench-card.html` is the servo
+            bench card for the workshop wall.
 
             See CREDITS.md for what in this file belongs to other people, and
             on what terms.
