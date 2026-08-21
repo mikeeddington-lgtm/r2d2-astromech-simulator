@@ -40,10 +40,15 @@ symbol reach the linker. There is no include-style trick that avoids it.
 
 So pick one:
 
-- **Self-contained (this folder).** Move the installed library out of the way —
-  rename `Documents\Arduino\libraries\MaestroPCA` to `MaestroPCA.disabled`,
-  or drag it somewhere else — and press Verify. The five files here are the
-  current ones.
+- **Self-contained (this folder).** Move the installed library **out of
+  `libraries\` altogether** — to `Documents\Arduino\_disabled-libraries\`,
+  say. The five files here are the current ones.
+
+  **Renaming it in place does nothing.** `MaestroPCA` → `MaestroPCAold` still
+  gets scanned and still supplies `MaestroPCA.h`, because the IDE reads what is
+  INSIDE each folder under `libraries\`, not what the folder is called. The
+  error looks identical afterwards, just with the new name in the path — which
+  is exactly how this was found.
 - **Library route.** Delete the five copies from this folder and install
   `arduino/MaestroPCA/` through *Sketch → Include Library → Add .ZIP Library*.
 
@@ -57,6 +62,14 @@ other than line 243, it is not this version.
 `../../src/` and compiles this folder with `../../src` deliberately off the
 include path. If a copy drifts, the test names the file and prints the one
 command that fixes it. Edit the library, not the copy.
+
+## And put this folder in the SKETCHBOOK, not in `libraries\`
+
+`Documents\Arduino\MaestroReplacement\MaestroReplacement.ino` is right.
+`Documents\Arduino\libraries\MaestroReplacement\…` is not: everything under
+`libraries\` is scanned as a library, so the sketch ends up compiled twice —
+once as your sketch and once as a library — and you get the same wall of
+*multiple definition* errors from a completely different cause.
 
 ## `sequences.h` is yours
 
