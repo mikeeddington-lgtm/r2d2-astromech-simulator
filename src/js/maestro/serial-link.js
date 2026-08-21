@@ -122,13 +122,25 @@ function monWarn(html){
   if(sm) sm.onclick  = ()=>monWarn('Monitor only. Nothing is being streamed to the board.');
   const mz = $('bIsMaestro');
   if(mz) mz.onclick  = ()=>serialTryMaestro();
+  /* v1.63.0 — the third board's way out, wired here for the reason the
+     note above gives: #monWarn is rebuilt under its own buttons. */
+  const gs = $('bGenSeqH');
+  if(gs) gs.onclick  = ()=>{ if(typeof exportPcaHeader === 'function') exportPcaHeader(); };
+  const mb = $('bMatchBoards');
+  if(mb) mb.onclick  = ()=>serialAdoptBoardCount(serialBoardReport().driven.length);
   const mq = $('bMstQuiet');
   if(mq) mq.onclick  = ()=>{
     if(typeof mstrQuiet !== 'function') return;
     mstrQuiet(!MST.quiet);
     HW.say(MST.quiet
       ? 'the board\'s speed and acceleration are set to unlimited — the sim is shaping the moves now. A power cycle restores the board\'s own values.'
-      : 'the board\'s own stored speed and acceleration are back.');
+      /* NOT "the board's own values are back" (v1.62.0). mstrQuiet(false)
+         writes what the SIM's channel table says, which is a different
+         thing and used to be 0 on any generated table — so the message
+         said "restored" while leaving every channel unlimited. Only a
+         power cycle brings back what the board itself has stored. */
+      : 'the speed and acceleration from your channel table have been written to the board. '
+        + 'Only a power cycle brings back the board\'s own stored values.');
     if(typeof mstrReadoutSync === 'function') mstrReadoutSync();
   };
 }
@@ -189,6 +201,180 @@ function serialWhat(){
   if(/PCA-BRIDGE|PCA bridge/i.test(SER.banner)) return 'bridge';
   return '';
 }
+/* =====================================================================
+   WHAT THE BOARD SAYS IT IS DRIVING  (v1.63.0)
+
+   Mike: "I setup three pca's and I was only able to configure the first two
+   - all three where seen in the serial monitor."
+
+   Both halves of that are true at once, and the board says so in plain words
+   if anybody reads them. The BUS SCAN (v1.53.0) finds every PCA9685 on the
+   wire and MaestroReplacement lists all of them — which is why all three
+   showed up. What each one is FOR is a different question, and it is
+   answered by `MPCA_CHANNELS` in the generated `sequences.h`, which is fixed
+   when you flash. Generate that header on a two-board build, bolt on a
+   third, and the sketch prints the third as:
+
+       board 2 = 0x42   spare - live drive only, no slots use it
+
+   Exactly two boards configured, all three seen. The remedy is to regenerate
+   sequences.h and re-flash, and until now nothing in the app said so — the
+   line was in the monitor among thirty others, phrased for somebody who
+   already knew what MPCA_CHANNELS was.
+
+   So the banner is parsed rather than skimmed. It was already being kept
+   whole (SER.banner, 4000 chars) and read for one thing: the channel width.
+   These are the rest of the facts in it. Both sketches are covered because
+   both print a board list, in different words:
+
+     MaestroReplacement    I2C: 3 PCA9685(s) on the bus
+                             board 0 = 0x40   channels 0-15
+                             board 2 = 0x42   spare - live drive only...
+                           channels 32   slots 8
+     PCA_Bridge              0x40  channels 0-15   FOUND
+
+   Everything is optional: an older sketch, a Maestro or a board that never
+   answered gives {} and every caller treats that as "no opinion", never as
+   "no boards". */
+function serialBoardReport(){
+  const b = SER.banner || '';
+  const out = {onBus:null, driven:[], spare:[], channels:null, slots:null};
+  let m;
+  /* --- MaestroReplacement ------------------------------------------- */
+  if((m = /I2C:\s*(\d+)\s*PCA9685/i.exec(b))) out.onBus = +m[1];
+  const mrDriven = /board\s+(\d+)\s*=\s*0x([0-9a-f]+)\s+channels\s+(\d+)\s*-\s*(\d+)/ig;
+  while((m = mrDriven.exec(b))) out.driven.push({board:+m[1], addr:'0x'+m[2].toUpperCase(), from:+m[3], to:+m[4]});
+  const mrSpare = /board\s+(\d+)\s*=\s*0x([0-9a-f]+)\s+spare/ig;
+  while((m = mrSpare.exec(b))) out.spare.push({board:+m[1], addr:'0x'+m[2].toUpperCase()});
+  if((m = /^\s*channels\s+(\d+)\s+slots\s+(\d+)/im.exec(b))){ out.channels = +m[1]; out.slots = +m[2]; }
+  /* --- PCA_Bridge: no sequences.h, so everything it binds is driven --- */
+  if(!out.driven.length){
+    const brg = /0x([0-9a-f]+)\s+channels\s+(\d+)\s*-\s*(\d+)\s+FOUND/ig;
+    while((m = brg.exec(b))) out.driven.push({board:out.driven.length, addr:'0x'+m[1].toUpperCase(), from:+m[2], to:+m[3]});
+  }
+  /* "N more board(s) on the bus than this sketch drives" — the only place a
+     sketch older than its own bus limit says how many it left behind */
+  if(out.onBus === null && (m = /(\d+)\s+more board\(s\) on the bus/i.exec(b)))
+    out.onBus = out.driven.length + (+m[1]);
+  if(out.onBus === null && (out.driven.length || out.spare.length))
+    out.onBus = out.driven.length + out.spare.length;
+  return out;
+}
+/* Is "use N expanders" an answer this build can even take? Only a shape that
+   CARRIES a count (buildServoTopo().counted) — a Maestro build that happens to
+   have a bridge plugged in for the bench is not a build with expanders, and
+   `p0` is the mod2026 pair at two fixed addresses, which is not a count at
+   all. Offering it there would be offering to break somebody's build. */
+function serialCanAdoptBoards(){
+  if(typeof buildGet !== 'function' || typeof buildServoTopo !== 'function') return false;
+  const t = buildServoTopo(buildGet());
+  return !!(t && t.counted);
+}
+/* Take the board's word for how many expanders there are. GROWS the channel
+   table and never shrinks it — HW.trim() is a deliberate no-op for the reason
+   it states, and this is the same rule: rows carry names, part mappings and
+   endpoints measured against real linkage, and "the board only answered at
+   three addresses today" is not a reason to delete row 40. A board that
+   dropped off the bus must never cost you the calibration. */
+function serialAdoptBoardCount(n){
+  if(typeof kioskOn === 'function' && kioskOn()) return false;
+  if(!serialCanAdoptBoards()) return false;
+  n = Math.max(1, Math.min(PCA_MAX_BOARDS_UI, n|0));
+  const was = HW.count();
+  if(n * 16 <= was){
+    HW.say('the build already has ' + was + ' channels — nothing to add', 'warn');
+    return false;
+  }
+  buildSet('pcaBoards', n);
+  if(typeof wizFinish === 'function') wizFinish();
+  if(typeof buildEnsureMaestro === 'function') buildEnsureMaestro();
+  HW.save();
+  if(typeof rebuildMaestroUI === 'function') rebuildMaestroUI();
+  if(typeof boardVizSync === 'function') boardVizSync();
+  /* the new rows arrive as Input, the same way rows nobody named have always
+     arrived — an unused channel does not pulse. Say the next step rather than
+     leaving sixteen inert rows and a satisfied-looking toast. */
+  HW.say('build set to ' + n + ' PCA9685 expanders — ' + was + ' channels → ' + HW.count()
+       + '. Nothing that was already there was changed. The new rows start as Input: set the '
+       + 'Mode column to Servo on the ones you have wired.');
+  if(typeof toast === 'function') toast(n + ' expanders — channels ' + was + '-' + (HW.count()-1) + ' are yours to name now');
+  monWarn('');
+  return true;
+}
+/* THE ONE SENTENCE MIKE NEEDED, said where he is standing rather than in the
+   scrollback. Returns the html it showed, or '' when the board and the build
+   agree — so a test can assert on it and a caller can decide whether to
+   interrupt. Never guesses: an empty report says nothing at all. */
+function serialBoardCheck(){
+  const r = serialBoardReport();
+  const have = (typeof HW !== 'undefined' && HW.count) ? HW.count() : 0;
+  const bits = [];
+  if(r.spare.length){
+    bits.push('<b>' + r.spare.length + ' PCA9685' + (r.spare.length===1?' is':'s are')
+      + ' on the bus that the flashed firmware does not animate</b> ('
+      + r.spare.map(x=>x.addr).join(', ') + '). The channel count is baked into '
+      + '<code>sequences.h</code> when you flash it, so a board added afterwards is found, '
+      + 'woken and live-drivable — but no routine reaches it. '
+      + '<b>Regenerate <code>sequences.h</code> and re-flash the co-processor</b> and it joins in. '
+      /* the door, not just the instruction — exportPcaHeader() is the same
+         button the Maestro tab carries, and being sent to go and find it is
+         how a warning gets read and then ignored. Wired in monWarn(). */
+      + '<button class="mini" id="bGenSeqH">generate sequences.h now</button>');
+  }
+  const driven = r.driven.length;
+  if(r.onBus !== null && driven && r.onBus > driven + r.spare.length){
+    bits.push('<b>' + (r.onBus - driven - r.spare.length) + ' board(s) on the bus that this sketch '
+      + 'cannot drive at all.</b> Re-flash the current PCA_Bridge or MaestroReplacement — they reach eight.');
+  }
+  if(r.channels !== null && have && r.channels < have){
+    bits.push('The flashed firmware drives <b>' + r.channels + ' channels</b>; this build has <b>'
+      + have + '</b>. Channels ' + r.channels + '-' + (have-1) + ' will not move from a routine '
+      + 'until <code>sequences.h</code> is regenerated and re-flashed.');
+  }
+  /* THE OTHER DIRECTION, and the commoner one by far (v1.64.0). Mike's own
+     bridge, three boards, nothing wrong with any of it:
+
+         0x40  channels 0-15   FOUND
+         0x48  channels 16-31  FOUND
+         0x50  channels 32-47  FOUND
+
+     PCA_Bridge has no sequences.h — it binds everything it finds, so all
+     three were live and pulsing. The BUILD still said two expanders, so the
+     channel table had 32 rows and the third board had nowhere to be
+     configured. "I was only able to configure the first two."
+
+     v1.63.0 checked firmware-has-FEWER-than-build and was silent here, which
+     is backwards: adding hardware and not telling the app is the thing people
+     actually do. Nobody adds a board and then removes it from the build. */
+  const top = driven ? Math.max.apply(null, r.driven.map(x=>x.to)) : -1;
+  const boardCh = top + 1;
+  if(boardCh > 0 && have && boardCh > have && serialCanAdoptBoards()){
+    bits.push('The board is driving <b>' + boardCh + ' channels</b> across <b>' + driven
+      + ' PCA9685' + (driven===1?'':'s') + '</b> (' + r.driven.map(x=>x.addr).join(', ')
+      + '); this build has <b>' + have + '</b>. Channels ' + have + '-' + (boardCh-1)
+      + ' are wired and pulsing, but there is no row to name or calibrate them on. '
+      + '<button class="mini" id="bMatchBoards">use ' + driven + ' expanders</button>');
+  }
+  if(!bits.length) return '';
+  const html = bits.join(' ');
+  /* ADDED to whatever the mode already said, never instead of it — the
+     mode message is why streaming is on or off, and this is about which
+     boards answer. Losing either one to the other would be a worse
+     monitor than the scrollback this replaces. */
+  monWarn(((SER.modeWarn || '') + ' ' + html).trim());
+
+  monAppend('[' + html.replace(/<[^>]+>/g,'') + ']\n', 'sys');
+  HW.say(boardCh > have && have
+    ? ('the connected board drives ' + boardCh + ' channels; this build has ' + have)
+    : r.spare.length
+    ? (r.spare.length + ' PCA9685(s) found on the bus but not in the flashed sequences.h — regenerate and re-flash')
+    : 'the flashed firmware drives fewer channels than this build has', 'warn');
+  if(typeof toast === 'function') toast(boardCh > have && have
+    ? ('The board has ' + boardCh + ' channels, this build has ' + have + ' — see the Serial pane')
+    : 'A board on the bus is not in the flashed firmware — see the Serial pane');
+  return html;
+}
+
 async function serialIdentify(){
   SER.banner = '';
   monAppend('[identifying: resetting the board to hear its banner]\n','sys');
@@ -247,6 +433,7 @@ async function serialConnect(){
         + 'Moving anything here takes the servos off the board — it stops animating while '
         + 'the PC drives. Run a slot (<code>0</code>-<code>9</code> below, or a button on the '
         + 'droid) to hand them back.');
+      serialBoardCheck();
       return;
     }
     if(what === 'coproc'){
@@ -256,10 +443,12 @@ async function serialConnect(){
         + 'and send box still work (<code>?</code> status, <code>0</code>-<code>9</code> run a '
         + 'slot, <code>x</code> stop). <b>Re-flash the current MaestroReplacement</b> for live '
         + 'sliders, or use PCA_Bridge.');
+      serialBoardCheck();
       return;
     }
     if(what === 'bridge'){
       serialSetMode('stream', '');
+      serialBoardCheck();
       return;
     }
     /* Neither sketch answered — which is exactly what a real Pololu Maestro

@@ -62,9 +62,16 @@ const HW = {
      here. */
   ensure(i){
     const list = MSTR.channels;
+    /* speed/acceleration: the starters' limit, not 0 — see THE STARTER
+       SPEED LIMIT in maestro/starters.js. This channel is Off today, but
+       the way it stops being Off is somebody setting it to Servo in the
+       bench, and arriving there with no speed limit is how a horn ends up
+       slamming. 0 is still one edit away in the Speed column. */
+    const spd = (typeof STARTER_SPEED === 'number') ? STARTER_SPEED : 0;
+    const acc = (typeof STARTER_ACCEL === 'number') ? STARTER_ACCEL : 0;
     const mk = k=>({i:k, name:'Channel '+k, mode:'Off',
                     min:DEFAULT_MIN, max:DEFAULT_MAX, home:DEFAULT_NEUTRAL, homemode:'Off',
-                    neutral:DEFAULT_NEUTRAL, range:1905, speed:0, acceleration:0,
+                    neutral:DEFAULT_NEUTRAL, range:1905, speed:spd, acceleration:acc,
                     act:'', invert:false});
     for(let k=0;k<=i;k++) if(!list[k]) list[k] = mk(k);
     if(list[i].i === undefined) list[i].i = i;
@@ -86,6 +93,34 @@ const HW = {
   /* the BUILD decides how many channels this droid has — not an answer typed
      into step 2 of a wizard. HW.applied() says so out loud when they differ. */
   setupCount(){ return this.count(); },
+  /* =====================================================================
+     …AND WHAT THE BENCH'S OWN ANSWER IMPLIES  (v1.65.0)
+
+     Mike, with the Channels step open and "3 PCA9685s" ticked on step 2:
+     "still cant see servos 24 and above". The line under the table read
+     `0 channels in use of 24` — a Mini Maestro 24's worth of rows, because
+     that is what his BUILD says, while this bench was set up for three
+     expanders and his bridge was driving all 48.
+
+     Both numbers were right and neither knew about the other. `trim()` is a
+     deliberate no-op and says why; `setupCount()` returns the table; and
+     `applied()`'s reconcile only spoke `if(boardIsPca(MSTR.board))` — so a
+     build still answering "Mini Maestro 24" fell straight through the one
+     check written to catch this.
+
+     wantCount() is the bench answer expressed in channels. short() is the
+     gap, or null. Neither of them CHANGES anything: growing a table is an
+     offer (hwAdoptSetupBoards), never a side effect of opening a page. */
+  wantCount(){
+    const hw = this.setup();
+    const n = hw && hw.boards | 0;
+    return n > 0 ? n * 16 : 0;
+  },
+  short(){
+    const want = this.wantCount(), have = this.count();
+    if(!(want > have)) return null;                 // GROW ONLY — see trim()
+    return {want, have, boards: Math.ceil(want/16), missing: want - have};
+  },
   sequences(){ return MSTR.sequences || (MSTR.sequences = []); },
   addSequence(seq){ this.sequences().push(seq); if(typeof reindexSubs === 'function') reindexSubs(); },
 
@@ -105,9 +140,19 @@ const HW = {
        BUILD's board can disagree, and the build is what the wiring sheet and
        the exports read */
     const want = pcaSeqBoardId(hw && hw.boards);
+    /* v1.65.0 — the `boardIsPca` guard used to be an AND, and that was the
+       hole: a build still answering "Mini Maestro 24" is the case that most
+       needs saying, and it was the one case that stayed quiet. Both shapes
+       of disagreement are worth a line, and the wording differs because the
+       fix differs — one is the wrong COUNT, the other the wrong KIND. */
     if(hw && boardIsPca(MSTR.board) && MSTR.board !== want){
       this.say('setup says '+hw.boards+' board(s), but this build is set to '
              + boardById(MSTR.board).label + ' — change it in the build setup if that is wrong');
+    }else if(hw && hw.boards && !boardIsPca(MSTR.board) && this.short()){
+      this.say('this bench is set up for '+hw.boards+' PCA9685(s) — '+(hw.boards*16)+' channels — but '
+             + 'the droid\'s build says '+boardById(MSTR.board).label+', so the table has '+this.count()
+             + ' rows and channels '+this.count()+' and up have nowhere to be configured. '
+             + 'Change the build\'s servo answer to the co-processor.', 'warn');
     }
   },
 

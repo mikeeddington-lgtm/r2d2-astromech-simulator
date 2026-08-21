@@ -1,4 +1,109 @@
-<h2 id="panels">5 · Which servo moves what</h2>
+<h2 id="rack">5 · A wall of gauges</h2>
+
+<p class="lead">Every channel on your board, drawn as an instrument, standing where the droid
+stands. Pick <b>Servo gauges</b> from the stage and there they all are, moving.</p>
+
+<p>It is a model, the same as the droid, the Anzellan head and the Polar Mouse — the chip at the
+bottom right of the stage, or <b>Configure → Model</b>. Choose it and the droid is off the stage
+and a flat screen of gauges is in its place: one tile per channel, six on a Micro 6, twenty-four on
+a Mini 24, a hundred and twenty-eight if you have eight PCA9685s. Each needle is that channel's
+live position, whatever is driving it — the sequencer, the pad, the sketch, live drive, or you.</p>
+
+<p>Because it is a model, it turns up wherever the stage does. The big one in <b>Drive</b>, and the
+narrow column beside the sequencer desk, where you can watch a routine you are editing move the
+actual channels it is compiled onto.</p>
+
+{{CLIP:rack|Servo gauges on the stage in place of the droid: a wave running through them, then one
+servo switched to a 360° dial on its own card while its neighbours stay as gauges.}}
+
+<h3>Gauge or dial — per servo</h3>
+
+<p>Each servo wears whichever face you give it. Click a tile and use <b>Face</b> on its card; the
+two buttons at the top left set <i>all</i> of them at once.</p>
+
+<ul>
+  <li><b>180° gauge</b> — a half-circle, min on the left, max on the right, centre at the top.
+  This is what a servo actually travels, so the needle is the horn: two tiles side by side are
+  directly comparable and a channel parked hard over looks parked hard over.</li>
+  <li><b>360° dial</b> — the same number on a full round bezel, which reads more like an
+  instrument. It uses 300° of the circle, leaving the usual gap at the bottom, because a needle
+  that can point at both its own zero and its own full scale cannot be read.</li>
+</ul>
+
+<p>Both draw the same number and both draw into the same square, so a grid with some of each stays
+in neat rows. Only the arc differs — a gauge and a dial disagreeing about the same servo would be
+the worst possible outcome of offering both.</p>
+
+<div class="tip">
+  <span class="lbl">Mix them on purpose</span>
+  <p>The useful trick is to give one <i>kind</i> of channel the other face. Dials on your dome
+  panels and gauges on everything else, say — you can pick out the group you are working on from
+  across the room without reading a single label.</p>
+</div>
+
+<h3>Click one</h3>
+
+<p>A card appears at the top right of the stage — the same corner, and the same card, you get
+clicking a panel on the droid itself. Four rows:</p>
+
+<ul>
+  <li><b>Face</b> — this servo's gauge or dial. Clicking the one it is already wearing puts it back
+  on the board default, so the <i>All</i> buttons can move it again.</li>
+  <li><b>Drives</b> — what this channel moves on the model. The same one-channel-per-part rule as
+  everywhere else: give a part to this channel and whatever had it lets go.</li>
+  <li><b>Name</b> — what you call it. <i>Dome pie 3</i> beats <i>Channel 14</i> at two in the
+  morning.</li>
+  <li><b>Test</b> — a slider that moves it. It writes the channel's <i>target</i>, so the needle
+  eases there the way it would off a real frame rather than snapping. What you are testing is a
+  servo, and a servo takes time.</li>
+</ul>
+
+<p>Everything deeper — the end stops, the speed, the acceleration — is the servo bench's job
+(chapter 7), and the card says so rather than growing a second set of the same numbers.</p>
+
+<div class="tip">
+  <span class="lbl">A channel wired to nothing still moves</span>
+  <p>This is the part that surprises people. A tile is a <b>channel</b>, not a part, so a channel
+  that drives nothing on the droid still has a position and still shows it. You can write a whole
+  sequence against bare channels, watch the shape of it here, and only then decide what each one
+  is going to move.</p>
+  <p>Which means this works before you own a single servo.</p>
+</div>
+
+<h3>Start from nothing</h3>
+
+<p>With no channel table at all there is nothing to draw, so it offers <b>Build a servo layout</b>
+instead: a channel per servo on your board, named <code>Servo 1</code> upward, resting centred,
+plus eight routines on the Sequence tab you can press play on straight away.</p>
+
+<table>
+  <tr><th>Routine</th><th>What it does, and why you would play it</th></tr>
+  <tr><td><b>Servos Centre</b></td><td>Everything to mid-travel. The one to end on.</td></tr>
+  <tr><td><b>Servos Sweep</b></td><td>All together, end to end. Proves the whole board is alive.</td></tr>
+  <tr><td><b>Servo Ripple</b> / <b>Back</b></td><td>One after another, 70&nbsp;ms apart. What a stagger looks like.</td></tr>
+  <tr><td><b>Count Up</b></td><td><b>One at a time, and only one moving at once.</b> This is the one you play to find out which channel is which.</td></tr>
+  <tr><td><b>Odds and Evens</b></td><td>Alternating halves. Two groups fighting is the commonest thing a real sequence gets wrong.</td></tr>
+  <tr><td><b>Servo Wave</b></td><td>A travelling sine across the grid. Pretty, and it shows easing.</td></tr>
+  <tr><td><b>Small Nudge</b></td><td>±10% of travel. <b>The one to play with real servos armed</b> — it proves the wiring without swinging every horn end to end.</td></tr>
+</table>
+
+<p>Every routine starts and ends centred, so two of them compose: play one after another and the
+second does not begin from wherever the first happened to stop.</p>
+
+<div class="warn">
+  <span class="lbl">It replaces your channel table</span>
+  <p>The same as the Anzellan head's own layout button: it writes a whole new table. If you have a
+  droid config you care about, use <b>Export setup</b> first.</p>
+</div>
+
+<div class="note">
+  <span class="lbl">Sim only</span>
+  <p>Handing the laptop over (chapter 4) puts the droid back on the stage first. The public gets
+  the droid and the pad — and since sim only hides the stage buttons, a screen of gauges would have
+  had no way back to it.</p>
+</div>
+
+<h2 id="panels">6 · Which servo moves what</h2>
 
 <p>A channel number means nothing until something is on the end of it. The <b>Panels</b> job (in the
 setup rail) is where you say which servo moves which part: one channel per part, and moving a part
@@ -30,10 +135,10 @@ dropdown, because you are pointing at the thing rather than remembering its name
   mapping</b>. The app keeps the mapping as real data and carries it through exports, so a file you
   wrote comes back wired the way you wired it. A file from <i>somebody else</i>, or a plain Pololu
   <code>.mstr</code>, carries no mapping at all and has to be guessed from the names — see
-  chapter 16.</p>
+  chapter 17.</p>
 </div>
 
-<h2 id="bench">6 · The servo setup tool</h2>
+<h2 id="bench">7 · The servo setup tool</h2>
 
 <p>This is the workbench, and it is the part of a build that takes the longest. Open it from
 <b>Setup ▸ Servo setup ▸ Open the servo setup tool</b>, or from the Board workspace. It opens
@@ -66,7 +171,7 @@ drive.</p>
   <li><b>use</b> — tick the pins that have a servo on them. The count at the top is honest about how
   many of how many.</li>
   <li><b>name</b> — what you call it. Yours, not the model's.</li>
-  <li><b>drives</b> — which part on screen it moves. This is the mapping from chapter 5.</li>
+  <li><b>drives</b> — which part on screen it moves. This is the mapping from chapter 6.</li>
   <li><b>test</b> — opens and closes the channel off the <i>directed</i> pair, so a reversed channel
   really shuts. Press it to find out which panel you are actually looking at.</li>
 </ul>
@@ -79,7 +184,7 @@ drive.</p>
   to all N selected" so you know what you are about to do.</p>
 </div>
 
-<h2 id="dial">7 · Finding the ends</h2>
+<h2 id="dial">8 · Finding the ends</h2>
 
 <p>This is the heart of it. A servo's endpoints are a property of <i>your linkage</i>, not of the
 datasheet — so you find them by turning a dial with the panel in front of you, and record where it
@@ -127,7 +232,7 @@ panel and on the dial are the same three numbers throughout.}}
   current drops enormously.</p>
 </div>
 
-<h2 id="physical">8 · The bench, physically</h2>
+<h2 id="physical">9 · The bench, physically</h2>
 
 <p>None of the above helps if the electricity is wrong. Before you measure anything:</p>
 
@@ -159,7 +264,7 @@ panel and on the dial are the same three numbers throughout.}}
   before a single board arrives — then connect and measure the real travel later.</p>
 </div>
 
-<h2 id="import">9 · A config you already have</h2>
+<h2 id="import">10 · A config you already have</h2>
 
 <p>If you have set your servos up before, do not do it again. The Servo setup step's first question
 is exactly this, and the left-hand card takes:</p>

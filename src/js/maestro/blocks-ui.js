@@ -1127,9 +1127,9 @@ function blkInspector(seq){
       if(slowest){
         const sr = el('div','blkfield');
         const sl = el('label',null,'Slowest');
-        sl.title = 'the longest throw among this sequence\'s channels at your imported speed and acceleration — nothing here can move faster than that';
+        sl.title = 'the longest throw among this sequence\'s channels at their own speed and acceleration — nothing here can move faster than that';
         sr.appendChild(sl);
-        sr.appendChild(el('span','blkimp','~'+slowest+' ms at your imported speeds'));
+        sr.appendChild(el('span','blkimp','~'+slowest+' ms at these channels\' speeds'));
         host.appendChild(sr);
       }
 
@@ -1152,7 +1152,7 @@ function blkInspector(seq){
       host.appendChild(br2);
     }
     host.appendChild(el('div','blkinsphint','Click a brick to set how long it runs'
-      + (BLK.adv ? ' and how fast it opens and closes.' : '. Its servo moves at your imported speed and acceleration.')));
+      + (BLK.adv ? ' and how fast it opens and closes.' : '. Its servo moves at that channel\'s own speed and acceleration.')));
     return host;
   }
   const label = (b.kind==='seq') ? b.ref : (blkLabel(b.ref));

@@ -372,7 +372,7 @@ $('sqAdv').addEventListener('change',()=>{
   PREFS.seqAdv = BLK.adv; prefsSave();
   sqAdvViews();
   buildSequencer();
-  lg('sys','sequencer advanced options: '+(BLK.adv?'on — per-brick speed overrides editable':'off — imported speeds apply'));
+  lg('sys','sequencer advanced options: '+(BLK.adv?'on — per-brick speed overrides editable':'off — each channel\'s own speed applies'));
 });
 function blkWarnHandEdit(seq){
   if(!blockIsRoutine(seq)) return false;

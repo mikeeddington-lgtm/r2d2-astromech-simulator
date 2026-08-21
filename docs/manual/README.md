@@ -5,7 +5,7 @@ get a real droid moving with it.
 
 | File | What it is |
 |---|---|
-| `R2D2-Simulator-Manual.html` | **The manual.** Twenty chapters, one self-contained file — seven screen-capture clips and ten screenshots inlined as `data:` URIs, so it opens offline and travels the same way the simulator does. **Generated; not tracked.** Build it with the recipe below. |
+| `R2D2-Simulator-Manual.html` | **The manual.** Twenty-one chapters, one self-contained file — eight screen-capture clips and ten screenshots inlined as `data:` URIs, so it opens offline and travels the same way the simulator does. **Generated; not tracked.** Build it with the recipe below. |
 | `quickstart.html` | **Your first hour.** One printable A4 side. Hand this to somebody who will not read twenty chapters. |
 | `bench-card.html` | **The servo bench card.** One sheet, printed double-sided: power rules and the order of work on the front, the silent-failure table and the numbers on the back. Meant to go on the workshop wall. |
 
@@ -15,14 +15,18 @@ press ⌘P / Ctrl-P. The manual is assembled.
 ## Rebuilding the manual
 
 The prose lives in `src/`, split into five files so a chapter can be edited
-without scrolling past a megabyte of base64:
+without scrolling past a megabyte of base64. **Chapter numbers are plain text
+in both the heading and the nav link**, so inserting one means renumbering the
+rest — key the edit off the `id`, never off the number, and fix the handful of
+"see chapter N" references in the prose first, while the old numbers still mean
+the old things.
 
 ```
 src/head.html      the shell — styles, the contents rail
 src/body1.html     chapters 1-4    what it is · open it · the nine questions · drive it
-src/body2.html     chapters 5-9    panels · the bench · the ends · power · importing
-src/body3.html     chapters 10-15  bricks · music · the board · live drive · sketches · Maestro
-src/body4.html     chapters 16-20  files · troubleshooting · keys · storage · glossary
+src/body2.html     chapters 5-10   the servo rack · panels · the bench · the ends · power · importing
+src/body3.html     chapters 11-16  bricks · music · the board · live drive · sketches · Maestro
+src/body4.html     chapters 17-21  files · troubleshooting · keys · storage · glossary
 src/build.py       assembles them, encodes the clips, inlines every asset
 ```
 
@@ -79,3 +83,16 @@ Every screenshot and clip in it was captured from the dist at the version named
 in its footer. When a flow changes, re-capture the clip that shows it — the
 capture script is the manual's regression test, in the sense that it stops
 working when the thing it was pointing at moves.
+
+## The manual, from inside the simulator
+
+Since v1.58.0 the app itself has four doors onto this file — a **📖 Manual**
+button in the header, one on the setup screen's head, a card in the Learn tab
+and another at the top of the **?** panel. All four go through `MANUAL_URL` in
+`src/js/app/manual.js`, which points at
+`releases/latest/download/R2D2-Simulator-Manual.html`.
+
+**So the manual has to be attached to every release.** A tag that ships
+`R2D2-Simulator.html` without its manual leaves four buttons in the app
+pointing at a 404. `tests/chrome.test.js` pins the URL's shape; nothing can pin
+the other end but the release itself.

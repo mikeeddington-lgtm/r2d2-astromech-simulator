@@ -1,11 +1,11 @@
 /* =====================================================================
-   DOCUMENTATION CLIPS — the seven short films in docs/manual/
+   DOCUMENTATION CLIPS — the eight short films in docs/manual/
 
    Every clip in the builder's manual is captured from the real dist,
    headless and deterministically, by this one file. Run it beside a built
    `R2D2-Simulator.html` (lib.js loads the copy next to itself):
 
-       node tools/video-rig/cap_docs.js            # all seven
+       node tools/video-rig/cap_docs.js            # all eight
        node tools/video-rig/cap_docs.js bench      # just one
 
    Frames land in `captures/<name>/f####.jpg`; `docs/manual/src/build.py`
@@ -231,6 +231,57 @@ const CAPS = '/tmp/w/captures';           // burst() writes under process.cwd()
       }
       await untilFrames(count, 150);
     });
+  });
+
+
+  /* ------------------------------ 8. the servo gauges (v1.60.0)
+
+     A SECOND capture trap, and it is the first one's mirror image. The rule
+     at the top of this file is "pace by captured FRAMES, never by wall
+     clock" — but a CDP screencast only produces a frame when the page
+     REPAINTS, and this model has no 3D canvas under it (it covers #stage
+     with a flat screen and main.js skips the render). Every other clip films
+     the stage repainting continuously; this one repaints only when a needle
+     moves.
+
+     So the film cannot open on the empty state and press the button: with
+     nothing on screen moving there are no frames, `untilFrames()` waits out
+     its whole timeout, and the burst ends with ONE image. (It did. Ten
+     minutes for one frame.) The layout is therefore built and a routine
+     already running BEFORE the burst opens. */
+  await run('rack', async () => {
+    /* THE MIXED GRID IS SET UP BEFORE THE BURST, not during it. Switching a
+       face from inside the burst was tried twice and never reached the film —
+       the same calls work perfectly outside it, so it is a timing
+       relationship between this burst and the beats rather than a bug in the
+       view, and chasing it further was not worth the frames. What the chapter
+       needs on film is a grid with some dials and some gauges and a card open
+       on one of them; both of those are STATE, and state belongs in the setup
+       where it is deterministic. Only MOTION needs the burst. */
+    await ev(() => {
+      try { setBoard('mini24'); } catch (e) {}
+      MSTR.channels = []; MSTR.sequences = []; MSTR.loaded = false;
+      wsSet('drive');
+      modelSet('servos', { frame: false });
+      svSetShape('gauge');
+      const b = document.getElementById('btnSvStarter'); if (b) b.click();
+      [4, 9, 14, 19].forEach(ch => svSetShapeOf(ch, 'dial'));
+      const q = MSTR.sequences.find(s => /wave/i.test(s.name));
+      if (q) seqStart('doc', q.frames, q.name);
+    });
+    await wait(1500);
+    await burst(page, cdp, 'rack', 175, async (p, count) => {
+      await untilFrames(count, 70);
+      /* the card, on one of the dials, so the Face row is on film with 360°
+         lit — the half of the chapter a still cannot show */
+      await p.evaluate(() => {
+        svSelect(9);
+        const q = MSTR.sequences.find(s => /ripple$/i.test(s.name));
+        if (q) seqStart('doc', q.frames, q.name);
+      });
+      await untilFrames(count, 175);
+    });
+    await ev(() => { svDeselect(); svSetShape('gauge'); modelSet('droid', { frame: false }); });
   });
 
   await browser.close();

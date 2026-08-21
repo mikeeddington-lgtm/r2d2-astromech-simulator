@@ -44,6 +44,18 @@ async function droid(page, tuned){
       c.speed = 12 + (i%5); c.acceleration = 3 + (i%4); });
     HW.save();
   });
+  /* …and the UNTUNED droid says what it relies on out loud (v1.62.0).
+     It used to rely on the starter's `speed:0, acceleration:0` — unlimited,
+     so blockEffRamps() floors nothing and the tracer can reproduce the
+     compiler exactly. v1.62.0 gives generated channels a real speed limit
+     (STARTER_SPEED/STARTER_ACCEL, because an unlimited servo BANGS), which
+     silently moved this fixture into the tuned case and turned two ramps
+     into issues. Exactly the trap HANDOVER §7 already records: a fixture
+     that depends on a default has to ask for it. */
+  else await page.evaluate(()=>{
+    MSTR.channels.forEach(c=>{ c.speed = 0; c.acceleration = 0; });
+    HW.save();
+  });
   await page.waitForTimeout(150);
 }
 /* author a routine, compile it, and hand back a sequence that looks

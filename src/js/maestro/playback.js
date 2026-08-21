@@ -85,6 +85,51 @@ function chanDenorm(c, t){
   const e = chanEnds(c);
   return Math.round(e.shut + clamp(t,0,1) * (e.open - e.shut));
 }
+/* =====================================================================
+   WHAT IS CHANNEL 7 DOING?  (CHPOS, v1.59.0)
+
+   Until now the sim could not answer that unless the channel drove a part.
+   `applyFrameTargets()` wrote `ACT_T[c.act]` and `liveWrite()`, and a channel
+   mapped to nothing wrote nowhere: it was a real servo on a real board that
+   the simulator had no opinion about. That was survivable while every surface
+   was part-shaped — the Outputs table lists ACTUATORS, the model shows PARTS —
+   and it stopped being survivable the moment a view drew one gauge per
+   CHANNEL (app/servos.js).
+
+   So: one normalised position and one target per channel index, written
+   wherever a channel target is set, eased in `syncActuators()` beside ACT with
+   the same rule. Deliberately NOT a second copy of the mapped channels'
+   answer — `chanPosNorm()` below prefers `ACT[c.act]` when there is one,
+   because that is the value the sketch, the pad and every group action write
+   to, and none of them goes anywhere near a channel index.
+
+   Not persisted, not exported: it is a live reading, like ACT. */
+const CHPOS = [], CHPOS_T = [];
+function chanPosSet(i, norm){
+  if(!(i >= 0)) return;
+  CHPOS_T[i] = clamp(norm, 0, 1);
+  if(CHPOS[i] === undefined) CHPOS[i] = CHPOS_T[i];    // first sight: no sweep from zero
+}
+/* seed every channel at its own rest, so a freshly loaded table reads as
+   parked rather than as "hard over at the shut end" */
+function chanPosReset(){
+  CHPOS.length = 0; CHPOS_T.length = 0;
+  if(typeof MSTR === 'undefined' || !Array.isArray(MSTR.channels)) return;
+  MSTR.channels.forEach(c=>{
+    const v = chanNorm(c, (typeof chanRest === 'function') ? chanRest(c) : c.home);
+    CHPOS[c.i] = v; CHPOS_T[c.i] = v;
+  });
+}
+/* THE ONE READER. A mapped channel's truth is its actuator — that is where
+   the sketch, the pad, a group action and the easing loop all put it, and a
+   channel index is invisible to every one of them. Everything else falls back
+   to the channel's own reading. */
+function chanPosNorm(c){
+  if(!c) return 0;
+  if(c.act && typeof ACT !== 'undefined' && ACT[c.act] !== undefined) return ACT[c.act];
+  return (CHPOS[c.i] !== undefined) ? CHPOS[c.i] : chanNorm(c, (typeof chanRest === 'function') ? chanRest(c) : c.home);
+}
+
 /* push a frame's targets into the droid
    ------------------------------------
    TWO DROIDS, one loop. `ACT_T` is the model on screen; `liveWrite()` is the
@@ -100,12 +145,14 @@ function applyFrameTargets(targets){
     const v = targets[c.i];
     if(v===undefined || v===0) continue;      // 0 = channel off / untouched
     if(c.act) ACT_T[c.act] = chanNorm(c, v);
+    chanPosSet(c.i, chanNorm(c, v));          // …and the channel's own reading — see CHPOS
     if(typeof liveWrite === 'function') liveWrite(c, v);
   }
 }
 function applyLivePose(){
   for(const c of MSTR.channels){
     if(c.act) ACT_T[c.act] = chanNorm(c, EDIT.live[c.i]);
+    chanPosSet(c.i, chanNorm(c, EDIT.live[c.i]));
     if(typeof liveWrite === 'function') liveWrite(c, EDIT.live[c.i]);
   }
 }

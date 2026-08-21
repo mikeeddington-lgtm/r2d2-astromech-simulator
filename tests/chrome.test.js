@@ -23,6 +23,9 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
   ok('the document is no wider than the viewport', await ev(()=>
     document.documentElement.scrollWidth <= window.innerWidth),
     await ev(()=>document.documentElement.scrollWidth+' vs '+window.innerWidth));
+  /* four again since v1.60.0 — the servo gauges are a model, not a
+     workspace. Still the same question: they are the widest thing in the
+     header and a 1280 laptop is the tightest case. */
   ok('all four workspace buttons are fully on screen', await ev(()=>
     document.querySelectorAll('#viewsel .wsbtn').length===4 &&
     [...document.querySelectorAll('#viewsel .wsbtn')].every(b=>{
@@ -241,7 +244,7 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
     $('btnEnv').click(); $('btnModel').click();
     const ids=[...document.querySelectorAll('#stagePick .sprow')].map(r=>r.dataset.id);
     return document.querySelectorAll('#stagePick').length===1
-        && ids.join(',')==='droid,frik,mouse,builder';
+        && ids.join(',')==='droid,frik,mouse,builder,servos';
   }));
   ok('the droid is ticked as what is on the stage', await ev(()=>{
     const cur=document.querySelector('#stagePick .sprow.cur');
@@ -477,6 +480,89 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
   await ev(()=>{ document.querySelector('.dlgwrap .dlgyes').click(); });
   await page.waitForFunction('!document.querySelector(".dlgwrap")');
   ok('Close closes it', await ev(()=>!document.querySelector('.dlgwrap')));
+
+
+  console.log('\n════ the builder’s manual — one URL, four doors (v1.57.0) ════');
+  /* Mike: "make the manual really prominent on the sim". Four places open it,
+     and the thing worth pinning is not that the buttons exist but that all
+     four go through the SAME constant: four hardcoded copies of a release URL
+     is four things to forget when the repository moves, and the one that gets
+     forgotten is always the one somebody actually clicks. */
+  const man = await ev(()=>{
+    const got = {url: (typeof MANUAL_URL === 'string') ? MANUAL_URL : ''};
+    got.https   = /^https:\/\/github\.com\//.test(got.url);
+    got.release = /\/releases\/latest\/download\//.test(got.url);
+    got.file    = got.url.endsWith('R2D2-Simulator-Manual.html');
+
+    /* door 1 — the header, beside ? */
+    const hdr = $('btnManual');
+    got.header = !!hdr;
+    got.inHeader = !!(hdr && hdr.closest('header'));
+    got.byTheQuestionMark = !!(hdr && hdr.nextElementSibling && hdr.nextElementSibling.id === 'btnKbd');
+
+    /* door 2 — the setup screen's HEAD, so it is on every step and not just one */
+    const stp = $('btnManualStp');
+    got.setup = !!stp;
+    got.setupInHead = !!(stp && stp.closest('.stphead'));
+    got.setupNotAStep = !!(stp && !stp.closest('#startupBody'));
+
+    /* door 3 — the Learn tab */
+    document.querySelector('#tabs button[data-p="pLearn"]').click();
+    buildTutor();
+    got.learn = !!$('btnManualLearn');
+    got.learnAboveLessons = (()=>{
+      const host = $('tutorHost'), b = $('btnManualLearn');
+      if(!host || !b) return false;
+      const lessons = host.textContent.indexOf('Lessons');
+      return lessons > host.textContent.indexOf('manual');
+    })();
+
+    /* door 4 — the ? / Controls panel */
+    document.querySelector('#tabs button[data-p="pHelp"]').click();
+    got.help = !!$('btnManualHelp');
+    got.helpFirst = !!(function(){
+      const p = $('pHelp'); if(!p) return false;
+      return p.querySelector('.sect') === $('secManual');
+    })();
+
+    /* every one of them says the same thing about the same document */
+    got.labels = ['btnManual','btnManualStp','btnManualLearn','btnManualHelp']
+      .map(id=>{ const b=$(id); return b ? /manual/i.test(b.textContent) : false; });
+    return got;
+  });
+  ok('there is ONE manual URL, and it is the release download',
+     man.https && man.release && man.file, man.url);
+  ok('door 1 — a Manual button in the header, beside the ?',
+     man.header && man.inHeader && man.byTheQuestionMark, JSON.stringify(man));
+  ok('door 2 — on the setup screen’s head, so every step has it, not just one',
+     man.setup && man.setupInHead && man.setupNotAStep);
+  ok('door 3 — in the Learn tab, above the lessons', man.learn && man.learnAboveLessons);
+  ok('door 4 — first thing in the ? panel', man.help && man.helpFirst);
+  ok('all four say "manual"', man.labels.every(Boolean), JSON.stringify(man.labels));
+
+  /* the kiosk. The header is display:none in sim only, but this file's
+     standing rule is guard the FUNCTION, not the button — a public terminal
+     at a con must not have a door out to a browser tab, however it is
+     reached. */
+  const manKiosk = await ev(()=>{
+    let opened = 0;
+    const real = window.open;
+    window.open = () => { opened++; return null; };
+    kioskEnter('');
+    const refused = manualOpen();
+    const duringKiosk = opened;
+    /* kioskExit() is async and puts a confirm dialog up; kioskLeave() is the
+       half that actually leaves, which is what this assertion is about */
+    kioskLeave();
+    const allowed = manualOpen();
+    window.open = real;
+    return {refused, duringKiosk, allowed, after: opened, off: !kioskOn()};
+  });
+  ok('manualOpen() refuses while sim only is on, and opens nothing',
+     manKiosk.refused === false && manKiosk.duringKiosk === 0, JSON.stringify(manKiosk));
+  ok('…and works again once you leave it',
+     manKiosk.off && manKiosk.allowed === true && manKiosk.after === 1, JSON.stringify(manKiosk));
+  await ev(()=>{ document.querySelector('#tabs button[data-p="pHelp"]').click(); });
 
   console.log(`\n${pass} passed, ${fail} failed`);
   console.log('page errors:', errs.length?errs:'none');

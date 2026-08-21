@@ -68,8 +68,25 @@ function frame(now){
   /* SIM.draw is false only under ?norender — see util.js. render() is also
      what refreshes the world matrices, so do that either way or picking and
      the camera framing start reading last frame's positions. */
-  if(SIM.draw) renderer.render(scene,camera);
+  /* v1.60.0 — the servo gauges cover the stage with a flat screen and the
+     canvas is display:none under them, so rendering is drawing a 3D scene
+     nobody can see. updateMatrixWorld still runs, for the same reason it
+     does under ?norender: render() is also what refreshes the world
+     matrices, and picking and framing read them. */
+  if(SIM.draw && !(typeof SV !== 'undefined' && SV.shown)) renderer.render(scene,camera);
   else scene.updateMatrixWorld(true);
+
+  /* THE GAUGES ARE THE PICTURE, NOT A READOUT  (v1.62.0)
+     v1.60.0 put this on the 0.06 s UI tick beside the Outputs table, calling
+     it "a readout, not a render". That was true of v1.59.0's side panel and
+     stopped being true the moment the gauges BECAME the model: sixteen
+     needle positions a second is visibly stepped, and v1.57.0's 3D rack —
+     the thing they replaced — drew at the full frame rate. So it moves here,
+     next to renderer.render(), because that is what it is now standing in
+     for. It costs at most 128 attribute writes, it is gated on SV.shown
+     inside svTick(), and while it IS shown the renderer above is skipped
+     entirely — so this is the cheapest frame the app ever draws. */
+  if(typeof svTick==='function') svTick();
 
   uiAcc+=dt;
   if(uiAcc>=0.06){ uiAcc=0; updateHUD(); updatePad(); updateOutputs(); renderConsole(); syncChipTitles(); }
@@ -214,6 +231,18 @@ window.addEventListener('load',()=>{
   $('btnTrack').addEventListener('click',()=>setTrack(!TRACK.on));
   if(typeof trackEditInstallButton==='function') trackEditInstallButton();   // app/track-edit.js's door
   if(typeof mbInstallStageButton==='function') mbInstallStageButton();       // scene/builder.js's door
+  /* the manual's four doors (app/manual.js): the header button is built
+     here, and the two STATIC ones in body.html are bound here for the same
+     reason every other static button is — the panes they live in are shown
+     and hidden, never rebuilt, so binding once at boot is binding forever */
+  if(typeof manualInstallHeader==='function') manualInstallHeader();
+  /* the servo grid's Esc — deselects the open channel card, the same key
+     that deselects a part on the model (cad/select.js). It only ever acts
+     while that view is up and a tile is selected. */
+  if(typeof svKey==='function') document.addEventListener('keydown', svKey);
+  if(typeof svRestore==='function') svRestore();
+  if($('btnManualHelp')) $('btnManualHelp').addEventListener('click', manualOpen);
+  if($('btnManualStp'))  $('btnManualStp').addEventListener('click', manualOpen);
   $('btnModel').addEventListener('click',()=>stagePicker('btnModel', modelOptions(), modelGet(), id=>modelSet(id)));
   modelSyncBtn();
   $('btnScaleUp').addEventListener('click',()=>applyUiScale(PREFS.uiScale+0.05));

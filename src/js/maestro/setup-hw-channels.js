@@ -724,7 +724,24 @@ function setupBindChannels(){
   const count = ()=>{
     const n = HW.channels().filter(c=>c && /^servo/i.test(c.mode)).length;
     const el2 = $('setChCount');
-    if(el2) el2.textContent = n + ' channel' + (n===1?'':'s') + ' in use of ' + setupChannels();
+    if(!el2) return;
+    /* v1.65.0 — "still cant see servos 24 and above". This line said
+       `0 channels in use of 24` and stopped there, while step 2 of this very
+       wizard said three PCA9685s. The number it was missing is the one the
+       reader is looking for, so it says both and offers the way across.
+       innerHTML rather than textContent because there is a button in it now;
+       every value in it is a number this file computed. */
+    const gap = (typeof HW.short === 'function') ? HW.short() : null;
+    const head = n + ' channel' + (n===1?'':'s') + ' in use of ' + setupChannels();
+    if(!gap){ el2.textContent = head; return; }
+    el2.innerHTML = head
+      + ' <span class="warn">— step 2 says ' + gap.boards + ' PCA9685'
+      + (gap.boards===1?'':'s') + ', which is ' + gap.want + ' channels. '
+      + 'The droid\'s build only gives this table ' + gap.have + ' rows, so channels '
+      + gap.have + '-' + (gap.want-1) + ' have nowhere to be configured.</span>'
+      + (setupCanAdoptBoards()
+          ? ' <button class="mini" data-act="growboards">add the missing ' + gap.missing + ' rows</button>'
+          : '');
   };
   count();
   body.oninput = e=>{
@@ -859,6 +876,13 @@ function setupBindChannels(){
       setupAskClear();
       if(b.dataset.ask === 'yes' && a) a.fn();
       setupRender(); return;
+    }
+    /* v1.65.0 — the way across the gap the count line now names. Guarded in
+       setupAdoptBoards() itself (kiosk, and HW.short() being null), not here:
+       the standing rule is to guard the FUNCTION, never the button. */
+    if(b.dataset.act === 'growboards'){
+      if(typeof setupAdoptBoards === 'function' && setupAdoptBoards()) setupRender();
+      return;
     }
     if(b.dataset.act === 'allon' || b.dataset.act === 'alloff'){
       for(let i=0;i<setupChannels();i++) setupUse(i, b.dataset.act === 'allon');

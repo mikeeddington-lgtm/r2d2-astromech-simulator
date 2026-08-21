@@ -672,8 +672,18 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
     const card  = $('startup').getBoundingClientRect();
     return stage.left >= card.right - 2 && stage.width > 200;
   }));
-  ok('…and the canvas actually resized to match', await ev(()=>
-    Math.abs(renderer.domElement.clientWidth - $('stage').clientWidth) <= 2));
+  /* the canvas follows the stage on a FRAME, not on the click — three.js's
+     setSize() runs from the resize path, and under the 8 MB inlined build
+     that frame can land after this assertion did. It flaked about one run in
+     four on the dist and never on dev.html, which is exactly the shape of a
+     race being won by a smaller file. Wait for the frame it is waiting for. */
+  ok('…and the canvas actually resized to match', await ev(async ()=>{
+    for(let i=0;i<12;i++){
+      await new Promise(r=>requestAnimationFrame(r));
+      if(Math.abs(renderer.domElement.clientWidth - $('stage').clientWidth) <= 2) return true;
+    }
+    return {canvas: renderer.domElement.clientWidth, stage: $('stage').clientWidth};
+  }));
   ok('the Colours step splits too', await ev(()=>{
     wizGo(wizSteps().findIndex(s=>s.key==='_paint'));
     return document.body.classList.contains('wizsplit');

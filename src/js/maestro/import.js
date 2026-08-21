@@ -316,6 +316,7 @@ function mstrParse(text, fileName){
 function mstrApply(P){
   MSTR.loaded=true; MSTR.fileName=P.fileName; MSTR.xmlText=P.xmlText;
   MSTR.servoCount=P.servoCount; MSTR.channels=P.channels; MSTR.sequences=P.sequences;
+  if(typeof chanPosReset === 'function') chanPosReset();   // the table is a new table — CHPOS with it
   MSTR.subs=P.subs; MSTR.scriptText=P.scriptText; MSTR.header=P.header; MSTR.board=P.board;
   MSTR.report=P.report;
   /* v1.48.0 — bricks the file carried as a comment come back as bricks,

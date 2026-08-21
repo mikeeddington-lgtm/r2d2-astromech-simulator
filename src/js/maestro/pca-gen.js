@@ -46,7 +46,22 @@ function pcaGenHeader(channels, sequences, meta){
   s += '   Consumed by the MaestroPCA library (arduino/MaestroPCA).\n';
   s += '\n';
   s += '   Wiring: channel i lives on PCA9685 board (i/16), pin (i%16).\n';
-  for(let b=0;b<boards;b++) s += '     board '+b+' -> I2C address 0x'+(0x40+b).toString(16).toUpperCase()+' (channels '+(b*16)+'..'+Math.min(n-1,b*16+15)+')\n';
+  /* v1.63.0 — this used to print "board 0 -> 0x40, board 1 -> 0x41" and so
+     on, which stopped being true in v1.53.0 when the sketches started
+     FINDING their boards instead of assuming consecutive addresses from
+     0x40. Mike's own question is why they scan: "I and others may jumper
+     them differently". A generated header that names addresses the boot
+     scan may never use is worse than one that names none — somebody wires
+     to the comment. So it says what decides it instead. */
+  for(let b=0;b<boards;b++) s += '     board '+b+' -> channels '+(b*16)+'..'+Math.min(n-1,b*16+15)+'\n';
+  s += '     Board numbers are ASCENDING I2C ADDRESS as found by the boot\n';
+  s += '     scan (0x40-0x7F, All Call excluded) — bridge whichever jumpers\n';
+  s += '     suit the build. The sketch prints the mapping it settled on.\n';
+  s += '\n';
+  s += '   MPCA_CHANNELS BELOW IS FIXED WHEN YOU FLASH THIS. A PCA9685 added\n';
+  s += '   to the bus afterwards is found and woken, and live drive reaches\n';
+  s += '   it, but no routine does — the sketch prints it as "spare". Add a\n';
+  s += '   board, regenerate this file, re-flash.\n';
   s += '   Targets are QUARTER-MICROSECONDS (6000 = 1500 us), straight from\n';
   s += '   the Maestro channel table — endpoints are YOUR calibration.\n';
   s += '   Calibrate the PCA9685 oscillator (maestro.begin(<hz>)) or these\n';

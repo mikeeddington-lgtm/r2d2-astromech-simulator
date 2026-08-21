@@ -27,6 +27,8 @@ const REFUSAL = 'this build has no servo board yet — answer the servo question
   await page.evaluate(r=>{ window.REFUSAL=r; }, REFUSAL);
 
   console.log('\n════ the switcher — four workspaces in the header ════');
+  /* v1.59.0 briefly made it five; v1.60.0 put the servo gauges back where
+     they belong, as a MODEL on the stage, and the header is four again */
   ok('four .wsbtn in #viewsel, in the fixed order', await ev(()=>{
     const ids=[...document.querySelectorAll('#viewsel .wsbtn')].map(b=>b.dataset.ws);
     return ids.join(',')==='drive,seq,config,bench';

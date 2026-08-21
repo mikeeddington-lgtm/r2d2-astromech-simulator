@@ -89,7 +89,19 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
   }));
 
   console.log('\n════ sequence mode ════');
-  await ev(()=>{ makeStarter('dome'); rebuildMaestroUI(); });
+  /* UNLIMITED CHANNELS, ASKED FOR OUT LOUD (v1.62.0).
+     The compile assertions below pin the exact frames a 200 ms ramp makes,
+     which is only the compiler's answer when nothing floors it. Until
+     v1.62.0 that came free from the starter's `speed:0, acceleration:0`;
+     now a generated channel carries a real speed limit (STARTER_SPEED —
+     an unlimited servo BANGS), so blockEffRamps() would floor a 200 ms rise
+     to the channel's ~429 ms throw and the frame named 't200' would not
+     exist. The travel floor has its own assertions in sequencer-ui and
+     blocks-trace; this suite is about the compiler, so it says so.
+     HANDOVER §7: a fixture that depends on a default has to ask for it. */
+  await ev(()=>{ makeStarter('dome');
+                 MSTR.channels.forEach(c=>{ c.speed = 0; c.acceleration = 0; });
+                 rebuildMaestroUI(); });
   await ev(()=>setStripMode('seq'));
   await page.waitForTimeout(400);
   ok('opening it goes straight into the expanded layout', await ev(()=>
@@ -340,7 +352,9 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
   console.log('\n════ every part has its own colour ════');
   await ev(()=>{ loadProfile('maestro25'); });
   await page.waitForTimeout(400);
-  await ev(()=>{ setBoard('mini24'); makeStarter('dome','mini24'); setStripMode('seq'); });
+  await ev(()=>{ setBoard('mini24'); makeStarter('dome','mini24');
+                 MSTR.channels.forEach(c=>{ c.speed = 0; c.acceleration = 0; });   // as above
+                 setStripMode('seq'); });
   await page.waitForTimeout(300);
   ok('neighbouring parts never share a colour', await ev(()=>{
     const a = blockActions().slice(0,8).map(x=>blkColor(x.act));
@@ -943,6 +957,54 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
   ok('a routine compiled against a stale Goto/6000 channel still lands its home frame SHUT',
      co2.end===co2.shut && co2.endName==='home' && co2.rest===co2.shut && co2.restNorm===0,
      JSON.stringify(co2));
+
+  /* ════════════════════════════════════════════════════════════════════
+     THE SEQUENCER MOVES THE DROID ON A PCA9685 BUILD TOO  (v1.61.0)
+     Mike: "somethings broken when im in the sequncer and have r2 set as the
+     model I dont see any of teh panels moving." It was broken on mod2026
+     only: the PCA9685 layer owns its 21 actuators and overwrote ACT from
+     servoTravel() every frame, so applyFrameTargets()'s ACT_T write was
+     stamped flat one line later. Every assertion below fails on v1.60.0. */
+  console.log('\n════ sequencer → droid, both profile kinds ════');
+  const spin = async prof => await page.evaluate(p=>{
+    loadProfile(p);
+    setBoard('mini24'); makeStarter('dome','mini24');
+    modelSet('droid',{frame:false});
+    const q = MSTR.sequences.find(s=>/pies open/i.test(s.name)) || MSTR.sequences[0];
+    const ang = ()=>{ const e = new THREE.Euler().setFromQuaternion(R2.pies[0].quaternion);
+                      return Math.max(Math.abs(e.x), Math.abs(e.y), Math.abs(e.z)); };
+    /* park it shut first — earlier assertions in this file leave the dome
+       part-open, and "it moved" has to mean moved, not "was already there".
+       actSet() is the profile-aware writer (cad/parts.js). */
+    actSet('pie0', 0);
+    for(let i=0;i<60;i++){ syncActuators(0.05); applyToModel(0.05); }
+    seqStart('desk', q.frames, q.name);
+    const before = ang();
+    for(let i=0;i<80;i++){ maestroStep(0.05); syncActuators(0.05); applyToModel(0.05); }
+    return {prof:PROFILE.id, seq:q.name, act:ACT.pie0, before, after:ang()};
+  }, prof);
+
+  const sqP = await spin('mod2026');
+  ok('a routine on a PCA9685 build opens the pie on the model', sqP.act > 0.9, JSON.stringify(sqP));
+  ok('…and the pie on screen actually rotated', sqP.before < 0.01 && sqP.after > 0.5, JSON.stringify(sqP));
+  const sqM = await spin('maestro25');
+  ok('the Maestro path is unchanged', sqM.act > 0.9 && sqM.after > 0.3, JSON.stringify(sqM));
+
+  /* the fix is EDGE-triggered on purpose: if it commanded the board from
+     ACT_T every frame, a stale ACT_T would fight the running sketch forever */
+  const held = await page.evaluate(()=>{
+    loadProfile('mod2026');
+    const run = n => { for(let i=0;i<n;i++){ syncActuators(0.05); applyToModel(0.05); } };
+    run(40);
+    setPWM(1, 0, 0, CFG.LeftDoorOpen);      // the sketch opens the left door
+    run(60); const opened = ACT.doorL;
+    run(120);                                // nothing else commands it: it must HOLD
+    return {opened, held:ACT.doorL, T:ACT_T.doorL};
+  });
+  ok('a door the sketch opened is not yanked shut by the mirror',
+     held.opened > 0.9 && held.held > 0.9, JSON.stringify(held));
+  ok('…and ACT_T mirrors where the board is headed, so "moving" reads true only while it moves',
+     Math.abs(held.T - held.held) < 0.001, JSON.stringify(held));
 
   console.log('\n════ no page errors ════');
   ok('nothing threw', errs.length===0, errs.join(' | '));

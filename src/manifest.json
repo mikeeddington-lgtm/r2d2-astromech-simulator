@@ -23,7 +23,8 @@
   "css/11-hw.css",
   "css/12-setup-hw.css",
   "css/13-track-edit.css",
-  "css/14-builder.css"
+  "css/14-builder.css",
+  "css/15-servos.css"
  ],
  "body": "html/body.html",
  "vendor": [
@@ -128,6 +129,8 @@
   "js/app/setup-io.js",
   "js/app/splitters.js",
   "js/app/shortcuts.js",
+  "js/app/servos.js",
+  "js/app/manual.js",
   "js/app/about.js",
     "js/app/kiosk.js",
   "js/cad/payload.js",

@@ -64,6 +64,25 @@ function liveUnmeasured(){
   return HW.channels().filter(c=>c && /^servo/i.test(c.mode) && !c.calibrated);
 }
 
+/* channels with NO SPEED LIMIT (v1.62.0). speed 0 and acceleration 0 mean
+   "as fast as the servo physically can", and this app compiles a ramp as a
+   run of steps ~120 ms apart on the assumption that the board rounds the
+   corners (blocks.js). With no limit there are no corners: the horn is told
+   to be somewhere new eight times a second and bangs into each one. That is
+   the noise Mike reported on 2026-08-21.
+
+   Generated tables carry a limit now (STARTER_SPEED/STARTER_ACCEL in
+   maestro/starters.js). A table you imported or measured is YOURS and is
+   never rewritten — so this counts them and the arm dialog says so, which
+   is the whole of what this app is allowed to do about somebody else's
+   calibration. The Speed and Acceleration columns in the bench are where
+   it gets fixed. */
+function liveUnlimited(){
+  if(typeof HW === 'undefined' || !HW.channels) return [];
+  return HW.channels().filter(c=>c && /^servo/i.test(c.mode)
+                              && !(c.speed > 0) && !(c.acceleration > 0));
+}
+
 /* ------------------------------------------------------------- the seam
    Called for every channel of every frame. Cheap and silent when disarmed,
    because it is on the playback path of a 60 Hz loop. */
@@ -108,11 +127,17 @@ async function liveSet(on, opts){
      a guess, and the first target on a channel SNAPS because the board has
      no idea where the horn is standing. */
   const un = liveUnmeasured();
+  const nl_ = liveUnlimited();
   if(!LIVE.asked && typeof appConfirm === 'function'){
     const body = (un.length
         ? '<b>' + un.length + ' channel' + (un.length===1?' has':'s have') + ' endpoints nobody has measured.</b> '
           + 'A sequence built on a guess is about to be played into real linkage. '
         : 'Every channel in use has endpoints you captured yourself. ')
+      + (nl_.length
+        ? '<b>' + nl_.length + ' channel' + (nl_.length===1?' has':'s have') + ' no speed limit</b> — speed and '
+          + 'acceleration are 0, so every step of a ramp is chased flat out. That is what makes a servo bang and '
+          + 'buzz its way through a routine. Set a Speed in the bench to smooth it. '
+        : '')
       + 'The first move on each channel is a <b>jump, not a ramp</b> — the board does not know where the horn is '
       + 'standing until something tells it. Have a hand near the power.';
     const go = await appConfirm(body, {title:'Drive the real servos?', yes:'Yes — go live', no:'Cancel', html:true});
@@ -123,7 +148,8 @@ async function liveSet(on, opts){
   liveUiSync();
   if(typeof lg === 'function')
     lg('mae','LIVE — sequences now drive the board as well as the model'
-      + (un.length ? ' ('+un.length+' unmeasured channel'+(un.length===1?'':'s')+')' : ''));
+      + (un.length ? ' ('+un.length+' unmeasured channel'+(un.length===1?'':'s')+')' : '')
+      + (nl_.length ? ' ('+nl_.length+' channel'+(nl_.length===1?'':'s')+' with no speed limit — they will slam)' : ''));
   if(typeof toast === 'function') toast('Live: the real servos follow the sequencer');
   return true;
 }

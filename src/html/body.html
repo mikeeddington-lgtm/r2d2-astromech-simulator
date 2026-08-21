@@ -100,6 +100,11 @@
           <div class="stpsub" id="stpSub">Tell me what is in your droid and the simulator configures itself to match.</div>
         </div>
         <div class="stphdr">
+          <!-- v1.57.0 — the manual sits in the setup's HEAD, not on one of
+               its steps, so it is reachable from all fifteen of them.
+               Somebody stuck on question six is exactly who needs it, and
+               they are not going to go back to step one to find it. -->
+          <button class="hbtn" id="btnManualStp" title="The builder’s manual — twenty-one chapters on getting a real droid moving with this. Opens in a new tab.">📖 Manual</button>
           <div id="stpTheme" class="stpthm" title="light or dark — from any step"></div>
           <button class="hbtn" id="btnStartupX" title="Close">Close</button>
         </div>
@@ -131,6 +136,18 @@
         <div class="hud" id="hudMouse" style="display:none"></div>
         <div class="hud" id="hudTrack" style="display:none"></div>
         <div class="hud" id="hudTutor" style="display:none"></div>
+        <!-- ================= SERVO GAUGES (v1.60.0) =================
+             The fifth MODEL, drawn where the droid is rather than in a
+             workspace of its own — Mike circled the stage and asked for it
+             "where ive marked", treated "like we did for the polar mouse".
+             It covers #stage while `body.model-servos` is on the body, and
+             #svCard floats over it in the same corner #selcard uses when you
+             click a panel on the droid. app/servos.js fills both. -->
+        <div id="svScreen">
+          <div id="svHead"></div>
+          <div id="svGrid"></div>
+        </div>
+        <div id="svCard"></div>
         <div id="stageTools">
           <button class="sbtn" id="btnFollow">Follow</button>
           <button class="sbtn" id="btnGrid">Grid</button>
@@ -295,6 +312,17 @@
 
       <!-- ================= CONTROLS ================= -->
       <div class="pane act" id="pHelp">
+        <!-- v1.57.0 — the manual, first thing in the panel people open when
+             they are stuck mid-task. Static markup like the rest of this
+             pane; app/main.js binds the button once at boot. -->
+        <div class="sect" id="secManual">
+          <h3>The builder’s manual</h3>
+          <div class="hint prose">Twenty-one chapters and eight clips on getting a <b>real droid</b> moving with this —
+            the setup questions, a rack of servos to try a sequence on, finding your end stops, bricks,
+            getting it onto the board, and what to do when nothing moves.</div>
+          <div class="conbar"><button class="b prim" id="btnManualHelp">📖 Open the manual</button></div>
+          <div class="hint dim">Opens in a new tab from the latest release — it needs a connection at the moment you click.</div>
+        </div>
         <div class="sect">
           <h3>Sound <span id="sndChip"></span></h3>
           <div id="sndBox">

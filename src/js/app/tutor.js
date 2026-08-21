@@ -207,6 +207,15 @@ function tutorHud(){
 function buildTutor(){
   const host = $('tutorHost'); if(!host) return;
   host.innerHTML = '';
+  /* v1.57.0 — the whole thing IS written down, and this is the tab somebody
+     opens once they have decided they need help. It goes above the lessons
+     rather than below them: thirteen lessons teach you to drive, the manual
+     covers the other twenty chapters. app/manual.js owns the URL. */
+  if(typeof manualCard === 'function')
+    manualCard(host, {id:'btnManualLearn', note:false,
+      blurb:'The thirteen lessons below teach you to <b>drive</b> it. The manual is the other twenty chapters — '
+          + 'the setup questions, <b>a rack of servos</b> to try a sequence on, finding your servo end stops, '
+          + 'bricks, live drive, and what to do when nothing moves.'});
   const L = tutorList(), p = tutorProgress();
 
   const s = sect(host, 'Lessons', p.done+' of '+p.total);

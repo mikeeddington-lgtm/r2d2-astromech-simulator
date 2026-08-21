@@ -40,7 +40,17 @@ const MODELS = [
      50 mm-grid parts bin (beams, plates, discs, hinges, ball joints) with
      no fixed rig at all. See scene/builder.js. */
   {id:'builder', label:'Builder', short:'Builder',
-   blurb:'Build your own mechanism from parts — beams, plates, discs and joints, snapped to a 50 mm grid.'}
+   blurb:'Build your own mechanism from parts — beams, plates, discs and joints, snapped to a 50 mm grid.'},
+  /* v1.60.0 — the fifth, and the only one that is not 3D at all. It went
+     from little 3D servos on the stage (v1.57.0) to a workspace of its own
+     (v1.59.0) to this: Mike circled the stage and said "the servo grid
+     should be where ive marked and replace the r2 completly — we need to
+     treat it as another modle like we did for the polar mouse, only we dont
+     need the stage area, just a simple screen representing the servos".
+     So it IS a model, and app/servos.js draws a flat screen over #stage
+     instead of anything the renderer has to deal with. */
+  {id:'servos', label:'Servo gauges', short:'Servos',
+   blurb:'Every channel on your board as a gauge or a dial, in place of the droid. Click one to see what it drives, name it or test it.'}
 ];
 const MODEL_IDS = MODELS.map(m => m.id);
 function modelById(id){ return MODELS.find(m => m.id === id) || MODELS[0]; }
@@ -66,6 +76,9 @@ function modelApply(opts){
   /* the builder never takes the pad — like frik, it is a bench thing, not
      something you drive */
   if(typeof mbSetShown === 'function') mbSetShown(id === 'builder');
+  /* not a 3D model at all — a flat screen over the stage (app/servos.js),
+     but selected and remembered exactly like the four that are */
+  if(typeof svSetShown === 'function') svSetShown(id === 'servos');
   /* visibility first: hiding the mouse hands the pad back on its own, so
      claiming it afterwards is the order that survives either direction */
   if(typeof mouseSetDriver === 'function') mouseSetDriver(id === 'mouse' ? 'mouse' : 'r2');
@@ -109,6 +122,11 @@ function modelFrame(id){
   }else if(id === 'builder' && typeof MB !== 'undefined' && MB.root){
     CAM.target.set(0, 0.05, 0);
     CAM.dist = 0.85; CAM.phi = 1.05; CAM.theta = Math.PI - 0.6;
+  }else if(id === 'servos'){
+    /* nothing to frame: there is no scene under it. Leaving the camera
+       exactly where it was means switching back to the droid puts you where
+       you left off rather than at some default. */
+    return;
   }else if(typeof viewFrame === 'function'){
     viewFrame('full');
   }

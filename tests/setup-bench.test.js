@@ -387,6 +387,76 @@ const ok = (n,c,x='') => { c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+' 
   ok('…and a tick, so colour is not the only signal', /✓/.test(look.tick), String(look.tick));
   await ev(()=>applyTheme('dark'));
 
+  /* ═══════════════════════════════════════════════════════════════════
+     "STILL CANT SEE SERVOS 24 AND ABOVE"  (v1.65.0)
+
+     Mike's screenshot: this wizard, Channels step, three PCA9685s ticked on
+     step 2, his bridge reporting 0x40/0x48/0x50 — and under the table,
+     `0 channels in use of 24`. A Mini Maestro 24's worth of rows, because
+     that is what the BUILD still said. Both numbers right, neither aware of
+     the other, and HW.applied()'s reconcile only spoke when MSTR.board was
+     already a PCA board — so the build that most needed telling was the one
+     case it stayed quiet for. All red on v1.64.0. */
+  console.log('\n════ the bench asks for more boards than the build gives ════');
+  const gap = await page.evaluate(()=>{
+    buildSet('domeServo','mini24'); buildSet('bodyServo','mini24'); wizFinish();
+    setBoard('mini24'); makeStarter('dome','mini24');
+    /* an hour of somebody's life, which must survive being grown around */
+    const c = MSTR.channels[3];
+    c.name = 'Pie 4'; c.min = 4111; c.max = 7888; c.act = 'pie3'; c.speed = 80;
+    if(typeof setupOpen === 'function') setupOpen();
+    SETUP.hw.boards = 3; HW.setSetup(SETUP.hw);
+    setupGo(SETUP_STEPS.findIndex(x=>x.key === 'channels'));
+    setupRender();
+    const el2 = document.getElementById('setChCount');
+    return {board: MSTR.board, rows: MSTR.channels.length,
+            want: HW.wantCount(), short: HW.short(),
+            line: el2 ? el2.textContent.replace(/\s+/g,' ').trim() : '(missing)',
+            btn: !!(el2 && el2.querySelector('button[data-act=growboards]'))};
+  });
+  ok('HW.short() sees the gap the two answers make',
+     gap.want === 48 && gap.short && gap.short.have === 24 && gap.short.boards === 3
+     && gap.short.missing === 24, JSON.stringify(gap.short));
+  ok('the count line names BOTH numbers, not just the table\'s',
+     /in use of 24/.test(gap.line) && /3 PCA9685s/.test(gap.line) && /48 channels/.test(gap.line),
+     gap.line.slice(0,120));
+  ok('…and says exactly which channels have nowhere to go',
+     /channels 24-47/.test(gap.line), gap.line.slice(-90));
+  ok('…and offers the way across', gap.btn, String(gap.btn));
+
+  const grew = await page.evaluate(()=>{
+    const before = HW.count();
+    const took = setupAdoptBoards();
+    const c = MSTR.channels[3];
+    setupRender();
+    const el2 = document.getElementById('setChCount');
+    return {took, before, after: HW.count(), board: MSTR.board, boards: buildGet().pcaBoards,
+            kept: [c.name, c.min, c.max, c.act, c.speed].join('|'),
+            row47: !!MSTR.channels[47],
+            line: el2 ? el2.textContent.replace(/\s+/g,' ').trim() : '(missing)',
+            shortNow: HW.short()};
+  });
+  ok('the button grows the table to what the boards need',
+     grew.took && grew.before === 24 && grew.after === 48 && grew.row47, JSON.stringify(grew).slice(0,150));
+  ok('…by changing the BUILD, which is the thing allowed to decide',
+     grew.board === 'pca48' && grew.boards === 3, grew.board+' · '+grew.boards);
+  ok('…without touching a row somebody calibrated',
+     grew.kept === 'Pie 4|4111|7888|pie3|80', grew.kept);
+  ok('…and then the line goes quiet', grew.shortNow === null && !/PCA9685s/.test(grew.line), grew.line);
+
+  /* GROW ONLY. HW.trim() is a deliberate no-op and this obeys the same rule:
+     a board off the bus, or a wizard answer typed down, must never delete a
+     row that carries an endpoint somebody measured. */
+  const never = await page.evaluate(()=>{
+    SETUP.hw.boards = 1; HW.setSetup(SETUP.hw);
+    const before = HW.count();
+    return {short: HW.short(), can: setupCanAdoptBoards(), adopt: setupAdoptBoards(),
+            before, after: HW.count()};
+  });
+  ok('asking for FEWER boards never shrinks the table',
+     never.short === null && never.can === false && never.adopt === false
+     && never.after === never.before && never.after === 48, JSON.stringify(never));
+
   console.log('\n════ no page errors ════');
   ok('nothing threw', errs.length === 0, errs.slice(0,3).join(' | '));
 

@@ -231,7 +231,7 @@ const near=(a,b,t)=>Math.abs(a-b)<=t;
   /* Mike, 2026-07-29: "put a selection thing so that only one model is
      displayed and works." One selection drives visibility, the pad AND the
      channel registration — the three used to be able to disagree. */
-  ok('four models to choose from', await ev(()=>MODEL_IDS.join()==='droid,frik,mouse,builder'));
+  ok('five models to choose from', await ev(()=>MODEL_IDS.join()==='droid,frik,mouse,builder,servos'));
   ok('the droid is what you get out of the box', await ev(()=>{
     delete PREFS.model; return modelGet()==='droid';
   }));
@@ -256,11 +256,11 @@ const near=(a,b,t)=>Math.abs(a-b)<=t;
      shows.droid.anzActs===0 && shows.frik.anzActs===11 && shows.mouse.anzActs===0);
   ok('the selection is remembered', shows.mouse.pref==='mouse');
   ok('the stage button names what is on the stage', shows.mouse.btn==='Polar Mouse');
-  ok('cycling walks round all four and comes home', await ev(()=>{
+  ok('cycling walks round all five and comes home', await ev(()=>{
     modelSet('droid', {frame:false});
     const seen=[modelGet()];
-    for(let i=0;i<4;i++){ modelCycle(); seen.push(modelGet()); }
-    return seen.join()==='droid,frik,mouse,builder,droid';
+    for(let i=0;i<5;i++){ modelCycle(); seen.push(modelGet()); }
+    return seen.join()==='droid,frik,mouse,builder,servos,droid';
   }));
   ok('the Model tab shows that model\'s panel and none of the droid\'s', await ev(()=>{
     setView('advanced');

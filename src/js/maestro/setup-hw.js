@@ -274,6 +274,53 @@ function setupGo(i){
    reads the build and says so on the Finish step if the two disagree. It
    never adds or deletes one of Mike's rows because of an answer here. */
 function setupChannels(){ return HW.setupCount(); }
+/* ======================================================================
+   TAKE THE BENCH'S BOARD COUNT INTO THE BUILD  (v1.65.0)
+
+   Mike: "still cant see servos 24 and above", with three PCA9685s ticked on
+   step 2 and `0 channels in use of 24` under the table.
+
+   The doctrine stands — "the BUILD decides how many channels this droid has,
+   not an answer typed into step 2 of a wizard" (hw-host.js) — so this does
+   not quietly pad the table behind the build's back. It changes the BUILD,
+   which is the thing allowed to decide, and the table follows the way it
+   always has. That is why it is a button and not a side effect.
+
+   GROW ONLY, and never over the top of anything: HW.short() returns null
+   unless the bench wants MORE than the table holds, and the build setter
+   keeps every existing row's name, endpoints, part mapping and speed (asserted
+   in hw.test.js). A board that fell off the bus must not cost a calibration.
+   ====================================================================== */
+function setupCanAdoptBoards(){
+  if(typeof kioskOn === 'function' && kioskOn()) return false;
+  return !!(HW.short() && typeof buildSet === 'function' && typeof servoCoprocId === 'function');
+}
+function setupAdoptBoards(){
+  if(!setupCanAdoptBoards()) return false;
+  const gap = HW.short();
+  const n = Math.max(1, Math.min(PCA_MAX_BOARDS_UI, gap.boards));
+  const was = HW.count();
+  /* the ANSWER, not the shape — hardware.js reads a direct board answer back
+     into the topology, so setting servoTopo alone gets undone by whatever
+     domeServo currently says (learned the hard way in v1.64.0's fixtures) */
+  const id = servoCoprocId(n);
+  buildSet('domeServo', id); buildSet('bodyServo', id); buildSet('pcaBoards', n);
+  if(typeof wizFinish === 'function') wizFinish();
+  if(typeof buildEnsureMaestro === 'function') buildEnsureMaestro();
+  HW.save();
+  if(typeof rebuildMaestroUI === 'function') rebuildMaestroUI();
+  if(typeof setupSync === 'function') setupSync();
+  const now = HW.count();
+  if(now <= was){
+    HW.say('could not grow the channel table past '+was+' — the build did not take the change', 'warn');
+    return false;
+  }
+  HW.say('build set to '+n+' PCA9685 expander'+(n===1?'':'s')+' — '+was+' channels → '+now
+       + '. Every row that was already there is untouched; the new ones start as Input, so set '
+       + 'the Mode column to Servo on the ones you have wired.');
+  if(typeof toast === 'function') toast('Channels '+was+'-'+(now-1)+' are yours to name now');
+  return true;
+}
 function setupAddr(b){ return 0x40 + b; }
 function setupAddrHex(b){ return '0x' + setupAddr(b).toString(16).toUpperCase(); }
 /* which A-jumpers to bridge for board b — the thing everyone gets wrong */

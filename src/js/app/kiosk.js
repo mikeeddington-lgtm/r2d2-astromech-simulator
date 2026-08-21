@@ -70,6 +70,14 @@ function kioskEnter(pass){
      particular hides the sidebar itself and would fight the CSS. */
   if(typeof EDIT !== 'undefined' && EDIT.active && typeof setStripMode === 'function') setStripMode('pad');
   if(typeof PUPPET !== 'undefined' && PUPPET.on && typeof puppetSet === 'function') puppetSet(false);
+  /* v1.60.0 — and the SERVO GAUGES. They are a MODEL now, so unlike v1.59.0's
+     workspace the kiosk's own rules DO reach the furniture around them — but
+     the model itself would stay selected, and sim only is a public DRIVING
+     mode: a queue of people at a con should get the droid, not a wall of
+     gauges they cannot drive. #stageTools is hidden in kiosk, so there would
+     be no way back to it either. */
+  if(typeof modelGet === 'function' && modelGet() === 'servos'
+     && typeof modelSet === 'function') modelSet('droid');
   if(typeof appMenuClose === 'function') appMenuClose();
   if(typeof saveLoadClose === 'function') saveLoadClose();
   if(typeof stagePickerClose === 'function') stagePickerClose();

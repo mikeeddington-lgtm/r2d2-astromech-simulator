@@ -11,7 +11,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/mikeeddington-lgtm/r2d2-astromech-simulator/releases/latest/download/R2D2-Simulator-Manual.html">📖 <strong>The builder's manual</strong></a>
+  <a href="https://github.com/mikeeddington-lgtm/r2d2-astromech-simulator/releases/latest/download/R2D2-Simulator-Manual.html">📖 <strong>The builder's manual</strong></a> — twenty-one chapters, eight clips.<br>
+  <em>The simulator links to it too: a <strong>📖 Manual</strong> button in its header, on the setup screen, in Learn and in the ? panel.</em>
   &nbsp;·&nbsp;
   <a href="docs/manual/quickstart.html">your first hour</a>
   &nbsp;·&nbsp;
@@ -243,6 +244,7 @@ R2_TARGET=dev.html node tests/maestro.test.js
 | `music.test.js` | beat detection on a synthetic 120 BPM click track, snap-to-beats, beat-driven routines, audio-clock playback |
 | `track-ui.test.js` | practice track laps/penalties, music status line, port picker, board photos + channel picker (in-use warning), version tag, Reset button, UI scale, stage theme |
 | `builder.test.js` | the Model Builder: the parts bin (beam, plate, disc, hinge, ball joint) on the 50 mm grid, `ATTACH TO` kinematics through the scene graph, the soft/hard part caps, joints registering as acts only while it is the model on stage, the `MB`/`bldJ*` vs `maestro/builder.js`'s `BLD`/`bld*` naming-collision regression, and the `PREFS.builder` round-trip |
+| `servos.test.js` | the servo gauges as a stage model: covering #stage and hiding the canvas (inline `display:block` and all), the grid following the board from a Micro 6 to eight PCA9685s, the 180° gauge and the 360° dial chosen per servo and sharing one box, `CHPOS` moving a channel that drives nothing, the click card's four rows, the retired `rkS` ids being cleared, and sim only putting the droid back |
 | `setup.test.js` | window resize, audio-only playback, whole-setup export/import round trip, favourites/metals/Fusion colours |
 | `sounds.test.js` | the Padawan sound bank: zip reader, real playback through both board APIs, interrupts, volume, IndexedDB persistence |
 | `mouse.test.js` | the Polar Mouse and the stage selection: the payload's size and that the internals really were stripped, the chassis measured off the CAD, the pad hand-over (and that the sketch then sees centred sticks), the arc it actually drives vs `wheelbase / tan(steer)`, that it cannot turn on the spot, Ackermann both ways, the chariot pulling straight / settling in a turn / jack-knifing in reverse, and the one-model-at-a-time selector (visibility, the pad, the channels, the pane, persistence, and that the sketch keeps running regardless) |

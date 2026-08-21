@@ -56,10 +56,66 @@ const STARTER_ANZ = [
   'Frik Head Pan','Frik Head Tilt','Frik Head Nod'
 ];
 
+/* The servo rack (v1.57.0) is the one starter whose names are not a fixed
+   list: it has exactly as many channels as the board has, they are all
+   servos, and each one is called what it is. Generated rather than sliced,
+   so a Micro 6 and eight PCA9685s both come out right. */
+function starterRackNames(n){
+  return Array.from({length:n}, (_,i)=>'Servo '+(i+1));
+}
 function starterNames(which, n){
+  if(which==='rack') return starterRackNames(n);
   const list = (which==='dome') ? STARTER_DOME : (which==='anzellan') ? STARTER_ANZ : STARTER_BODY;
   return list.slice(0, n);
 }
+/* ============================================ THE STARTER SPEED LIMIT
+   (v1.62.0)  Mike: "the servos are sounding and looking jerky - more so
+   than previously."
+
+   Every generated channel used to carry `speed:0, acceleration:0`, which on
+   a Maestro and on the PCA bridge alike means UNLIMITED: each Set Target is
+   chased as fast as the servo physically can. That is faithful to a factory
+   Maestro and it was wrong here, because this app compiles ramps on the
+   assumption that the board smooths them. blocks.js says so in as many
+   words — a ramp is drawn as a run of steps about `BLK_RAMP_STEP_MS` apart
+   (120 ms) "and the board's own acceleration rounds the corners anyway".
+   With no acceleration there are no corners to round: the horn is commanded
+   to a new position eight times a second and slams to each one. On screen
+   that is a stepped panel; on a real servo it is an audible bang, eight
+   times a second, and it is the noise Mike is hearing.
+
+   v1.57.0's servo layout made it louder in two ways at once — it REGENERATES
+   the whole channel table (so a tuned one is replaced by an unlimited one),
+   and its Ripple and Wave routines put frames 70 and 110 ms apart, which is
+   faster than any servo can track.
+
+   THE NUMBERS, in Pololu's units (docs/0J40, and travel.js does the maths):
+   speed 1 = 0.25 us per 10 ms; acceleration 1 = the speed changes by 1 every
+   80 ms. Against the stock 4000-quarter-us span that gives:
+
+     speed 120  →  vmax 12 quarter-us/ms
+     accel 100  →  a 0.125 quarter-us/ms^2
+     full endpoint-to-endpoint throw ≈ 430 ms, with ≈ 96 ms of accelerating
+     at each end — which is the corner-rounding the compiler already assumes,
+     and about what a real dome pie does.
+
+   WHY NOT MIKE'S OWN NUMBERS. His dome Maestro runs speed 80 / accel 10,
+   proven on real linkage (bench session 2026-07-29). That pair is
+   acceleration-dominated — it never reaches vmax — and works out at a 1.1 s
+   throw, which is smoother still and too slow to ship as a default, because
+   blockMinTravelMs() would then floor every full-travel brick at 1.1 s. If
+   his numbers should be the default, this line is the only edit.
+
+   ONLY GENERATED CHANNELS GET THIS. A table you imported or measured carries
+   your own numbers and is never touched — see servo-store.js. The bench's
+   Speed and Acceleration columns edit them per channel, as before, and 0
+   still means unlimited for anyone who wants it.
+
+   An Input channel does not pulse, so it keeps 0: the pair is meaningless
+   there and writing a number would only look like a setting that does
+   something. */
+const STARTER_SPEED = 120, STARTER_ACCEL = 100;
+
 function blankChannel(i){
   return {i, name:'Channel '+i, mode:'Input', min:DEFAULT_MIN, max:DEFAULT_MAX,
     home:DEFAULT_NEUTRAL, homemode:'Ignore', neutral:DEFAULT_NEUTRAL, range:1905,
@@ -96,13 +152,23 @@ function setBoard(id){
 }
 
 function makeStarter(which, boardId){
-  const board = (which==='dome') ? 'dome' : (which==='anzellan') ? 'anzellan' : 'body';
+  const board = (which==='dome') ? 'dome' : (which==='anzellan') ? 'anzellan'
+              : (which==='rack') ? 'rack' : 'body';
   const bd = boardById(boardId || MSTR.board);
   const names = starterNames(board, bd.ch);
   const channels = names.map((name,i)=>({
     i, name, mode:'Servo', min:DEFAULT_MIN, max:DEFAULT_MAX,
     home:DEFAULT_MIN, homemode:'Goto', neutral:DEFAULT_NEUTRAL, range:1905,
-    speed:0, acceleration:0, act:guessPart(name), invert:false
+    /* not 0 — see THE STARTER SPEED LIMIT above. Every channel here is a
+       Servo by construction, so there is no mode test to make. */
+    speed:STARTER_SPEED, acceleration:STARTER_ACCEL,
+    /* v1.59.0 — a servo-layout channel drives NOTHING on the model on
+       purpose. There is no droid part called "Servo 3", the rkS actuators
+       the v1.57.0 rack invented are gone, and the servo grid reads the
+       CHANNEL (chanPosNorm) rather than an actuator — so guessing a part
+       here would only mis-wire somebody's dome. */
+    act: (board==='rack') ? '' : guessPart(name),
+    invert:false
   }));
   for(let i=names.length;i<bd.ch;i++) channels.push(blankChannel(i));
   MSTR.channels = channels;
@@ -111,6 +177,9 @@ function makeStarter(which, boardId){
   MSTR.header = {};
   MSTR.xmlText = '';   // force a full generated file
   const byAct={}; channels.forEach(c=>{ if(c.act) byAct[c.act]=c.i; });
+  /* the servo layout has no acts at all, so its routines address channels
+     directly: one synthetic key per channel, and mk() below is unchanged */
+  if(board==='rack') channels.forEach(c=>{ byAct['ch'+c.i] = c.i; });
   const CLOSED=DEFAULT_MIN, OPEN=DEFAULT_MAX, MID=DEFAULT_NEUTRAL;
   const base = new Array(channels.length).fill(0);
   channels.forEach(c=>{ base[c.i] = /^servo/i.test(c.mode) ? CLOSED : 0; });
@@ -121,9 +190,21 @@ function makeStarter(which, boardId){
      the floor with its eyes shut and its neck fully over. */
   const anzRest = act => (typeof anzHome === 'function' && typeof anzIsAct === 'function' && anzIsAct(act))
     ? Math.round(CLOSED + anzHome(act)*(OPEN-CLOSED)) : null;
+  /* and a bare servo on the rack rests CENTRED for the same reason a face
+     does and a door does not: mid-travel is where a servo horn with nothing
+     bolted to it belongs, and it is where the case's centre tick is drawn
+     (scene/rack.js), so a freshly generated rack lines up with its own
+     markings instead of parked hard over at one end. */
   channels.forEach(c=>{
     const r = c.act ? anzRest(c.act) : null;
     if(r !== null){ base[c.i] = r; c.home = r; }
+  });
+  /* a bare servo with nothing bolted to it rests CENTRED, for the same reason
+     a face does and a door does not — and unlike the anz case there is no
+     actuator to ask, because a servo-layout channel deliberately has none. */
+  if(board==='rack') channels.forEach(c=>{
+    if(!/^servo/i.test(c.mode)) return;
+    base[c.i] = MID; c.home = MID;
   });
 
   const mk=(name, steps)=>{
@@ -192,6 +273,69 @@ function makeStarter(which, boardId){
     MSTR.sequences = [talk, blink, lookL, lookR, surprise, grumble, nod, shake];
     slots = ['frik_talk','frik_blink','frik_look_left','frik_look_right',
              'frik_surprise','frik_grumble','frik_nod_yes','frik_shake_no'];
+  }else if(board === 'rack'){
+    /* EIGHT ROUTINES THAT SHOW YOU SOMETHING, which is the whole point of
+       the rack: Mike's brief was "anyone can just use a sequencer and see
+       simple movements", and a generated layout with no sequences in it
+       would still leave the first-time user with a blank Play button.
+       Every one starts and ends CENTRED, so they compose — play two in a row
+       and the second does not begin from wherever the first happened to
+       stop. `n` is however many servos the board actually has. */
+    /* every servo channel on the board, addressed by index — see byAct above */
+    const svc = channels.filter(c=>/^servo/i.test(c.mode)).map(c=>c.i);
+    const n = svc.length;
+    const key = k => 'ch' + svc[k-1];
+    const all = v => { const o={}; for(let i=1;i<=n;i++) o[key(i)] = v; return o; };
+    const one = (i, v) => { const o={}; o[key(i)] = v; return o; };
+    const centre = [[420, all(MID)]];
+    const sweep = mk('Servos Sweep', [
+      [700, all(CLOSED)], [900, all(OPEN)], [900, all(CLOSED)], [700, all(MID)]]);
+    const ripple = mk('Servo Ripple', (()=>{
+      const st=[[300, all(MID)]];
+      for(let i=1;i<=n;i++) st.push([70, one(i, OPEN)]);
+      for(let i=1;i<=n;i++) st.push([70, one(i, MID)]);
+      return st; })());
+    const countUp = mk('Count Up', (()=>{
+      /* one servo at a time, and only one moving at once — this is the one
+         you play to find out which channel is which */
+      const st=[[300, all(MID)]];
+      for(let i=1;i<=n;i++){ st.push([260, one(i, OPEN)]); st.push([260, one(i, MID)]); }
+      return st; })());
+    const oddsEvens = mk('Odds and Evens', (()=>{
+      const split = (a,b)=>{ const o={}; for(let i=1;i<=n;i++) o[key(i)] = (i%2 ? a : b); return o; };
+      return [[500, split(OPEN, CLOSED)], [700, split(CLOSED, OPEN)],
+              [700, split(OPEN, CLOSED)], [500, all(MID)]];
+    })());
+    const wave = mk('Servo Wave', (()=>{
+      const st=[[300, all(MID)]];
+      for(let f=0; f<12; f++){
+        const o={};
+        for(let i=1;i<=n;i++){
+          const v = 0.5 + 0.42*Math.sin((f*0.62) - (i*0.55));
+          o[key(i)] = Math.round(CLOSED + v*(OPEN-CLOSED));
+        }
+        st.push([110, o]);
+      }
+      st.push([420, all(MID)]);
+      return st; })());
+    const nudge = mk('Small Nudge', (()=>{
+      /* deliberately gentle: the one to play with real servos armed, when
+         you want to prove the wiring without swinging every horn end to end */
+      const lo = Math.round(MID - (OPEN-CLOSED)*0.10), hi = Math.round(MID + (OPEN-CLOSED)*0.10);
+      return [[400, all(lo)], [400, all(hi)], [400, all(lo)], [400, all(MID)]];
+    })());
+    MSTR.sequences = [
+      mk('Servos Centre', centre),
+      sweep,
+      ripple,
+      reverseOf('Servo Ripple Back', ripple),
+      countUp,
+      oddsEvens,
+      wave,
+      nudge
+    ];
+    slots = ['rack_centre','rack_sweep','rack_ripple','rack_ripple_back',
+             'rack_count','rack_odds','rack_wave','rack_nudge'];
   }else if(board === 'dome'){
     /* however many actually fitted on this board */
     const pieN = channels.filter(c=>/^pie\d+$/.test(c.act)).length;
@@ -262,8 +406,16 @@ function makeStarter(which, boardId){
     s.seqIndex = MSTR.sequences.findIndex(q=>niceName(q.name).toLowerCase()===s.name.toLowerCase());
   }});
   MSTR.loaded = true;
-  MSTR.fileName = (board==='dome') ? 'R2-dome-maestro-starter.mstr' : (board==='anzellan') ? 'R2-anzellan-maestro-starter.mstr' : 'R2-body-maestro-starter.mstr';
+  MSTR.fileName = (board==='dome') ? 'R2-dome-maestro-starter.mstr'
+                : (board==='anzellan') ? 'R2-anzellan-maestro-starter.mstr'
+                : (board==='rack') ? 'R2-servo-rack-starter.mstr'
+                : 'R2-body-maestro-starter.mstr';
   EDIT.live = channels.map(c=>chanRest(c));   // 2026-08-18 — the one seeding that still read c.home
+  /* CHPOS seeds from chanRest() too, and it has to happen HERE rather than at
+     the `MSTR.channels =` above: the base-pose block in between is what sets
+     `c.home`, so seeding earlier read every channel as parked at DEFAULT_MIN
+     and a freshly generated servo layout came up hard over instead of centred */
+  if(typeof chanPosReset === 'function') chanPosReset();
   EDIT.seq=0; EDIT.frame=-1;
   /* v1.43.0 — keep it. A starter that is not stored is a starter that gets
      regenerated on the next boot, over the top of whatever was done to it

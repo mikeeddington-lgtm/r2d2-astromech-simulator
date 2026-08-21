@@ -36,6 +36,17 @@ function servoTravel(board, ch){
   if(a===b) return 0;
   return clamp((s.pulse - a)/(b - a), 0, 1);
 }
+/* WHERE THE HORN IS HEADED, in the same 0..1 the model uses. servoTravel()
+   above reads the pulse the servo is AT; this one reads the pulse it has been
+   COMMANDED to. app/animate.js needs both: the first is what the droid shows,
+   the second is what ACT_T must mirror so that a write to ACT_T on a
+   PCA-owned actuator can be told apart from the board's own movement. */
+function servoTargetTravel(board, ch){
+  const s = SERVO[board][ch]; if(!s) return 0;
+  const a = CFG[s.def.lo], b = CFG[s.def.hi];
+  if(a===b) return 0;
+  return clamp((s.target - a)/(b - a), 0, 1);
+}
 
 /* ====================================================== MOTOR CONTROLLERS
    Both sketches call setTimeout(950) on the Sabertooth and the Syren, so a

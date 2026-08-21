@@ -320,7 +320,7 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
   }));
   ok('the summary card reports the slowest imported throw', await ev(()=>{
     BLK.sel = null; buildSequencer();
-    return /~\d+ ms at your imported speeds/.test($('seqinsp').textContent);
+    return /~\d+ ms at these channels' speeds/.test($('seqinsp').textContent);
   }));
 
   console.log('\n════ dead sliders are gone ════');

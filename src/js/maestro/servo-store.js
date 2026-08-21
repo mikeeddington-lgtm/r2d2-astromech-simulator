@@ -122,6 +122,31 @@ function servoStoreRead(){
   }catch(e){ return null; }
 }
 
+/* ------------------------------------------------- retired actuator ids
+   v1.57.0's servo rack gave every slot an `rkS<n>` actuator and wired real
+   channels to it. v1.59.0 replaced the rack with a view that reads the
+   CHANNEL directly (app/servos.js), so those actuators no longer exist —
+   and a channel whose Part column still names one is worse than an unwired
+   channel, because it LOOKS wired: `actPartLabel()` has nothing to return,
+   so the cell goes blank while `c.act` stays truthy, and every "is this
+   wired" test in the app answers yes.
+
+   So a table arriving from before that change has them cleared, once, where
+   it arrives. Deliberately narrow — one regexp, one release's mistake — and
+   it counts what it did rather than doing it silently, because a mapping
+   changing under somebody is the one thing this project has learned to say
+   out loud (HANDOVER v1.43.0). */
+function chanDropRetiredActs(chans){
+  const list = chans || (typeof MSTR !== 'undefined' ? MSTR.channels : null);
+  if(!Array.isArray(list)) return 0;
+  let n = 0;
+  list.forEach(c=>{ if(c && /^rkS\d+$/.test(c.act || '')){ c.act = ''; n++; } });
+  if(n && typeof lg === 'function')
+    lg('warn', 'servo config: ' + n + ' channel(s) were wired to the old servo rack, which no longer exists — '
+             + 'their Part column has been cleared. The Servos view shows every channel whether it drives a part or not.');
+  return n;
+}
+
 /* Restore at boot. Called from main.js AFTER prefsLoad() and before
    anything asks for a starter. */
 function servoStoreLoad(){
@@ -134,6 +159,8 @@ function servoStoreLoad(){
 
   MSTR.board      = o.board || MSTR.board;
   MSTR.channels   = o.channels;
+  chanDropRetiredActs(MSTR.channels);                      // v1.57.0's rkS ids — see above
+  if(typeof chanPosReset === 'function') chanPosReset();   // the table is a new table — CHPOS with it
   MSTR.servoCount = o.servoCount || o.channels.length;
   MSTR.sequences  = Array.isArray(o.sequences) ? o.sequences : [];
   MSTR.loadout    = o.loadout || null;

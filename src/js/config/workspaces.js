@@ -47,6 +47,11 @@ const WORKSPACES = [
    tabs:['pCfg','pCad']},
   {id:'bench',  label:'Board',     hint:'the board, the outputs, and (Advanced) the serial console',
    tabs:['pMae','pServo','pCon']}
+  /* v1.59.0 briefly added a fifth here — the servo gauges — and v1.60.0 took
+     it back out: they are a MODEL on the stage now (scene/models.js), so the
+     way in is the stage chip and Configure → Model like the Polar Mouse, and
+     a header button that behaved differently from the four beside it was the
+     wrong shape for it. */
 ];
 
 const WS = { cur:'drive' };                     // runtime answer — CAN be 'seq'

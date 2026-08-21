@@ -1,4 +1,4 @@
-<h2 id="files">16 · Files in and out</h2>
+<h2 id="files">17 · Files in and out</h2>
 
 <p>Everything this app reads and writes, in one table. The rule of thumb: <b>its own formats carry
 everything; other people's formats carry what their format has room for</b>, and anything that
@@ -59,7 +59,7 @@ the proposal is <b>measured against the original</b> at every instant the file h
 guess changes what the droid does, so the thing it was guessing at has to survive. Discarding
 restores the frame list byte for byte.</p>
 
-<h2 id="trouble">17 · When nothing moves</h2>
+<h2 id="trouble">18 · When nothing moves</h2>
 
 <p>Every entry here cost somebody a bench session. They all look identical from the outside —
 "nothing works" — and they all have a specific tell.</p>
@@ -84,7 +84,7 @@ still ⇒ it did not. Reach for this first; almost every other test is ambiguous
   <tr><td>One board's channels do nothing</td>
       <td>Its address is not what the sketch assumed. Read the scan line the sketch prints.</td></tr>
   <tr><td>A write moves <i>every</i> servo</td>
-      <td>The <b>All Call address 0x70</b> got treated as a board. See chapter 14.</td></tr>
+      <td>The <b>All Call address 0x70</b> got treated as a board. See chapter 15.</td></tr>
   <tr><td>Channel 70 moves the servo on channel 6</td>
       <td>Old bridge firmware, six-bit channel field. Re-flash.</td></tr>
 </table>
@@ -131,7 +131,7 @@ channel's stored "home" or "neutral" microseconds are not a pose.</b> Shut and o
 directed pair — <code>min</code> and <code>max</code>, in that order — and nothing sorts them. If you
 see it again on a newer version, that is what regressed.</p>
 
-<h2 id="keys">18 · Keyboard</h2>
+<h2 id="keys">19 · Keyboard</h2>
 
 <p>The on-screen pad mirrors a real one, and the keyboard mirrors the pad. <b>?</b> in the header
 shows this card at any time.</p>
@@ -165,7 +165,7 @@ shows this card at any time.</p>
 <p>Plug a real pad in and the on-screen one mirrors it.</p>
 {{IMG:keys|The keyboard card, from <b>?</b> in the header.}}
 
-<h2 id="saved">19 · What is saved, and where</h2>
+<h2 id="saved">20 · What is saved, and where</h2>
 
 <p>Two stores in your browser, kept deliberately separate:</p>
 <table>
@@ -186,7 +186,7 @@ shows this card at any time.</p>
 <p><b>Reset</b> (Menu) really does clear the servo config as well as the preferences — it is a full
 reset, not a cosmetic one.</p>
 
-<h2 id="glossary">20 · Glossary</h2>
+<h2 id="glossary">21 · Glossary</h2>
 
 <table>
   <tr><th>Term</th><th>Means</th></tr>
@@ -210,7 +210,7 @@ reset, not a cosmetic one.</p>
 </table>
 
 <div class="foot">
-  <p>R2-D2 Astromech Simulator · builder's manual · written against v1.56.0</p>
+  <p>R2-D2 Astromech Simulator · builder's manual · written against v1.65.0</p>
   <p><b>No warranty. Use at your own risk</b> — see <a href="#risk">chapter 1</a>. You are
   responsible for your own wiring, your own power and your own droid.</p>
   <p>The geometry is MrBaddeley's, published with permission. Padawan360 is BSD-3-Clause;

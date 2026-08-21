@@ -340,12 +340,20 @@ const LIVE = fs.readFileSync(path.resolve(__dirname,'fixtures-live-dome.mstr'),'
     const c0 = P.channels[0];
     return {h: h.slice(0, 4000), count:P.channels.length,
             hasC0: h.indexOf(String(c0.min))>=0 && h.indexOf(String(c0.max))>=0,
-            boards: (h.match(/board \d -> I2C address/g)||[]).length,
+            /* v1.63.0 — the board list no longer names an I2C address. The
+               sketches FIND their boards (v1.53.0), so a header that said
+               "board 1 -> 0x41" was naming an address the boot scan may
+               never use, and somebody wires to the comment. */
+            boards: (h.match(/board \d -> channels/g)||[]).length,
+            saysScanned: /ASCENDING I2C ADDRESS/.test(h),
+            namesNoAddr: !/board \d -> I2C address/.test(h),
             seqCount: (h.match(/MPCA_SEQ\d+\[\]/g)||[]).length};
   }, LIVE);
   ok('live file: channel count carried through', genLive.h.indexOf('#define MPCA_CHANNELS  '+genLive.count)>=0);
   ok('live file: ch0 endpoints appear verbatim', genLive.hasC0);
   ok('live file: an 18-channel table spans two PCA9685 boards', genLive.boards===2, genLive.boards+' boards');
+  ok('live file: and the header says the addresses come from the boot scan, not 0x40+n',
+     genLive.saysScanned && genLive.namesNoAddr, JSON.stringify({s:genLive.saysScanned, n:genLive.namesNoAddr}));
   ok('live file: every script sequence became a PROGMEM table', genLive.seqCount>0, genLive.seqCount+' sequences');
 
   const ticks = await ev(()=>[pcaQusToTicks(6000), pcaQusToTicks(4000), pcaQusToTicks(8000)]);

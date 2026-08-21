@@ -1,0 +1,134 @@
+/* The servo gauges (v1.60.0)
+   =====================================================================
+   The fifth MODEL, drawn where the droid is. `body.model-servos` covers
+   #stage with #svScreen and takes the 3D furniture out of the way; the
+   click card floats in the same corner #selcard uses when you click a
+   panel on the droid, because "a similar config like on clicking panels"
+   is meant literally.
+
+   It therefore has to work in BOTH stages — the big one in Drive and the
+   narrow column in the sequencer desk — which is why every measurement
+   here is a minimum and a wrap rather than a fixed column count.
+
+   Tokens only: every colour is a var(--…) from 01-tokens.css, so both
+   themes come free without a rule naming either one.
+   ===================================================================== */
+
+#svScreen{
+  display:none;position:absolute;inset:0;z-index:4;
+  flex-direction:column;background:var(--bg);
+}
+body.model-servos #svScreen{display:flex}
+
+/* what a flat screen does not need. One class, so nothing in the JS has to
+   know which pieces of stage furniture exist — and #btnModel is exempt
+   because it is the only way back to the droid.
+
+   THE CANVAS NEEDS !important, and it is not laziness. three.js's
+   `setSize()` writes `display:block` as an INLINE style on its own
+   domElement, and an inline declaration beats any plain author rule however
+   specific — `body.model-servos #stage canvas` matched perfectly and the
+   canvas stayed visible. Nothing else on this list is written inline, so
+   nothing else needs it. */
+body.model-servos #stage canvas{display:none !important}
+body.model-servos #stage .hud{display:none}
+body.model-servos #stageTools .sbtn{display:none}
+body.model-servos #stageTools #btnModel{display:inline-block}
+
+/* ---- the head: the all-of-them switch and the count ---- */
+#svHead{
+  flex:0 0 auto;padding:8px 12px;border-bottom:1px solid var(--line);
+  background:var(--surf);
+}
+.svhrow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.svcount{font-family:var(--mono);font-size:10.5px;color:var(--dim)}
+.svcount b{color:var(--txt)}
+
+/* a two-button segmented control — one control, not a menu */
+.svseg{display:inline-flex;border:1px solid var(--line2);border-radius:5px;overflow:hidden}
+.svsegb{
+  font-family:var(--sans);font-size:11px;font-weight:600;
+  padding:5px 11px;border:0;background:var(--btnBg);color:var(--dim);cursor:pointer;
+  transition:background .12s,color .12s;
+}
+.svseg.small .svsegb{font-size:10px;padding:3px 9px}
+.svsegb + .svsegb{border-left:1px solid var(--line2)}
+.svsegb:hover:not(.act){background:var(--btnBg2);color:var(--txt)}
+.svsegb.act{background:var(--cta);color:var(--onCta)}
+.svsegb:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
+
+/* ---- the grid ---- */
+#svGrid{
+  flex:1 1 auto;min-height:0;overflow-y:auto;
+  display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));
+  gap:8px;align-content:start;padding:12px;
+}
+.svempty{
+  grid-column:1/-1;font-size:13px;line-height:1.6;color:var(--dim);
+  max-width:56ch;padding:4px 0;
+}
+.svempty b{color:var(--txt)}
+#svGrid .conbar{grid-column:1/-1}
+
+/* ---- one tile ---- */
+.svtile{
+  display:flex;flex-direction:column;align-items:center;gap:1px;
+  padding:8px 5px 7px;border-radius:6px;cursor:pointer;
+  background:var(--surf2);border:1px solid var(--line2);
+  transition:border-color .12s,background .12s;
+}
+.svtile:hover{border-color:var(--ctaD);background:var(--hoverBg)}
+.svtile:focus-visible{outline:2px solid var(--focus);outline-offset:1px}
+.svtile.sel{border-color:var(--cta);background:var(--selBg)}
+/* a channel that is not in Servo mode is not a servo — still on the board
+   and still worth seeing, it just steps back */
+.svtile.off{opacity:.5}
+
+.svface{width:100%;height:auto;display:block;max-width:82px}
+.svtrack{stroke:var(--track);stroke-width:5;stroke-linecap:round}
+.svtick{stroke:var(--line2);stroke-width:1.4}
+.svtick.mid{stroke:var(--cy);stroke-width:2}
+.svneedle line{stroke:var(--am);stroke-width:2.6;stroke-linecap:round}
+.svneedle{transition:none}          /* the frame loop owns it — no CSS easing on top */
+.svhub{fill:var(--dim)}
+.svtile.moving .svneedle line{stroke:var(--cta)}
+
+.svn{font-family:var(--mono);font-size:9px;color:var(--dimmer);letter-spacing:.06em}
+.svname{
+  font-family:var(--sans);font-size:10.5px;font-weight:600;color:var(--txt);
+  max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.svdrives{
+  font-family:var(--mono);font-size:9px;color:var(--cy);
+  max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.svdrives.none{color:var(--dimmer)}
+.svread{font-family:var(--mono);font-size:9.5px;color:var(--dim);margin-top:1px}
+
+/* ---- the click card: #selcard's corner, #selcard's manners ----
+   Same position, width and z-index as cad/select.js's part card, because
+   this IS that card pointed at a channel. It only exists while the gauges
+   are the model, so it can never sit over the droid. */
+#svCard{
+  display:none;position:absolute;right:10px;top:10px;width:232px;z-index:30;
+  background:var(--panel);border:1px solid var(--line2);border-radius:5px;
+  padding:10px 12px;box-shadow:0 10px 34px var(--shadow);
+  max-height:calc(100% - 20px);overflow-y:auto;
+}
+body.model-servos #svCard.on{display:block}
+#svCard .selrow{grid-template-columns:44px 1fr}
+#svCard select,#svCard input[type=text]{
+  font-family:var(--mono);font-size:10.5px;background:var(--ink);color:var(--cy);
+  border:1px solid var(--line2);border-radius:3px;padding:3px 4px;max-width:100%;
+}
+#svCard input[type=range]{width:100%}
+#svCard .hint.prose{margin-top:9px;font-size:10.5px}
+
+/* the sequencer desk's stage is a narrow column — the tiles shrink rather
+   than the grid scrolling sideways, and the card gets out of the way */
+@media (max-width:560px){
+  #svGrid{grid-template-columns:repeat(auto-fill,minmax(78px,1fr));gap:6px;padding:8px}
+  .svface{max-width:64px}
+  .svdrives,.svn{font-size:8.5px}
+  #svCard{right:6px;top:6px;width:186px;padding:8px 10px}
+}

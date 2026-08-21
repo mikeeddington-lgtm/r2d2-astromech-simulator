@@ -15,10 +15,94 @@ function stepServos(dt){
   }
 }
 const SERVO_ACT_SET = (()=>{ const s=new Set(); for(const b of [1,2]) SERVO_DEFS[b].forEach(d=>s.add(d.act)); return s; })();
+/* the same table the other way up: actuator id → which board and channel
+   carries it, so a write to ACT_T can be turned back into a pulse */
+const SERVO_ACT_DEF = (()=>{ const m={}; for(const b of [1,2]) SERVO_DEFS[b].forEach(d=>{ m[d.act]={board:b, def:d}; }); return m; })();
+
+/* =====================================================================
+   AN ACT_T WRITE ON A PCA-OWNED ACTUATOR IS A COMMAND TO THE BOARD
+   (v1.61.0)
+
+   Mike: "somethings broken when im in the sequncer and have r2 set as the
+   model I dont see any of teh panels moving."
+
+   It was broken on mod2026 and only on mod2026, and it is the second half of
+   a bug whose first half was fixed in v1.39.3. That release found the
+   sequence CLOCK shut behind `if(PROFILE.hasMaestro)` and opened it, because
+   v1.27.0 had already opened the desk to PCA9685 builds — "every build",
+   buildCanSequence(). The clock then ran. Nothing moved anyway, because the
+   ACTUATOR path was still shut: on a hasServos profile the PCA9685 layer OWNS
+   its 21 actuators — ACT is overwritten from servoTravel() every frame — so
+   `applyFrameTargets()`'s `ACT_T[c.act] = ...` was written and then stamped
+   flat one line later. A dome routine ran its whole length with the droid
+   sitting perfectly still.
+
+   The reason it surfaced NOW is v1.59.0: the Servo gauges read CHPOS, which
+   is profile-blind, so the very same routine visibly sweeps every gauge. Play
+   it, switch the model back to the droid, and nothing happens. That is the
+   comparison Mike made.
+
+   THE FIX, and why it is here rather than in the sequencer. There are a dozen
+   writers of `ACT_T[act]` — the sequencer, the live pose, the free-lane
+   overlay, cues, the puppet rig, the bench host, two importers — and teaching
+   each one about PCA ownership is twelve chances to forget. cad/parts.js
+   already solved this once for test actions (actSet(): "a test action must
+   command the servo model through setPWM, exactly as the sketch would"). This
+   is that same rule, applied at the one seam every writer already funnels
+   through, one frame later.
+
+   It is EDGE-TRIGGERED, and it has to be. If it commanded the board from
+   ACT_T every frame, a stale ACT_T left over from an old sequence would fight
+   the running sketch forever — the sketch would close a door and this would
+   re-open it 60 times a second. So: only a CHANGE in ACT_T commands anything,
+   and at the end of every frame ACT_T is mirrored back from where the board is
+   actually headed (servoTargetTravel), which keeps the two in step whether the
+   move came from a sketch, the pad, a group action or a routine. A side
+   benefit: the Outputs table's "moving" flag compares ACT_T with ACT, and on
+   mod2026 that comparison was reading a stale number. Now it is honest.
+
+   The real hardware is not touched by any of this. setPWM() here is the
+   simulated PCA9685, the same one the transpiled sketch calls. */
+const SERVO_T_SEEN = {};
+function servoTakeTargets(){
+  for(const a in SERVO_ACT_DEF){
+    const t = ACT_T[a];
+    if(t === undefined) continue;
+    const seen = SERVO_T_SEEN[a];
+    if(seen === undefined){ SERVO_T_SEEN[a] = t; continue; }   // first sight is not a command
+    if(Math.abs(t - seen) < 1e-6) continue;                    // nobody wrote it this frame
+    SERVO_T_SEEN[a] = t;
+    const e = SERVO_ACT_DEF[a], lo = CFG[e.def.lo], hi = CFG[e.def.hi];
+    if(lo === undefined || hi === undefined || lo === hi) continue;
+    setPWM(e.board, e.def.ch, 0, Math.round(lo + (hi - lo) * clamp(t, 0, 1)));
+  }
+}
+/* the per-CHANNEL readings (maestro/playback.js CHPOS) ease by the same rule
+   and in the same breath as the actuators, so a gauge and a panel driven by
+   one frame arrive together rather than a tick apart */
+function stepChanPos(dt){
+  if(typeof CHPOS === 'undefined') return;
+  const step = (CFG.maestroRate || 2.2) * dt;
+  for(let i = 0; i < CHPOS_T.length; i++){
+    if(CHPOS_T[i] === undefined) continue;
+    if(CHPOS[i] === undefined){ CHPOS[i] = CHPOS_T[i]; continue; }
+    const d = CHPOS_T[i] - CHPOS[i];
+    if(Math.abs(d) <= step) CHPOS[i] = CHPOS_T[i];
+    else CHPOS[i] += Math.sign(d) * step;
+  }
+}
 function syncActuators(dt){
+  stepChanPos(dt);
   if(PROFILE.hasServos){
+    servoTakeTargets();          // whatever wrote ACT_T since the last frame → the board
     stepServos(dt);
-    for(const b of [1,2]) for(const d of SERVO_DEFS[b]) ACT[d.act] = servoTravel(b, d.ch);
+    /* ACT is where the horn IS; ACT_T is mirrored to where it is HEADED, so
+       the next frame's edge test compares like with like — see above */
+    for(const b of [1,2]) for(const d of SERVO_DEFS[b]){
+      ACT[d.act] = servoTravel(b, d.ch);
+      const tt = servoTargetTravel(b, d.ch);
+      ACT_T[d.act] = tt; SERVO_T_SEEN[d.act] = tt;
+    }
     // parts the PCA9685s don't own (side panels, rear doors, drawer) still
     // answer UI tests and group actions — ramp them like the Maestro path does
     const step = (CFG.maestroRate||2.2)*dt;

@@ -194,7 +194,7 @@ function bldCheckCol(){
     fact('Subroutines', rep.stats.subs+' / 126','');
   }
   fact('Slots used', rep.stats.loadout, 'the sketches reach 0–7');
-  fact('Slowest throw', rep.stats.slowestThrowMs+' ms', 'a full endpoint-to-endpoint move at your imported speed and acceleration');
+  fact('Slowest throw', rep.stats.slowestThrowMs+' ms', 'a full endpoint-to-endpoint move at these channels\' speed and acceleration');
   col.appendChild(grid);
 
   if(!rep.items.length){

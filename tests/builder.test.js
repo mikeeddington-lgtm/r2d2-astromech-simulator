@@ -51,12 +51,15 @@ const near=(a,b,t)=>Math.abs(a-b)<=t;
      would have failed to load the page at all. */
   ok('the Model Builder is its own global, not the Maestro-build overlay', await ev(()=>
     typeof MB !== 'undefined' && typeof BLD !== 'undefined' && MB !== BLD));
-  ok('four models to choose from, Builder last', await ev(()=>MODEL_IDS.join()==='droid,frik,mouse,builder'));
-  ok('cycling all four comes home', await ev(()=>{
+  /* five since v1.60.0 — the servo gauges are a model again, but a FLAT one
+     (app/servos.js draws over #stage; there is no scene under it). This
+     assertion is about the ORDER being stable, not about Builder being last. */
+  ok('five models to choose from, Builder fourth', await ev(()=>MODEL_IDS.join()==='droid,frik,mouse,builder,servos'));
+  ok('cycling all five comes home', await ev(()=>{
     modelSet('droid', {frame:false});
     const seen=[modelGet()];
-    for(let i=0;i<4;i++){ modelCycle(); seen.push(modelGet()); }
-    return seen.join()==='droid,frik,mouse,builder,droid';
+    for(let i=0;i<5;i++){ modelCycle(); seen.push(modelGet()); }
+    return seen.join()==='droid,frik,mouse,builder,servos,droid';
   }));
 
   console.log('\n════ one model on the stage at a time ════');

@@ -178,6 +178,8 @@ function setupImportObj(o){
     MSTR.board = m.board || boardForCount((m.channels||[]).length).id;
     MSTR.header = m.header || {};
     MSTR.channels = m.channels || [];
+    if(typeof chanDropRetiredActs === 'function') chanDropRetiredActs(MSTR.channels);
+    if(typeof chanPosReset === 'function') chanPosReset();   // the table is a new table — CHPOS with it
     MSTR.sequences = m.sequences || [];
     MSTR.loadout = m.loadout || null;
     MSTR.servoCount = MSTR.channels.length;
@@ -291,6 +293,7 @@ function setupButtons(host, msgEl){
     /* the in-memory table first — see the note above */
     if(typeof MSTR !== 'undefined'){
       MSTR.loaded = false; MSTR.channels = []; MSTR.sequences = []; MSTR.subs = [];
+      if(typeof chanPosReset === 'function') chanPosReset();   // the table is a new table — CHPOS with it
       MSTR.loadout = null; MSTR.xmlText = ''; MSTR.fileName = ''; MSTR.header = {};
     }
     if(typeof servoStoreClear === 'function') servoStoreClear();

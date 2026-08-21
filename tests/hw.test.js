@@ -970,6 +970,156 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
      exp.seen.some(n=>/^servo-setup-\d{4}-\d\d-\d\d-\d{4}\.json$/.test(n)),
      JSON.stringify(exp.seen));
 
+  /* ═══════════════════════════════════════════════════════════════════
+     WHAT THE BOARD SAYS IT IS DRIVING  (v1.63.0)
+     Mike: "I setup three pca's and I was only able to configure the first
+     two - all three where seen in the serial monitor." Both true at once:
+     the boot scan finds every board, but MPCA_CHANNELS in the generated
+     sequences.h is fixed at flash time, so a board added afterwards is
+     printed as "spare - live drive only, no slots use it". These pin the
+     parse of that, and the sentence that now says it out loud. */
+  console.log('\n════ the banner says which boards are actually driven ════');
+  const MR3 = 'MAESTRO-PCA 3\n--- Maestro replacement ---\n'
+            + '  I2C: 3 PCA9685(s) on the bus\n'
+            + '    board 0 = 0x40   channels 0-15\n'
+            + '    board 1 = 0x41   channels 16-31\n'
+            + '    board 2 = 0x45   spare - live drive only, no slots use it\n'
+            + '  channels 32   slots 8\n';
+  const BR3 = 'PCA-BRIDGE 2\n--- PCA bridge ---\n'
+            + '  0x40  channels 0-15   FOUND\n'
+            + '  0x42  channels 16-31   FOUND\n'
+            + '  0x45  channels 32-47   FOUND\n';
+  const OLD = 'PCA-BRIDGE 1\n--- PCA bridge ---\n'
+            + '  0x40  channels 0-15   FOUND\n'
+            + '  0x41  channels 16-31   FOUND\n'
+            + '  1 more board(s) on the bus than this sketch drives (2 boards, 32 channels max)\n';
+  const rep = await page.evaluate(([mr, br, old])=>{
+    buildSet('servoTopo','p1x2'); buildSet('pcaBoards',3); wizFinish();
+    /* say the board out loud: this suite has already loaded a Maestro table,
+       and buildEnsureMaestro() deliberately will not replace one (HW.trim()
+       never shortens somebody's tuned rows). Three expanders is 48 channels. */
+    setBoard('pca48'); makeStarter('dome','pca48');
+    const look = bn => { SER.banner = bn; SER.modeWarn = '';
+      const r = serialBoardReport();
+      return {onBus:r.onBus, driven:r.driven.length, spare:r.spare.map(x=>x.addr),
+              chans:r.channels, slots:r.slots,
+              addrs:r.driven.map(x=>x.addr),
+              warnHtml: (serialBoardCheck() || ''),
+              warn: (serialBoardCheck() || '').replace(/<[^>]+>/g,'')};
+    };
+    const out = {build: HW.count(), hasExport: typeof exportPcaHeader === 'function',
+                 mr: look(mr), br: look(br), old: look(old), none: look('')};
+    SER.banner = ''; SER.modeWarn = '';
+    return out;
+  }, [MR3, BR3, OLD]);
+  ok('a third board the flashed sequences.h does not know about is read as SPARE',
+     rep.mr.onBus === 3 && rep.mr.driven === 2 && rep.mr.spare.join() === '0x45',
+     JSON.stringify(rep.mr));
+  ok('…and the channel count the firmware was flashed with is read too',
+     rep.mr.chans === 32 && rep.mr.slots === 8, JSON.stringify(rep.mr));
+  ok('…and it offers the way out rather than describing it',
+     /id="bGenSeqH"/.test(rep.mr.warnHtml) && typeof rep.hasExport === 'boolean' && rep.hasExport,
+     rep.mr.warnHtml.slice(-120));
+  ok('…and it says so, naming the board and the remedy',
+     /0x45/.test(rep.mr.warn) && /sequences\.h/.test(rep.mr.warn) && /re-flash/i.test(rep.mr.warn),
+     rep.mr.warn.slice(0,120));
+  ok('…including that the build has more channels than the firmware drives',
+     new RegExp('32').test(rep.mr.warn) && new RegExp(String(rep.build)).test(rep.mr.warn),
+     'build '+rep.build+' · '+rep.mr.warn.slice(-140));
+
+  /* the bridge has no sequences.h at all, so everything it binds is driven —
+     three boards on jumpered, NON-consecutive addresses and not a word */
+  ok('PCA_Bridge driving all three says nothing, whatever the addresses are',
+     rep.br.driven === 3 && rep.br.spare.length === 0 && rep.br.warn === '',
+     JSON.stringify(rep.br));
+  ok('…and the addresses are read as found, not assumed from 0x40',
+     rep.br.addrs.join() === '0x40,0x42,0x45', JSON.stringify(rep.br.addrs));
+
+  ok('a sketch too old to drive the third board says THAT instead',
+     rep.old.driven === 2 && rep.old.onBus === 3
+     && /cannot drive at all/.test(rep.old.warn) && /Re-flash/i.test(rep.old.warn),
+     JSON.stringify(rep.old));
+
+  /* a Maestro, a silent board or a sketch with no board list must produce
+     NO OPINION — an empty report is not a report of zero boards */
+  ok('no banner means no opinion, never "no boards"',
+     rep.none.onBus === null && rep.none.driven === 0 && rep.none.warn === '',
+     JSON.stringify(rep.none));
+
+  /* ═══ THE OTHER DIRECTION, and the commoner one (v1.64.0)
+     Mike's actual bridge, pasted verbatim — three boards on jumpered
+     addresses, all three bound, nothing wrong with any of it. The BUILD said
+     two, so the table had 32 rows and the third board had nowhere to be
+     configured. v1.63.0 only checked firmware-has-FEWER and was silent. */
+  console.log('\n════ the board has more channels than the build ════');
+  const MIKE = 'PCA-BRIDGE 2\n--- PCA bridge ---\n'
+             + '  0x40  channels 0-15   FOUND\n'
+             + '  0x48  channels 16-31   FOUND\n'
+             + '  0x50  channels 32-47   FOUND\n'
+             + '\n  oscillator 25000000 Hz   servo 50 Hz\n';
+  const more = await page.evaluate(bn=>{
+    /* the co-processor build asked for by its ANSWER. `servoTopo` alone is not
+       enough: hardware.js reads a direct board answer BACK into the shape, so
+       the mini24 this suite set earlier would put the topology straight back. */
+    buildSet('domeServo','mpca32'); buildSet('bodyServo','mpca32'); wizFinish();
+    setBoard('pca32'); makeStarter('dome','pca32');
+    /* a row with an hour of somebody's life in it, which must survive */
+    const c = MSTR.channels[7];
+    c.name='Mike tuned'; c.min=4321; c.max=7654; c.act='pie3'; c.speed=80; c.acceleration=10;
+    SER.banner = bn; SER.modeWarn = '';
+    const warn = (serialBoardCheck() || '');
+    const before = HW.count();
+    const took = serialAdoptBoardCount(serialBoardReport().driven.length);
+    const k = MSTR.channels[7];
+    const out = {warn: warn.replace(/<[^>]+>/g,''), hasBtn: /id="bMatchBoards"/.test(warn),
+                 before, took, after: HW.count(), boards: buildGet().pcaBoards,
+                 kept: [k.name, k.min, k.max, k.act, k.speed, k.acceleration].join('|'),
+                 row47: !!MSTR.channels[47],
+                 quietNow: (serialBoardCheck() || '(SILENT)')};
+    /* a board that dropped off the bus must never cost you rows */
+    out.shrank = serialAdoptBoardCount(1);
+    out.afterShrink = HW.count();
+    SER.banner=''; SER.modeWarn='';
+    return out;
+  }, MIKE);
+  ok('a bridge driving more channels than the build has is reported',
+     /48 channels/.test(more.warn) && /3 PCA9685s/.test(more.warn) && /this build has/.test(more.warn),
+     more.warn.slice(0,130));
+  ok('…naming the addresses it actually found, not 0x40/0x41/0x42',
+     /0x40, 0x48, 0x50/.test(more.warn), more.warn.slice(0,90));
+  ok('…and saying which channels have nowhere to be configured',
+     /32-47/.test(more.warn), more.warn.slice(0,130));
+  ok('…with a button that takes the board\'s word for it', more.hasBtn, String(more.hasBtn));
+  ok('the button grows the table to match', more.took && more.before === 32 && more.after === 48
+     && more.boards === 3 && more.row47, JSON.stringify(more));
+  ok('…without touching a row somebody calibrated',
+     more.kept === 'Mike tuned|4321|7654|pie3|80|10', more.kept);
+  ok('…and then it has nothing left to say', more.quietNow === '(SILENT)', more.quietNow);
+  ok('a board that dropped off the bus never SHRINKS the table',
+     more.shrank === false && more.afterShrink === 48, JSON.stringify({s:more.shrank, n:more.afterShrink}));
+
+  /* a Maestro build with a bridge plugged in for the bench is not a build
+     with expanders — offering to renumber it would be offering to break it */
+  const notOffered = await page.evaluate(bn=>{
+    buildSet('domeServo','mini24'); wizFinish();
+    SER.banner = bn; SER.modeWarn = '';
+    const out = {counted: serialCanAdoptBoards(), adopt: serialAdoptBoardCount(3),
+                 warn: (serialBoardCheck() || '(SILENT)')};
+    SER.banner=''; SER.modeWarn='';
+    return out;
+  }, MIKE);
+  ok('a Maestro build is never offered an expander count', notOffered.counted === false
+     && notOffered.adopt === false && !/bMatchBoards/.test(notOffered.warn),
+     JSON.stringify(notOffered).slice(0,120));
+
+  /* and the generated header no longer names addresses the scan may never
+     use — v1.53.0 made them scanned, this comment had not caught up */
+  const hdr = await page.evaluate(()=>pcaGenHeader(MSTR.channels, MSTR.sequences, {}));
+  ok('the generated sequences.h does not claim board 1 is 0x41',
+     !/board 1 -> I2C address 0x41/.test(hdr) && /ASCENDING I2C ADDRESS/.test(hdr));
+  ok('…and it warns that MPCA_CHANNELS is fixed at flash time',
+     /MPCA_CHANNELS BELOW IS FIXED WHEN YOU FLASH/.test(hdr) && /regenerate this file, re-flash/.test(hdr));
+
   console.log('\n════ no page errors ════');
   ok('nothing threw', errs.length===0, errs.join(' | '));
 

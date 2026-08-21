@@ -32,6 +32,7 @@ CLIPS = {                      # name -> playback fps
     'domemap': 18,
     'import': 16,
     'slots': 16,
+    'rack':  18,
 }
 WIDTH = 1180                   # everything is normalised to this width
 
