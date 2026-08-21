@@ -24,9 +24,33 @@ right beside the `.ino`. A quoted include searches this directory first and the
 library path afterwards, so it finds the copies here **and** still finds the
 library for anyone who deletes them. If you re-add an include, quote it.
 
-If you would rather use the library properly, install `arduino/MaestroPCA/`
-through *Sketch → Include Library → Add .ZIP Library* and **delete these five
-files**. Keeping both is fine; keeping the library and a STALE copy is not.
+### You must have ONE of the two, never both
+
+If `MaestroPCA` is **also installed** in your Arduino `libraries` folder, the
+build fails at the LINK step with pages of *multiple definition of
+`MaestroPCA::…`*, ending in:
+
+    note: type 'struct MaestroPCA' itself violates the C++ One Definition Rule
+
+Quoting the includes is not enough to prevent this, and that is worth
+understanding: the **compiler** finds the header next door, but the **builder**
+separately resolves `MaestroPCA.h` against the library index, finds the
+installed library and compiles *its* `.cpp` files too. Two copies of every
+symbol reach the linker. There is no include-style trick that avoids it.
+
+So pick one:
+
+- **Self-contained (this folder).** Move the installed library out of the way —
+  rename `Documents\Arduino\libraries\MaestroPCA` to `MaestroPCA.disabled`,
+  or drag it somewhere else — and press Verify. The five files here are the
+  current ones.
+- **Library route.** Delete the five copies from this folder and install
+  `arduino/MaestroPCA/` through *Sketch → Include Library → Add .ZIP Library*.
+
+**Check which one you are actually compiling.** An installed library that is
+months old looks exactly like a working setup right up until a symbol moves —
+if `libraries\MaestroPCA\src\MaestroPCA.h` puts `class MaestroPCA` anywhere
+other than line 243, it is not this version.
 
 **A copy is a liability, so it is not left as a promise.**
 `arduino/MaestroPCA/test/run.sh` asserts all five are byte-identical to

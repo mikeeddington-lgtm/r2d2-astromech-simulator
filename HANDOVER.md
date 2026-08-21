@@ -1241,7 +1241,26 @@ first and the library path afterwards, so it finds the copies in this folder
 `arduino/MaestroPCA/` properly. Both ways work; angled only ever worked the
 second way, which is why nobody noticed while the library was the only route.
 
-So: unzip the folder, install Adafruit's driver, press Verify.
+#### And you must have ONE of the two, never both
+
+The second thing Mike's compiler corrected, a minute after the first. With
+`MaestroPCA` ALSO installed in his `libraries` folder, the build reached the
+linker and produced pages of *multiple definition of `MaestroPCA::…`*, ending
+in *"type 'struct MaestroPCA' itself violates the C++ One Definition Rule"*.
+
+**Quoting the includes does not prevent this, and the reason is worth writing
+down**: the COMPILER finds the header next door, but the BUILDER separately
+resolves `MaestroPCA.h` against the library index, finds the installed library
+and compiles its `.cpp` files too. Two copies of every symbol reach the linker.
+No include-style trick avoids it — the choice is genuinely exclusive, and the
+README now says so instead of the "keeping both is fine" I had written.
+
+The log also showed his installed library was **stale**: it put
+`class MaestroPCA` at line 111 where ours has it at 243. So the route he had
+before this was compiling old code, silently, and would have gone on doing so.
+The README tells you how to check.
+
+So: move the installed library aside, install Adafruit's driver, press Verify.
 
 `MpcaEsp32.h` is deliberately NOT copied: this sketch does not include it, and
 an unused copy is one more thing to drift.
