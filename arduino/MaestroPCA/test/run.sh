@@ -55,6 +55,40 @@ g++ -std=c++11 -O1 -w \
 timeout 30 /tmp/maestrobridge_test
 
 echo
+echo "== the droid sketch carries its own copy of the library =="
+# MaestroReplacement/ holds a copy of MpcaScan.h, MaestroPCA.{h,cpp} and
+# MaestroLink.{h,cpp} so it compiles with nothing installed but Adafruit's
+# driver — you unzip the folder and press Verify.
+#
+# A COPY IS A LIABILITY, and this project has paid for that once already:
+# v1.53.0 gave PCA_Bridge its own copy of the bus scan and v1.53.1 had to
+# prove the two agreed rather than promise it. So the copies are not left as
+# a promise either. They must be BYTE-IDENTICAL to ../src, and the moment
+# they are not, this says which file and how to fix it — because a drifted
+# copy in the sketch that ends up in the droid is the worst place for one.
+SKETCH=../examples/MaestroReplacement
+COPIES="MpcaScan.h MaestroPCA.h MaestroPCA.cpp MaestroLink.h MaestroLink.cpp"
+drift=0
+for f in $COPIES; do
+  if cmp -s "../src/$f" "$SKETCH/$f"; then
+    echo "  PASS  $f matches ../src"
+  else
+    echo "  FAIL  $f has drifted from ../src   —   cp ../src/$f $SKETCH/$f"
+    drift=1
+  fi
+done
+[ $drift -eq 0 ] || { echo "  the droid sketch is compiling something other than the library"; exit 1; }
+
+echo
+echo "== …and compiles from that folder ALONE (nothing installed) =="
+# deliberately NO -I ../src here: this is the whole point of the copies
+g++ -std=c++11 -O0 -w \
+    -I shim -I . -I "$SKETCH" \
+    compile_maestro_replacement.cpp "$SKETCH/MaestroPCA.cpp" "$SKETCH/MaestroLink.cpp" \
+    -o /tmp/maestrorepl_selfcontained
+timeout 30 /tmp/maestrorepl_selfcontained
+
+echo
 echo "== MaestroReplacement.ino compiles and boots (the sketch in the droid) =="
 g++ -std=c++11 -O0 -w \
     -I shim -I . -I ../src -I ../examples/MaestroReplacement \

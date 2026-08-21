@@ -1212,6 +1212,67 @@ not missing, it was folded in here (noted 2026-08-17).
 
 ## 10. Change log
 
+### 2026-08-21 — the droid sketch carries its own copy of the library
+
+Mike: *"can you put all the files I need to compile the maestro sketch into
+`arduino/MaestroPCA/examples/MaestroReplacement` — do not overwrite the
+sequences file"*.
+
+`MaestroReplacement.ino` asks for six headers. Three are somebody else's —
+`Wire` and `SoftwareSerial` from the board core, `Adafruit_PWMServoDriver` from
+Library Manager — and three are ours: `MpcaScan.h`, `MaestroPCA.h` and
+`MaestroLink.h`. Until now those three meant installing `arduino/MaestroPCA/`
+as a ZIP library before the sketch that ends up in the droid would build at all.
+
+The folder now holds copies of all five of our files (the two headers with
+implementations bring their `.cpp` with them).
+
+**And the includes had to change from `<angled>` to `"quoted"`**, which is the
+part I got wrong first and Mike's compiler corrected within the minute:
+
+    MaestroReplacement.ino:41:10: fatal error: MpcaScan.h: No such file or directory
+     #include <MpcaScan.h>
+
+A sketch folder is **not** on the compiler's include path for an angled
+include — the file can be sitting directly beside the `.ino` and it will still
+not be found. A QUOTED include searches the including file's own directory
+first and the library path afterwards, so it finds the copies in this folder
+**and** still finds the library for anyone who deletes them and installs
+`arduino/MaestroPCA/` properly. Both ways work; angled only ever worked the
+second way, which is why nobody noticed while the library was the only route.
+
+So: unzip the folder, install Adafruit's driver, press Verify.
+
+`MpcaEsp32.h` is deliberately NOT copied: this sketch does not include it, and
+an unused copy is one more thing to drift.
+
+#### A copy is a liability, so it is not left as a promise
+
+This project has paid for that once already — v1.53.0 gave PCA_Bridge its own
+inlined bus scan, and v1.53.1 had to prove the two agreed rather than assert it
+in a comment. So `test/run.sh` gains two steps:
+
+- every one of the five must be **byte-identical** to `../src`, and when one is
+  not it names the file and prints the single `cp` that fixes it;
+- the sketch is compiled **with `../src` deliberately off the include path**,
+  which is the only way to know the folder is actually self-sufficient rather
+  than quietly leaning on the library it is supposed to replace.
+
+Both run on Mike's own disk as well as in the container: five OK, and
+*"compiles, links and boots onto 3 of 8 boards"* from the sketch folder alone.
+
+**Edit the library, never the copy.** The guard will catch it either way, but a
+drifted copy inside the sketch that goes into the droid is the worst place in
+this repository for one to hide.
+
+#### `sequences.h` was not touched, and will not be
+
+It is generated — sized to the build, carrying the builder's own endpoints and
+routines — and Mike's is 62 KB of his. It was left exactly as it was (mtime and
+md5 both unchanged), as was the `sequencesold.h` he had put beside it. The new
+`README.md` in the folder says so too, along with what to install and what to
+delete if you would rather use the library properly.
+
 ### 2026-08-21 - v1.66.3: three boards, and the step that said two
 
 Mike, with three PCA9685s set on the servo hardware step: *"I'm still not able
