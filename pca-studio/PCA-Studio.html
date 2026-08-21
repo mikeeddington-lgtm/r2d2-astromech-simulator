@@ -923,11 +923,11 @@ function pcaBgResume(E){
   }
 }
 function pcaStop(E){
-  E.tracks.forEach(t=>{ t.seq=-1; t.frame=-1; t.frameT=0; });
+  E.tracks.forEach(t=>{ if(t.seq>=0) pcaReleaseSpeeds(E, t.mask); t.seq=-1; t.frame=-1; t.frameT=0; });
   E.bgWait.fill(-1);                      /* an explicit stop means stop */
 }
 function pcaStopSeq(E, n){
-  E.tracks.forEach(t=>{ if(t.seq===n){ t.seq=-1; t.frame=-1; t.frameT=0; } });
+  E.tracks.forEach(t=>{ if(t.seq===n){ pcaReleaseSpeeds(E, t.mask); t.seq=-1; t.frame=-1; t.frameT=0; } });
   for(let i=0;i<E.bgWait.length;i++) if(E.bgWait[i]===n) E.bgWait[i]=-1;
 }
 
@@ -939,7 +939,28 @@ function pcaApplyFrame(E, ti, f){
   E.frameLog.push({t:E.ms, seq:t.seq, frame:f});
   for(let c=0;c<E.channels.length;c++){
     const v = fr.targets[c];
-    if(v && E.st[c]) pcaSetTarget(E, c, v);   /* 0 = frame leaves channel alone */
+    if(!v || !E.st[c]) continue;              /* 0 = frame leaves channel alone */
+    /* PER-FRAME SPEED (v1.66.0). The compiler sizes it so the move fills the
+       frame's own duration, which is what lets a ramp be ONE target instead
+       of a staircase. Set it BEFORE the target: pcaStepChannel reads the
+       speed on the tick after the command, and a target given at the old
+       speed would take its first tick at the wrong pace. */
+    if(fr.speeds && fr.speeds[c]){ E.st[c].seqSpeed = true; pcaSetSpeed(E, c, fr.speeds[c]); }
+    pcaSetTarget(E, c, v);
+  }
+}
+/* Put back what the channel table says (v1.66.0). A per-frame speed is the
+   ROUTINE's, not the channel's, and a Set Speed persists on a Maestro and
+   here alike — so a routine that ended would otherwise leave the pad, the
+   bench dial and every group action running at whatever pace its last frame
+   happened to need. Called wherever a track lets go of its channels. */
+function pcaReleaseSpeeds(E, mask){
+  for(let c=0;c<E.channels.length;c++){
+    const s = E.st[c];
+    if(!s || !s.seqSpeed) continue;
+    if(mask !== undefined && !(mask & (1 << (c < 31 ? c : 31)))) continue;
+    s.seqSpeed = false;
+    pcaSetSpeed(E, c, (E.channels[c] && E.channels[c].speed) | 0);
   }
 }
 
@@ -983,7 +1004,7 @@ function pcaTick(E, dtms){
     }
 
     const frames = seq.frames;
-    if(!frames.length){ t.seq = -1; continue; }
+    if(!frames.length){ pcaReleaseSpeeds(E, t.mask); t.seq = -1; continue; }
     if(t.frame < 0){ t.frame=0; t.frameT=0; pcaApplyFrame(E,i,0); }
     else t.frameT += elapsed;
 
@@ -1002,6 +1023,7 @@ function pcaTick(E, dtms){
         t.frame = 0;
         pcaApplyFrame(E, i, 0);
       }else{
+        pcaReleaseSpeeds(E, t.mask);
         t.seq = -1;
       }
     }
@@ -1127,6 +1149,35 @@ function chanTravelMs(c, dist){
   if(d <= dRamp)  return 2 * Math.sqrt(d / a);    // triangular — never reaches vmax
   return 2 * (vmax / a) + (d - dRamp) / vmax;     // trapezoid
 }
+
+/* ---------------------------------------------- THE INVERSE (v1.66.0)
+   The speed that makes a move of `dist` take exactly `ms`, given the
+   channel's own acceleration. This is what lets the compiler hand the
+   board ONE Set Target per edge instead of a staircase and still keep the
+   authored duration honest — "the number is how long the move TAKES"
+   (Mike, bench, 2026-08-12) has to stay true whoever draws the curve.
+
+   Solving chanTravelMs() for vmax in the trapezoid case:
+
+       T = v/a + d/v      →      v² - a·T·v + a·d = 0
+
+   The SMALLER root is the trapezoid; the larger one is not a real profile
+   (it is the branch where the ramps alone are longer than the move).
+
+   A NEGATIVE DISCRIMINANT means this acceleration physically cannot cover
+   the distance in the time asked. That is not an error to swallow: it is
+   the accel-limited case, so we return the triangular peak — the fastest
+   this channel can go — and blockMinTravelMs() is what stops a brick
+   asking for it in the first place. Returns 0 for "nothing to limit". */
+function chanSpeedForMs(c, dist, ms){
+  const d = Math.abs(dist || 0);
+  if(!d || !(ms > 0)) return 0;
+  const a = ((c && c.acceleration) || 0) * 0.1 / 80;
+  if(!a) return Math.max(1, Math.min(16000, Math.round(10 * d / ms)));
+  const disc = a*a*ms*ms - 4*a*d;
+  const v = (disc <= 0) ? Math.sqrt(a*d) : (a*ms - Math.sqrt(disc)) / 2;
+  return Math.max(1, Math.min(16000, Math.round(10 * v)));
+}
 </script>
 <script>/* src/js/maestro/pca-gen.js */
 'use strict';
@@ -1177,12 +1228,45 @@ function pcaGenHeader(channels, sequences, meta){
   s += '   Consumed by the MaestroPCA library (arduino/MaestroPCA).\n';
   s += '\n';
   s += '   Wiring: channel i lives on PCA9685 board (i/16), pin (i%16).\n';
-  for(let b=0;b<boards;b++) s += '     board '+b+' -> I2C address 0x'+(0x40+b).toString(16).toUpperCase()+' (channels '+(b*16)+'..'+Math.min(n-1,b*16+15)+')\n';
+  /* v1.63.0 — this used to print "board 0 -> 0x40, board 1 -> 0x41" and so
+     on, which stopped being true in v1.53.0 when the sketches started
+     FINDING their boards instead of assuming consecutive addresses from
+     0x40. Mike's own question is why they scan: "I and others may jumper
+     them differently". A generated header that names addresses the boot
+     scan may never use is worse than one that names none — somebody wires
+     to the comment. So it says what decides it instead. */
+  for(let b=0;b<boards;b++) s += '     board '+b+' -> channels '+(b*16)+'..'+Math.min(n-1,b*16+15)+'\n';
+  s += '     Board numbers are ASCENDING I2C ADDRESS as found by the boot\n';
+  s += '     scan (0x40-0x7F, All Call excluded) — bridge whichever jumpers\n';
+  s += '     suit the build. The sketch prints the mapping it settled on.\n';
+  s += '\n';
+  s += '   MPCA_CHANNELS BELOW IS FIXED WHEN YOU FLASH THIS. A PCA9685 added\n';
+  s += '   to the bus afterwards is found and woken, and live drive reaches\n';
+  s += '   it, but no routine does — the sketch prints it as "spare". Add a\n';
+  s += '   board, regenerate this file, re-flash.\n';
   s += '   Targets are QUARTER-MICROSECONDS (6000 = 1500 us), straight from\n';
   s += '   the Maestro channel table — endpoints are YOUR calibration.\n';
   s += '   Calibrate the PCA9685 oscillator (maestro.begin(<hz>)) or these\n';
   s += '   values are only nominal on the wire. */\n';
   s += '#pragma once\n#include <MaestroPCA.h>\n\n';
+  /* THE GUARD (v1.66.0). A header WITHOUT speeds works against any version of
+     the library, so it gets no guard and nothing changes for anybody. A header
+     WITH them read by a library that predates MPCA_SEQ_SPEEDS is the dangerous
+     direction and it is silent: the old code would walk the rows with the
+     single stride, read speeds as targets, and drive channels to numbers
+     nobody asked for. There is no runtime tell — the frames just look wrong —
+     so it has to fail at COMPILE time, next to the fix. */
+  const anySpeeds = (sequences||[]).some(q=>
+    !(q && (q.gen === 'osc' || q.gen === 'wander')) &&
+    ((q && q.frames) || []).some(fr=>fr.speeds && fr.speeds.some(v=>v)));
+  if(anySpeeds){
+    s += '/* This file carries a SPEED per channel per frame, which needs a\n';
+    s += '   MaestroPCA library of v1.66.0 or later. An older copy would read the\n';
+    s += '   rows at the wrong stride and drive the wrong channels, quietly. */\n';
+    s += '#ifndef MPCA_SEQ_SPEEDS\n';
+    s += '#error "This sequences.h needs MaestroPCA v1.66.0 or later (MPCA_SEQ_SPEEDS). Update arduino/MaestroPCA in your libraries folder, or regenerate this file from a build that does not use per-frame speeds."\n';
+    s += '#endif\n\n';
+  }
   s += '#define MPCA_CHANNELS  '+n+'\n';
   s += '#define MPCA_SEQUENCES '+sequences.length+'\n';
   /* Pololu's restartScript() sends the subroutine number as 7-BIT data
@@ -1213,12 +1297,17 @@ function pcaGenHeader(channels, sequences, meta){
   });
   s += '};\n\n';
 
-  s += '/* Frame stride = 1 duration + '+n+' targets. 0 = channel not driven\n';
+  s += '/* Frame stride = 1 duration + '+n+' targets — or 1 + '+n+' targets + '+n+'\n';
+  s += '   speeds on a sequence flagged MPCA_SEQ_SPEEDS, which is how a ramp is\n';
+  s += '   paced so the move fills its frame instead of being chased flat out.\n';
+  s += '   A speed of 0 there means the channel keeps its own setting.\n';
+  s += '   0 = channel not driven\n';
   s += '   by that frame (the Maestro sequencer convention).\n';
   s += '   Sequences on disjoint channels play AT THE SAME TIME; one that\n';
   s += '   claims a channel another is using displaces it. MPCA_SEQ_LOOP\n';
   s += '   repeats until stopped or displaced. */\n';
   const seqNames = [];
+  const seqSpeeds = [];
   const isGen = q => q.gen === 'osc' || q.gen === 'wander';
   sequences.forEach((seq,k)=>{
     if(isGen(seq)){
@@ -1234,12 +1323,35 @@ function pcaGenHeader(channels, sequences, meta){
       seqNames.push(seq.name);
       return;
     }
+    /* THE SPEEDS RIDE WITH THE TARGETS (v1.66.0), when the compiler put any
+       there. The stride doubles and MPCA_SEQ_SPEEDS tells the library so —
+       see MaestroPCA.h. A routine with no speeds writes exactly the rows it
+       always did, so nothing that does not need this changes at all. */
+    const hasSpeeds = seq.frames.some(fr=>fr.speeds && fr.speeds.some(v=>v));
+    seqSpeeds[k] = hasSpeeds;
+    /* the comment after the brace is the ONLY place the routine's real name
+       survives (pcaCName strips the spaces out of the symbol), and
+       pcaHeaderParse reads it back as the name — so nothing else may go in
+       it. Adding "— duration, targets, then speeds" here renamed every
+       imported routine and cost it its bricks; the stride is explained once,
+       above the sequences, where it belongs. */
     s += 'static const uint16_t MPCA_SEQ'+k+'[] PROGMEM = {   /* '+seq.name+' */\n';
     seq.frames.forEach(fr=>{
       const dur = Math.max(0, Math.min(65535, fr.duration|0));
       const tg = [];
       for(let c=0;c<n;c++) tg.push(Math.max(0, Math.min(65535, fr.targets[c]|0)));
-      s += '  '+String(dur).padStart(5)+', '+tg.join(', ')+',\n';
+      let row = '  '+String(dur).padStart(5)+', '+tg.join(', ');
+      if(hasSpeeds){
+        const sp = [];
+        for(let c=0;c<n;c++){
+          const v = (fr.speeds && fr.speeds[c]) | 0;
+          /* 0 means "leave the channel's own speed alone", so a frame that
+             genuinely wants no limit has to say MPCA_SPEED_FREE instead */
+          sp.push(v > 0 ? Math.min(16000, v) : 0);
+        }
+        row += ',   ' + sp.join(', ');
+      }
+      s += row + ',\n';
     });
     s += '};\n';
     seqNames.push(seq.name);
@@ -1251,6 +1363,7 @@ function pcaGenHeader(channels, sequences, meta){
     if(seq.background) f.push('MPCA_SEQ_BACKGROUND');
     if(seq.gen === 'osc') f.push('MPCA_SEQ_OSC');
     if(seq.gen === 'wander') f.push('MPCA_SEQ_WANDER');
+    if(seqSpeeds[k]) f.push('MPCA_SEQ_SPEEDS');
     const count = isGen(seq) ? (seq.entries||[]).length : seq.frames.length;
     const note = [seq.gen === 'osc' ? 'sweeps' : null,
                   seq.gen === 'wander' ? 'wanders' : null,
@@ -1847,13 +1960,25 @@ function monWarn(html){
   if(sm) sm.onclick  = ()=>monWarn('Monitor only. Nothing is being streamed to the board.');
   const mz = $('bIsMaestro');
   if(mz) mz.onclick  = ()=>serialTryMaestro();
+  /* v1.63.0 — the third board's way out, wired here for the reason the
+     note above gives: #monWarn is rebuilt under its own buttons. */
+  const gs = $('bGenSeqH');
+  if(gs) gs.onclick  = ()=>{ if(typeof exportPcaHeader === 'function') exportPcaHeader(); };
+  const mb = $('bMatchBoards');
+  if(mb) mb.onclick  = ()=>serialAdoptBoardCount(serialBoardReport().driven.length);
   const mq = $('bMstQuiet');
   if(mq) mq.onclick  = ()=>{
     if(typeof mstrQuiet !== 'function') return;
     mstrQuiet(!MST.quiet);
     HW.say(MST.quiet
       ? 'the board\'s speed and acceleration are set to unlimited — the sim is shaping the moves now. A power cycle restores the board\'s own values.'
-      : 'the board\'s own stored speed and acceleration are back.');
+      /* NOT "the board's own values are back" (v1.62.0). mstrQuiet(false)
+         writes what the SIM's channel table says, which is a different
+         thing and used to be 0 on any generated table — so the message
+         said "restored" while leaving every channel unlimited. Only a
+         power cycle brings back what the board itself has stored. */
+      : 'the speed and acceleration from your channel table have been written to the board. '
+        + 'Only a power cycle brings back the board\'s own stored values.');
     if(typeof mstrReadoutSync === 'function') mstrReadoutSync();
   };
 }
@@ -1914,6 +2039,180 @@ function serialWhat(){
   if(/PCA-BRIDGE|PCA bridge/i.test(SER.banner)) return 'bridge';
   return '';
 }
+/* =====================================================================
+   WHAT THE BOARD SAYS IT IS DRIVING  (v1.63.0)
+
+   Mike: "I setup three pca's and I was only able to configure the first two
+   - all three where seen in the serial monitor."
+
+   Both halves of that are true at once, and the board says so in plain words
+   if anybody reads them. The BUS SCAN (v1.53.0) finds every PCA9685 on the
+   wire and MaestroReplacement lists all of them — which is why all three
+   showed up. What each one is FOR is a different question, and it is
+   answered by `MPCA_CHANNELS` in the generated `sequences.h`, which is fixed
+   when you flash. Generate that header on a two-board build, bolt on a
+   third, and the sketch prints the third as:
+
+       board 2 = 0x42   spare - live drive only, no slots use it
+
+   Exactly two boards configured, all three seen. The remedy is to regenerate
+   sequences.h and re-flash, and until now nothing in the app said so — the
+   line was in the monitor among thirty others, phrased for somebody who
+   already knew what MPCA_CHANNELS was.
+
+   So the banner is parsed rather than skimmed. It was already being kept
+   whole (SER.banner, 4000 chars) and read for one thing: the channel width.
+   These are the rest of the facts in it. Both sketches are covered because
+   both print a board list, in different words:
+
+     MaestroReplacement    I2C: 3 PCA9685(s) on the bus
+                             board 0 = 0x40   channels 0-15
+                             board 2 = 0x42   spare - live drive only...
+                           channels 32   slots 8
+     PCA_Bridge              0x40  channels 0-15   FOUND
+
+   Everything is optional: an older sketch, a Maestro or a board that never
+   answered gives {} and every caller treats that as "no opinion", never as
+   "no boards". */
+function serialBoardReport(){
+  const b = SER.banner || '';
+  const out = {onBus:null, driven:[], spare:[], channels:null, slots:null};
+  let m;
+  /* --- MaestroReplacement ------------------------------------------- */
+  if((m = /I2C:\s*(\d+)\s*PCA9685/i.exec(b))) out.onBus = +m[1];
+  const mrDriven = /board\s+(\d+)\s*=\s*0x([0-9a-f]+)\s+channels\s+(\d+)\s*-\s*(\d+)/ig;
+  while((m = mrDriven.exec(b))) out.driven.push({board:+m[1], addr:'0x'+m[2].toUpperCase(), from:+m[3], to:+m[4]});
+  const mrSpare = /board\s+(\d+)\s*=\s*0x([0-9a-f]+)\s+spare/ig;
+  while((m = mrSpare.exec(b))) out.spare.push({board:+m[1], addr:'0x'+m[2].toUpperCase()});
+  if((m = /^\s*channels\s+(\d+)\s+slots\s+(\d+)/im.exec(b))){ out.channels = +m[1]; out.slots = +m[2]; }
+  /* --- PCA_Bridge: no sequences.h, so everything it binds is driven --- */
+  if(!out.driven.length){
+    const brg = /0x([0-9a-f]+)\s+channels\s+(\d+)\s*-\s*(\d+)\s+FOUND/ig;
+    while((m = brg.exec(b))) out.driven.push({board:out.driven.length, addr:'0x'+m[1].toUpperCase(), from:+m[2], to:+m[3]});
+  }
+  /* "N more board(s) on the bus than this sketch drives" — the only place a
+     sketch older than its own bus limit says how many it left behind */
+  if(out.onBus === null && (m = /(\d+)\s+more board\(s\) on the bus/i.exec(b)))
+    out.onBus = out.driven.length + (+m[1]);
+  if(out.onBus === null && (out.driven.length || out.spare.length))
+    out.onBus = out.driven.length + out.spare.length;
+  return out;
+}
+/* Is "use N expanders" an answer this build can even take? Only a shape that
+   CARRIES a count (buildServoTopo().counted) — a Maestro build that happens to
+   have a bridge plugged in for the bench is not a build with expanders, and
+   `p0` is the mod2026 pair at two fixed addresses, which is not a count at
+   all. Offering it there would be offering to break somebody's build. */
+function serialCanAdoptBoards(){
+  if(typeof buildGet !== 'function' || typeof buildServoTopo !== 'function') return false;
+  const t = buildServoTopo(buildGet());
+  return !!(t && t.counted);
+}
+/* Take the board's word for how many expanders there are. GROWS the channel
+   table and never shrinks it — HW.trim() is a deliberate no-op for the reason
+   it states, and this is the same rule: rows carry names, part mappings and
+   endpoints measured against real linkage, and "the board only answered at
+   three addresses today" is not a reason to delete row 40. A board that
+   dropped off the bus must never cost you the calibration. */
+function serialAdoptBoardCount(n){
+  if(typeof kioskOn === 'function' && kioskOn()) return false;
+  if(!serialCanAdoptBoards()) return false;
+  n = Math.max(1, Math.min(PCA_MAX_BOARDS_UI, n|0));
+  const was = HW.count();
+  if(n * 16 <= was){
+    HW.say('the build already has ' + was + ' channels — nothing to add', 'warn');
+    return false;
+  }
+  buildSet('pcaBoards', n);
+  if(typeof wizFinish === 'function') wizFinish();
+  if(typeof buildEnsureMaestro === 'function') buildEnsureMaestro();
+  HW.save();
+  if(typeof rebuildMaestroUI === 'function') rebuildMaestroUI();
+  if(typeof boardVizSync === 'function') boardVizSync();
+  /* the new rows arrive as Input, the same way rows nobody named have always
+     arrived — an unused channel does not pulse. Say the next step rather than
+     leaving sixteen inert rows and a satisfied-looking toast. */
+  HW.say('build set to ' + n + ' PCA9685 expanders — ' + was + ' channels → ' + HW.count()
+       + '. Nothing that was already there was changed. The new rows start as Input: set the '
+       + 'Mode column to Servo on the ones you have wired.');
+  if(typeof toast === 'function') toast(n + ' expanders — channels ' + was + '-' + (HW.count()-1) + ' are yours to name now');
+  monWarn('');
+  return true;
+}
+/* THE ONE SENTENCE MIKE NEEDED, said where he is standing rather than in the
+   scrollback. Returns the html it showed, or '' when the board and the build
+   agree — so a test can assert on it and a caller can decide whether to
+   interrupt. Never guesses: an empty report says nothing at all. */
+function serialBoardCheck(){
+  const r = serialBoardReport();
+  const have = (typeof HW !== 'undefined' && HW.count) ? HW.count() : 0;
+  const bits = [];
+  if(r.spare.length){
+    bits.push('<b>' + r.spare.length + ' PCA9685' + (r.spare.length===1?' is':'s are')
+      + ' on the bus that the flashed firmware does not animate</b> ('
+      + r.spare.map(x=>x.addr).join(', ') + '). The channel count is baked into '
+      + '<code>sequences.h</code> when you flash it, so a board added afterwards is found, '
+      + 'woken and live-drivable — but no routine reaches it. '
+      + '<b>Regenerate <code>sequences.h</code> and re-flash the co-processor</b> and it joins in. '
+      /* the door, not just the instruction — exportPcaHeader() is the same
+         button the Maestro tab carries, and being sent to go and find it is
+         how a warning gets read and then ignored. Wired in monWarn(). */
+      + '<button class="mini" id="bGenSeqH">generate sequences.h now</button>');
+  }
+  const driven = r.driven.length;
+  if(r.onBus !== null && driven && r.onBus > driven + r.spare.length){
+    bits.push('<b>' + (r.onBus - driven - r.spare.length) + ' board(s) on the bus that this sketch '
+      + 'cannot drive at all.</b> Re-flash the current PCA_Bridge or MaestroReplacement — they reach eight.');
+  }
+  if(r.channels !== null && have && r.channels < have){
+    bits.push('The flashed firmware drives <b>' + r.channels + ' channels</b>; this build has <b>'
+      + have + '</b>. Channels ' + r.channels + '-' + (have-1) + ' will not move from a routine '
+      + 'until <code>sequences.h</code> is regenerated and re-flashed.');
+  }
+  /* THE OTHER DIRECTION, and the commoner one by far (v1.64.0). Mike's own
+     bridge, three boards, nothing wrong with any of it:
+
+         0x40  channels 0-15   FOUND
+         0x48  channels 16-31  FOUND
+         0x50  channels 32-47  FOUND
+
+     PCA_Bridge has no sequences.h — it binds everything it finds, so all
+     three were live and pulsing. The BUILD still said two expanders, so the
+     channel table had 32 rows and the third board had nowhere to be
+     configured. "I was only able to configure the first two."
+
+     v1.63.0 checked firmware-has-FEWER-than-build and was silent here, which
+     is backwards: adding hardware and not telling the app is the thing people
+     actually do. Nobody adds a board and then removes it from the build. */
+  const top = driven ? Math.max.apply(null, r.driven.map(x=>x.to)) : -1;
+  const boardCh = top + 1;
+  if(boardCh > 0 && have && boardCh > have && serialCanAdoptBoards()){
+    bits.push('The board is driving <b>' + boardCh + ' channels</b> across <b>' + driven
+      + ' PCA9685' + (driven===1?'':'s') + '</b> (' + r.driven.map(x=>x.addr).join(', ')
+      + '); this build has <b>' + have + '</b>. Channels ' + have + '-' + (boardCh-1)
+      + ' are wired and pulsing, but there is no row to name or calibrate them on. '
+      + '<button class="mini" id="bMatchBoards">use ' + driven + ' expanders</button>');
+  }
+  if(!bits.length) return '';
+  const html = bits.join(' ');
+  /* ADDED to whatever the mode already said, never instead of it — the
+     mode message is why streaming is on or off, and this is about which
+     boards answer. Losing either one to the other would be a worse
+     monitor than the scrollback this replaces. */
+  monWarn(((SER.modeWarn || '') + ' ' + html).trim());
+
+  monAppend('[' + html.replace(/<[^>]+>/g,'') + ']\n', 'sys');
+  HW.say(boardCh > have && have
+    ? ('the connected board drives ' + boardCh + ' channels; this build has ' + have)
+    : r.spare.length
+    ? (r.spare.length + ' PCA9685(s) found on the bus but not in the flashed sequences.h — regenerate and re-flash')
+    : 'the flashed firmware drives fewer channels than this build has', 'warn');
+  if(typeof toast === 'function') toast(boardCh > have && have
+    ? ('The board has ' + boardCh + ' channels, this build has ' + have + ' — see the Serial pane')
+    : 'A board on the bus is not in the flashed firmware — see the Serial pane');
+  return html;
+}
+
 async function serialIdentify(){
   SER.banner = '';
   monAppend('[identifying: resetting the board to hear its banner]\n','sys');
@@ -1972,6 +2271,7 @@ async function serialConnect(){
         + 'Moving anything here takes the servos off the board — it stops animating while '
         + 'the PC drives. Run a slot (<code>0</code>-<code>9</code> below, or a button on the '
         + 'droid) to hand them back.');
+      serialBoardCheck();
       return;
     }
     if(what === 'coproc'){
@@ -1981,10 +2281,12 @@ async function serialConnect(){
         + 'and send box still work (<code>?</code> status, <code>0</code>-<code>9</code> run a '
         + 'slot, <code>x</code> stop). <b>Re-flash the current MaestroReplacement</b> for live '
         + 'sliders, or use PCA_Bridge.');
+      serialBoardCheck();
       return;
     }
     if(what === 'bridge'){
       serialSetMode('stream', '');
+      serialBoardCheck();
       return;
     }
     /* Neither sketch answered — which is exactly what a real Pololu Maestro
@@ -2981,6 +3283,7 @@ const BLKH = {
 
   /* ------------------------------------------------------------ physics */
   travelMs(c, dist){ return chanTravelMs(c, dist); },
+  speedForMs(c, dist, ms){ return chanSpeedForMs(c, dist, ms); },
   neutral(){ return 6000; },
 
   /* -------------------------------------------------------------- hooks */
@@ -3220,11 +3523,64 @@ function blockEffRamps(b){
    step, and the board's own acceleration rounds the corners anyway. The
    `script-size` lint rule is what warns when a routine gets near the
    board's limit. */
-const BLK_RAMP_STEP_MS  = 120;
+/* ================================== HOW COARSE THE STAIRCASE IS (v1.66.0)
+   The step used to be fixed at 120 ms with a comment saying the board's own
+   acceleration rounded the corners. It does not — `vstop` in the kinematics
+   plans to arrive at every target AT REST, so each waypoint is a full stop
+   (MaestroPCA.cpp:539, and pcaseq.js says the same). The step is therefore a
+   real choice, and these are the measured numbers for a full throw over one
+   second at acceleration 100 — CV is velocity ripple, lower is smoother:
+
+       step     frames   CV without speed   CV with a per-frame speed
+       100 ms     10           0.56                  0.55
+       250 ms      4           1.00                  0.36
+       500 ms      2           1.33                  0.24
+       750 ms+     1           1.68                  0.13
+
+   Two halves of ONE lever, and neither works alone. Coarsen the step without
+   pacing each move and it gets monotonically WORSE — fewer waypoints means
+   bigger jumps, each still chased flat out. Pace them and it gets
+   monotonically better. Below about 200 ms the pacing stops buying anything
+   because the steps are finer than the servo's own ramp, which is what
+   BLK_STEP_MIN exists to say out loud.
+
+   THE DEFAULT IS 500, NOT 750, and that is deliberate. 750 and up collapses
+   every ramp to a single move, which is smoothest — but a Control Center
+   <Sequence> is targets and durations with nowhere to put a speed, so a
+   single-move ramp read back there is the 2026-08-12 bug again: three
+   seconds of the shut pose and then a snap. 500 is the largest step that
+   still leaves a staircase in an exported file for a long ramp, and
+   round(ms/step) already gives ONE move for any ramp under 750 ms — which is
+   most dome panel bricks. The smooth case where it is free, the safe case
+   where it is not.
+
+   LEGACY IS 120. A routine carries its own step (`seq.stepMs`, packed with
+   its bricks), so every routine written before this release recompiles to
+   the frames it already had, byte for byte, and the round trip is untouched.
+   That is why this is per-routine rather than a global preference. */
+const BLK_RAMP_STEP_MS  = 120;      /* what a routine with no step of its own uses */
+const BLK_STEP_DEFAULT  = 500;      /* what a NEW routine is created with */
+const BLK_STEP_MIN      = 200;      /* below this the per-frame speed stops helping */
+const BLK_STEP_MAX      = 1000;
 const BLK_RAMP_MAX_STEPS = 24;
-function blockRampSteps(ms){
+/* the step this routine draws its ramps at. Absent = written before v1.66.0
+   = 120, which is what reproduces its stored frames. */
+function blockStepMs(seq){
+  const v = seq && seq.stepMs;
+  /* NOT clamped. BLK_STEP_MIN is guidance for somebody typing a number into
+     the box — blockStepClamp() is where that belongs. A STORED step is a
+     fact about frames that already exist: hoist a legacy 120 up to 200 here
+     and every routine written before v1.66.0 recompiles to a different
+     staircase and stops re-attaching its own bricks. Found exactly that way. */
+  return (v > 0) ? Math.round(v) : BLK_RAMP_STEP_MS;
+}
+/* what the Advanced control is allowed to set it to */
+function blockStepClamp(v){
+  return Math.max(BLK_STEP_MIN, Math.min(BLK_STEP_MAX, Math.round(v) || BLK_STEP_DEFAULT));
+}
+function blockRampSteps(ms, stepMs){
   if(!(ms > 0)) return 0;
-  return Math.max(1, Math.min(BLK_RAMP_MAX_STEPS, Math.round(ms / BLK_RAMP_STEP_MS)));
+  return Math.max(1, Math.min(BLK_RAMP_MAX_STEPS, Math.round(ms / (stepMs || BLK_RAMP_STEP_MS))));
 }
 
 /* --------------------------------------------------------- the routine */
@@ -3248,6 +3604,12 @@ function blockLanes(seq){
 function blockAdd(seq, kind, ref, t0, opts){
   if(!seq) return null;
   if(!seq.blocks) seq.blocks = [];
+  /* A routine born after v1.66.0 draws at the new step; one that already has
+     bricks keeps whatever it was written with, absent included — that is what
+     makes an old routine recompile to the frames it already has. Tested on
+     `blocks.length` rather than on `seq.blocks` being missing, because a
+     routine is usually constructed with an empty array already in place. */
+  if(!seq.blocks.length && !(seq.stepMs > 0)) seq.stepMs = BLK_STEP_DEFAULT;
   const o = opts || {};
   const ramp = (kind === 'act') ? blockDefaultRamp(ref) : BLK_DEFAULTS.rise;
   const b = {
@@ -3291,12 +3653,12 @@ function blockMode(b){ return (b && b.mode) || 'oc'; }
    rather than a delay followed by a jump. Shared by blockBoundaries for
    every mode: only WHERE a ramp sits (start vs end of the brick) changes
    between them, never how it is stepped. */
-function blkAddRampSteps(set, start, ms){
-  const n = blockRampSteps(ms);
+function blkAddRampSteps(set, start, ms, stepMs){
+  const n = blockRampSteps(ms, stepMs);
   for(let k=1;k<=n;k++) set.add(Math.round(start + ms*k/n));
 }
 /* every instant where something changes */
-function blockBoundaries(seq){
+function blockBoundaries(seq, stepMs){
   const set = new Set([0]);
   blockList(seq).forEach(b=>{
     if(b.kind === 'seq'){
@@ -3317,7 +3679,7 @@ function blockBoundaries(seq){
       set.add(b.t0 + b.dur);
       /* 'oc' (unchanged) and 'o' both open across [t0, t0+rise] */
       if(mode === 'oc' || mode === 'o'){
-        blkAddRampSteps(set, b.t0, r.rise);
+        blkAddRampSteps(set, b.t0, r.rise, stepMs);
         set.add(b.t0 + r.rise);
       }
       /* 'oc' (unchanged) closes across [t0+dur-fall, t0+dur]; 'c' and 'co'
@@ -3325,17 +3687,17 @@ function blockBoundaries(seq){
       if(mode === 'oc'){
         const t2 = b.t0 + b.dur - r.fall;
         set.add(t2);
-        blkAddRampSteps(set, t2, r.fall);
+        blkAddRampSteps(set, t2, r.fall, stepMs);
       }else if(mode === 'c' || mode === 'co'){
         set.add(b.t0 + r.fall);
-        blkAddRampSteps(set, b.t0, r.fall);
+        blkAddRampSteps(set, b.t0, r.fall, stepMs);
       }
       /* 'co' also opens again at THE END — [t0+dur-rise, t0+dur], so both
          of its ramps get stepped instants */
       if(mode === 'co'){
         const t3 = b.t0 + b.dur - r.rise;
         set.add(t3);
-        blkAddRampSteps(set, t3, r.rise);
+        blkAddRampSteps(set, t3, r.rise, stepMs);
       }
     }
   });
@@ -3454,21 +3816,41 @@ function blockSeqTargetsAt(b, t){
    blocksTryAttach(), which re-attaches them ONLY when compiling the bricks
    against the DESTINATION table reproduces the imported frames exactly.
    Frames stay the truth; bricks are editability, restored when honest. */
+/* v2 (v1.66.0) adds the routine's STEP beside its bricks, because the step
+   is what decides the frames and a routine that came home without it would
+   recompile to a different staircase and fail to re-attach. A v1 payload
+   has no step, which is exactly right: it was written at 120.
+
+   The unpacked entry stays an ARRAY so every existing reader is unchanged;
+   the step is carried as a property ON that array. It is only ever read by
+   blocksTryAttach() one call later, never re-serialised from there. */
 function blocksPack(seqs){
   const out = {};
   (seqs || []).forEach(s=>{
     if(s && s.blocks && s.blocks.length)
-      out[s.name] = s.blocks.map(b=>{ const nb = Object.assign({}, b); delete nb.id; return nb; });
+      out[s.name] = { s: blockStepMs(s),
+                      b: s.blocks.map(b=>{ const nb = Object.assign({}, b); delete nb.id; return nb; }) };
   });
   if(!Object.keys(out).length) return '';
-  const json = JSON.stringify({v:1, seqs:out});
+  const json = JSON.stringify({v:2, seqs:out});
   return btoa(unescape(encodeURIComponent(json)));
 }
 function blocksUnpack(b64){
   try{
     const json = decodeURIComponent(escape(atob(String(b64 || '').trim())));
     const o = JSON.parse(json);
-    return (o && o.v === 1 && o.seqs) ? o.seqs : null;
+    if(!o || !o.seqs) return null;
+    if(o.v === 1) return o.seqs;                       // written before v1.66.0
+    if(o.v !== 2) return null;
+    const out = {};
+    Object.keys(o.seqs).forEach(k=>{
+      const e = o.seqs[k];
+      if(Array.isArray(e)){ out[k] = e; return; }      // tolerate a v1 entry in a v2 file
+      if(!e || !Array.isArray(e.b)) return;
+      const arr = e.b; if(e.s > 0) arr.stepMs = e.s;
+      out[k] = arr;
+    });
+    return out;
   }catch(e){ return null; }
 }
 /* attach candidate bricks to a sequence IF they honestly describe it:
@@ -3481,28 +3863,48 @@ function blocksTryAttach(seq, cand){
   if(!seq || !cand || !cand.length || !seq.frames || !seq.frames.length) return false;
   if(typeof BLKH === 'undefined' || !BLKH.loaded()) return false;
   const blocks = cand.map(b=>{ const nb = Object.assign({}, b); nb.id = BLK_NEXT_ID++; return nb; });
-  let frames;
-  try{ frames = blockCompile({name:seq.name, frames:seq.frames, blocks}); }
-  catch(e){ return false; }
-  if(!frames || frames.length !== seq.frames.length) return false;
-  for(let i=0;i<frames.length;i++){
-    const a = frames[i], b = seq.frames[i];
-    if(a.duration !== b.duration) return false;
-    const n = Math.max(a.targets.length, b.targets.length);
-    for(let k=0;k<n;k++) if((a.targets[k]||0) !== (b.targets[k]||0)) return false;
+  const same = f => {
+    if(!f || f.length !== seq.frames.length) return false;
+    for(let i=0;i<f.length;i++){
+      const a = f[i], b = seq.frames[i];
+      if(a.duration !== b.duration) return false;
+      const n = Math.max(a.targets.length, b.targets.length);
+      for(let k=0;k<n;k++) if((a.targets[k]||0) !== (b.targets[k]||0)) return false;
+    }
+    return true;
+  };
+  /* the step the file says it was drawn at, then the legacy 120 for a v1
+     payload or one whose step was lost. Frames are still the truth: match
+     neither and the bricks are dropped and counted, never fitted. */
+  const tries = [];
+  if(cand.stepMs > 0) tries.push(cand.stepMs);
+  tries.push(BLK_RAMP_STEP_MS);
+  if(tries.indexOf(BLK_STEP_DEFAULT) < 0) tries.push(BLK_STEP_DEFAULT);
+  let frames = null, usedStep = 0;
+  for(const stepMs of tries){
+    let f;
+    try{ f = blockCompile({name:seq.name, frames:seq.frames, blocks, stepMs}); }
+    catch(e){ continue; }
+    if(same(f)){ frames = f; usedStep = stepMs; break; }
   }
+  if(!frames) return false;
   seq.blocks = blocks;
+  seq.stepMs = usedStep;
   seq.frames = frames;         // a routine's frames are derived — adopt the compiled names too
   return true;
 }
 
-function blockCompile(seq){
+function blockCompile(seq, opts){
+  /* opts.stepMs lets a caller compile at a step the routine does not carry —
+     blocksTryAttach() uses it to test an imported routine against the legacy
+     120 ms as well as its own. Everything else takes the routine's. */
+  const stepMs = (opts && opts.stepMs > 0) ? opts.stepMs : blockStepMs(seq);
   if(!blockIsRoutine(seq) || !BLKH.loaded()) return seq ? seq.frames : [];
   const chans = BLKH.servoChannels();
   const base = {};
   chans.forEach(c=>{ base[c.i] = blockClosed(c); });
 
-  const bounds = blockBoundaries(seq);
+  const bounds = blockBoundaries(seq, stepMs);
   const total = blockEndCompiled(seq);      // v1.46.0 — an unwired brick must not stretch the frame list
   if(!bounds.length || total <= 0){
     /* an empty routine still has to emit ONE frame, or the subroutine
@@ -3553,8 +3955,30 @@ function blockCompile(seq){
         if(v !== null && c) targets[c.i] = v;
       }
     });
+    const duration = Math.max(0, Math.round(next - t));
+    /* THE SPEED THAT MAKES THE DURATION TRUE (v1.66.0). A frame commands its
+       targets and then waits `duration`, so a channel moving in this frame has
+       exactly that long to do it. Handing the board the speed that FILLS the
+       frame is the other half of the step-size lever: without it a coarser
+       staircase is a bigger lunge, with it the horn crosses the step at a
+       steady rate and the ripple falls away. 0 = this channel does not move
+       here, so leave whatever the bench set for it alone.
+
+       Targets and durations are UNCHANGED by this — the speeds ride alongside.
+       That is what keeps a .mstr honest (Control Center ignores what it cannot
+       see and still plays the authored timing) and the round trip exact. */
+    const speeds = [];
+    let anySpeed = false;
+    chans.forEach(c=>{
+      const d = targets[c.i] - last[c.i];
+      if(!d || !duration){ speeds[c.i] = 0; return; }
+      const sp = BLKH.speedForMs ? BLKH.speedForMs(c, d, duration) : 0;
+      speeds[c.i] = sp; if(sp) anySpeed = true;
+    });
     chans.forEach(c=>{ last[c.i] = targets[c.i]; });
-    frames.push({name:'t'+Math.round(t), duration:Math.max(0, Math.round(next - t)), targets});
+    const fr = {name:'t'+Math.round(t), duration, targets};
+    if(anySpeed) fr.speeds = speeds;
+    frames.push(fr);
   }
   /* land on the home pose so the close is real and not a delta artefact */
   const home = []; chans.forEach(c=>{ home[c.i] = base[c.i]; });
@@ -3807,9 +4231,21 @@ function blockHistReset(seq){
   BLKHIST.undo.length = 0;
   BLKHIST.redo.length = 0;
 }
-/* a deep copy of the routine's editable state, or null for a frame list */
+/* a deep copy of the routine's editable state, or null for a frame list.
+   v1.66.0 — the RAMP STEP is part of that state, not decoration: changing
+   it rewrites every frame, so an undo that put the bricks back and left the
+   new step would restore a routine that never existed. */
 function blockHistCapture(seq){
-  return blockIsRoutine(seq) ? JSON.parse(JSON.stringify(seq.blocks)) : null;
+  return blockIsRoutine(seq)
+    ? { blocks: JSON.parse(JSON.stringify(seq.blocks)), stepMs: blockStepMs(seq) }
+    : null;
+}
+/* one door back into a routine, so undo and redo cannot disagree */
+function blkHistRestore(seq, snap){
+  if(!snap) return;
+  seq.blocks = snap.blocks;
+  seq.stepMs = snap.stepMs;
+  blockSync(seq);                             // frames regenerate from both
 }
 function blkHistSame(seq){ if(BLKHIST.seq !== seq) blockHistReset(seq); }
 function blkHistStore(seq, snap){
@@ -3828,7 +4264,11 @@ function blockHistPush(seq){
    (a plain click on a brick) records nothing */
 function blockHistCommit(seq, before){
   if(!blockIsRoutine(seq) || !before) return;
-  if(JSON.stringify(before) === JSON.stringify(seq.blocks)) return;
+  /* compared against a CAPTURE, not against seq.blocks — since v1.66.0 a
+     snapshot is {blocks, stepMs} and comparing it to the bare block list
+     could never match, which would have recorded a history entry for every
+     gesture including a plain click that changed nothing. */
+  if(JSON.stringify(before) === JSON.stringify(blockHistCapture(seq))) return;
   blkHistStore(seq, before);
 }
 function blockCanUndo(seq){ return !!(blockIsRoutine(seq) && BLKHIST.seq === seq && BLKHIST.undo.length); }
@@ -3836,15 +4276,13 @@ function blockCanRedo(seq){ return !!(blockIsRoutine(seq) && BLKHIST.seq === seq
 function blockUndo(seq){
   if(!blockCanUndo(seq)) return false;
   BLKHIST.redo.push(blockHistCapture(seq));
-  seq.blocks = BLKHIST.undo.pop();
-  blockSync(seq);                             // frames regenerate from the blocks
+  blkHistRestore(seq, BLKHIST.undo.pop());
   return true;
 }
 function blockRedo(seq){
   if(!blockCanRedo(seq)) return false;
   BLKHIST.undo.push(blockHistCapture(seq));
-  seq.blocks = BLKHIST.redo.pop();
-  blockSync(seq);
+  blkHistRestore(seq, BLKHIST.redo.pop());
   return true;
 }
 
@@ -4743,6 +5181,53 @@ function setupGo(i){
    reads the build and says so on the Finish step if the two disagree. It
    never adds or deletes one of Mike's rows because of an answer here. */
 function setupChannels(){ return HW.setupCount(); }
+/* ======================================================================
+   TAKE THE BENCH'S BOARD COUNT INTO THE BUILD  (v1.65.0)
+
+   Mike: "still cant see servos 24 and above", with three PCA9685s ticked on
+   step 2 and `0 channels in use of 24` under the table.
+
+   The doctrine stands — "the BUILD decides how many channels this droid has,
+   not an answer typed into step 2 of a wizard" (hw-host.js) — so this does
+   not quietly pad the table behind the build's back. It changes the BUILD,
+   which is the thing allowed to decide, and the table follows the way it
+   always has. That is why it is a button and not a side effect.
+
+   GROW ONLY, and never over the top of anything: HW.short() returns null
+   unless the bench wants MORE than the table holds, and the build setter
+   keeps every existing row's name, endpoints, part mapping and speed (asserted
+   in hw.test.js). A board that fell off the bus must not cost a calibration.
+   ====================================================================== */
+function setupCanAdoptBoards(){
+  if(typeof kioskOn === 'function' && kioskOn()) return false;
+  return !!(HW.short() && typeof buildSet === 'function' && typeof servoCoprocId === 'function');
+}
+function setupAdoptBoards(){
+  if(!setupCanAdoptBoards()) return false;
+  const gap = HW.short();
+  const n = Math.max(1, Math.min(PCA_MAX_BOARDS_UI, gap.boards));
+  const was = HW.count();
+  /* the ANSWER, not the shape — hardware.js reads a direct board answer back
+     into the topology, so setting servoTopo alone gets undone by whatever
+     domeServo currently says (learned the hard way in v1.64.0's fixtures) */
+  const id = servoCoprocId(n);
+  buildSet('domeServo', id); buildSet('bodyServo', id); buildSet('pcaBoards', n);
+  if(typeof wizFinish === 'function') wizFinish();
+  if(typeof buildEnsureMaestro === 'function') buildEnsureMaestro();
+  HW.save();
+  if(typeof rebuildMaestroUI === 'function') rebuildMaestroUI();
+  if(typeof setupSync === 'function') setupSync();
+  const now = HW.count();
+  if(now <= was){
+    HW.say('could not grow the channel table past '+was+' — the build did not take the change', 'warn');
+    return false;
+  }
+  HW.say('build set to '+n+' PCA9685 expander'+(n===1?'':'s')+' — '+was+' channels → '+now
+       + '. Every row that was already there is untouched; the new ones start as Input, so set '
+       + 'the Mode column to Servo on the ones you have wired.');
+  if(typeof toast === 'function') toast('Channels '+was+'-'+(now-1)+' are yours to name now');
+  return true;
+}
 function setupAddr(b){ return 0x40 + b; }
 function setupAddrHex(b){ return '0x' + setupAddr(b).toString(16).toUpperCase(); }
 /* which A-jumpers to bridge for board b — the thing everyone gets wrong */
@@ -6371,7 +6856,24 @@ function setupBindChannels(){
   const count = ()=>{
     const n = HW.channels().filter(c=>c && /^servo/i.test(c.mode)).length;
     const el2 = $('setChCount');
-    if(el2) el2.textContent = n + ' channel' + (n===1?'':'s') + ' in use of ' + setupChannels();
+    if(!el2) return;
+    /* v1.65.0 — "still cant see servos 24 and above". This line said
+       `0 channels in use of 24` and stopped there, while step 2 of this very
+       wizard said three PCA9685s. The number it was missing is the one the
+       reader is looking for, so it says both and offers the way across.
+       innerHTML rather than textContent because there is a button in it now;
+       every value in it is a number this file computed. */
+    const gap = (typeof HW.short === 'function') ? HW.short() : null;
+    const head = n + ' channel' + (n===1?'':'s') + ' in use of ' + setupChannels();
+    if(!gap){ el2.textContent = head; return; }
+    el2.innerHTML = head
+      + ' <span class="warn">— step 2 says ' + gap.boards + ' PCA9685'
+      + (gap.boards===1?'':'s') + ', which is ' + gap.want + ' channels. '
+      + 'The droid\'s build only gives this table ' + gap.have + ' rows, so channels '
+      + gap.have + '-' + (gap.want-1) + ' have nowhere to be configured.</span>'
+      + (setupCanAdoptBoards()
+          ? ' <button class="mini" data-act="growboards">add the missing ' + gap.missing + ' rows</button>'
+          : '');
   };
   count();
   body.oninput = e=>{
@@ -6506,6 +7008,13 @@ function setupBindChannels(){
       setupAskClear();
       if(b.dataset.ask === 'yes' && a) a.fn();
       setupRender(); return;
+    }
+    /* v1.65.0 — the way across the gap the count line now names. Guarded in
+       setupAdoptBoards() itself (kiosk, and HW.short() being null), not here:
+       the standing rule is to guard the FUNCTION, never the button. */
+    if(b.dataset.act === 'growboards'){
+      if(typeof setupAdoptBoards === 'function' && setupAdoptBoards()) setupRender();
+      return;
     }
     if(b.dataset.act === 'allon' || b.dataset.act === 'alloff'){
       for(let i=0;i<setupChannels();i++) setupUse(i, b.dataset.act === 'allon');

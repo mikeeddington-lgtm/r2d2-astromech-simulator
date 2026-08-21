@@ -144,6 +144,12 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
   const one = await ev(()=>{
     const seq = MSTR.sequences[EDIT.seq];
     seq.blocks = [];
+    /* THIS BLOCK TESTS THE STAIRCASE, so it asks for the staircase (v1.66.0).
+       At the new 500 ms default a 200 ms rise is a single move whose frame
+       carries a speed instead — covered separately below. The property being
+       guarded here is the 2026-08-12 one: a ramp must never compile to the
+       shut pose held for its whole duration and then a snap. */
+    seq.stepMs = BLK_RAMP_STEP_MS;
     const b = blockAdd(seq, 'act', 'pie0', 0, {dur:1000, rise:200, fall:200});
     const c = blockChan('pie0');
     return {
@@ -769,6 +775,10 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
   const explodeRoutine = await ev(()=>{
     EDIT.seq = blockNewRoutine('Compiled o-mode source');
     const seq = MSTR.sequences[EDIT.seq];
+    /* the point of 2.6 is the carry surviving MANY short ramp-stepped frames,
+       so ask for the fine step out loud (v1.66.0 creates routines at 500 ms,
+       which would give this one four frames and test something weaker). */
+    seq.stepMs = BLK_RAMP_STEP_MS;
     const act = blockActions()[0].act;
     const brick = blockAdd(seq, 'act', act, 0, {dur:900, rise:300, mode:'o', amp:0.6});
     const saved = blockSaveAs(seq, 'Compiled o-mode source (saved)');

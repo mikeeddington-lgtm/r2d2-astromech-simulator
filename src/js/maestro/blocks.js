@@ -219,11 +219,64 @@ function blockEffRamps(b){
    step, and the board's own acceleration rounds the corners anyway. The
    `script-size` lint rule is what warns when a routine gets near the
    board's limit. */
-const BLK_RAMP_STEP_MS  = 120;
+/* ================================== HOW COARSE THE STAIRCASE IS (v1.66.0)
+   The step used to be fixed at 120 ms with a comment saying the board's own
+   acceleration rounded the corners. It does not — `vstop` in the kinematics
+   plans to arrive at every target AT REST, so each waypoint is a full stop
+   (MaestroPCA.cpp:539, and pcaseq.js says the same). The step is therefore a
+   real choice, and these are the measured numbers for a full throw over one
+   second at acceleration 100 — CV is velocity ripple, lower is smoother:
+
+       step     frames   CV without speed   CV with a per-frame speed
+       100 ms     10           0.56                  0.55
+       250 ms      4           1.00                  0.36
+       500 ms      2           1.33                  0.24
+       750 ms+     1           1.68                  0.13
+
+   Two halves of ONE lever, and neither works alone. Coarsen the step without
+   pacing each move and it gets monotonically WORSE — fewer waypoints means
+   bigger jumps, each still chased flat out. Pace them and it gets
+   monotonically better. Below about 200 ms the pacing stops buying anything
+   because the steps are finer than the servo's own ramp, which is what
+   BLK_STEP_MIN exists to say out loud.
+
+   THE DEFAULT IS 500, NOT 750, and that is deliberate. 750 and up collapses
+   every ramp to a single move, which is smoothest — but a Control Center
+   <Sequence> is targets and durations with nowhere to put a speed, so a
+   single-move ramp read back there is the 2026-08-12 bug again: three
+   seconds of the shut pose and then a snap. 500 is the largest step that
+   still leaves a staircase in an exported file for a long ramp, and
+   round(ms/step) already gives ONE move for any ramp under 750 ms — which is
+   most dome panel bricks. The smooth case where it is free, the safe case
+   where it is not.
+
+   LEGACY IS 120. A routine carries its own step (`seq.stepMs`, packed with
+   its bricks), so every routine written before this release recompiles to
+   the frames it already had, byte for byte, and the round trip is untouched.
+   That is why this is per-routine rather than a global preference. */
+const BLK_RAMP_STEP_MS  = 120;      /* what a routine with no step of its own uses */
+const BLK_STEP_DEFAULT  = 500;      /* what a NEW routine is created with */
+const BLK_STEP_MIN      = 200;      /* below this the per-frame speed stops helping */
+const BLK_STEP_MAX      = 1000;
 const BLK_RAMP_MAX_STEPS = 24;
-function blockRampSteps(ms){
+/* the step this routine draws its ramps at. Absent = written before v1.66.0
+   = 120, which is what reproduces its stored frames. */
+function blockStepMs(seq){
+  const v = seq && seq.stepMs;
+  /* NOT clamped. BLK_STEP_MIN is guidance for somebody typing a number into
+     the box — blockStepClamp() is where that belongs. A STORED step is a
+     fact about frames that already exist: hoist a legacy 120 up to 200 here
+     and every routine written before v1.66.0 recompiles to a different
+     staircase and stops re-attaching its own bricks. Found exactly that way. */
+  return (v > 0) ? Math.round(v) : BLK_RAMP_STEP_MS;
+}
+/* what the Advanced control is allowed to set it to */
+function blockStepClamp(v){
+  return Math.max(BLK_STEP_MIN, Math.min(BLK_STEP_MAX, Math.round(v) || BLK_STEP_DEFAULT));
+}
+function blockRampSteps(ms, stepMs){
   if(!(ms > 0)) return 0;
-  return Math.max(1, Math.min(BLK_RAMP_MAX_STEPS, Math.round(ms / BLK_RAMP_STEP_MS)));
+  return Math.max(1, Math.min(BLK_RAMP_MAX_STEPS, Math.round(ms / (stepMs || BLK_RAMP_STEP_MS))));
 }
 
 /* --------------------------------------------------------- the routine */
@@ -247,6 +300,12 @@ function blockLanes(seq){
 function blockAdd(seq, kind, ref, t0, opts){
   if(!seq) return null;
   if(!seq.blocks) seq.blocks = [];
+  /* A routine born after v1.66.0 draws at the new step; one that already has
+     bricks keeps whatever it was written with, absent included — that is what
+     makes an old routine recompile to the frames it already has. Tested on
+     `blocks.length` rather than on `seq.blocks` being missing, because a
+     routine is usually constructed with an empty array already in place. */
+  if(!seq.blocks.length && !(seq.stepMs > 0)) seq.stepMs = BLK_STEP_DEFAULT;
   const o = opts || {};
   const ramp = (kind === 'act') ? blockDefaultRamp(ref) : BLK_DEFAULTS.rise;
   const b = {
@@ -290,12 +349,12 @@ function blockMode(b){ return (b && b.mode) || 'oc'; }
    rather than a delay followed by a jump. Shared by blockBoundaries for
    every mode: only WHERE a ramp sits (start vs end of the brick) changes
    between them, never how it is stepped. */
-function blkAddRampSteps(set, start, ms){
-  const n = blockRampSteps(ms);
+function blkAddRampSteps(set, start, ms, stepMs){
+  const n = blockRampSteps(ms, stepMs);
   for(let k=1;k<=n;k++) set.add(Math.round(start + ms*k/n));
 }
 /* every instant where something changes */
-function blockBoundaries(seq){
+function blockBoundaries(seq, stepMs){
   const set = new Set([0]);
   blockList(seq).forEach(b=>{
     if(b.kind === 'seq'){
@@ -316,7 +375,7 @@ function blockBoundaries(seq){
       set.add(b.t0 + b.dur);
       /* 'oc' (unchanged) and 'o' both open across [t0, t0+rise] */
       if(mode === 'oc' || mode === 'o'){
-        blkAddRampSteps(set, b.t0, r.rise);
+        blkAddRampSteps(set, b.t0, r.rise, stepMs);
         set.add(b.t0 + r.rise);
       }
       /* 'oc' (unchanged) closes across [t0+dur-fall, t0+dur]; 'c' and 'co'
@@ -324,17 +383,17 @@ function blockBoundaries(seq){
       if(mode === 'oc'){
         const t2 = b.t0 + b.dur - r.fall;
         set.add(t2);
-        blkAddRampSteps(set, t2, r.fall);
+        blkAddRampSteps(set, t2, r.fall, stepMs);
       }else if(mode === 'c' || mode === 'co'){
         set.add(b.t0 + r.fall);
-        blkAddRampSteps(set, b.t0, r.fall);
+        blkAddRampSteps(set, b.t0, r.fall, stepMs);
       }
       /* 'co' also opens again at THE END — [t0+dur-rise, t0+dur], so both
          of its ramps get stepped instants */
       if(mode === 'co'){
         const t3 = b.t0 + b.dur - r.rise;
         set.add(t3);
-        blkAddRampSteps(set, t3, r.rise);
+        blkAddRampSteps(set, t3, r.rise, stepMs);
       }
     }
   });
@@ -453,21 +512,41 @@ function blockSeqTargetsAt(b, t){
    blocksTryAttach(), which re-attaches them ONLY when compiling the bricks
    against the DESTINATION table reproduces the imported frames exactly.
    Frames stay the truth; bricks are editability, restored when honest. */
+/* v2 (v1.66.0) adds the routine's STEP beside its bricks, because the step
+   is what decides the frames and a routine that came home without it would
+   recompile to a different staircase and fail to re-attach. A v1 payload
+   has no step, which is exactly right: it was written at 120.
+
+   The unpacked entry stays an ARRAY so every existing reader is unchanged;
+   the step is carried as a property ON that array. It is only ever read by
+   blocksTryAttach() one call later, never re-serialised from there. */
 function blocksPack(seqs){
   const out = {};
   (seqs || []).forEach(s=>{
     if(s && s.blocks && s.blocks.length)
-      out[s.name] = s.blocks.map(b=>{ const nb = Object.assign({}, b); delete nb.id; return nb; });
+      out[s.name] = { s: blockStepMs(s),
+                      b: s.blocks.map(b=>{ const nb = Object.assign({}, b); delete nb.id; return nb; }) };
   });
   if(!Object.keys(out).length) return '';
-  const json = JSON.stringify({v:1, seqs:out});
+  const json = JSON.stringify({v:2, seqs:out});
   return btoa(unescape(encodeURIComponent(json)));
 }
 function blocksUnpack(b64){
   try{
     const json = decodeURIComponent(escape(atob(String(b64 || '').trim())));
     const o = JSON.parse(json);
-    return (o && o.v === 1 && o.seqs) ? o.seqs : null;
+    if(!o || !o.seqs) return null;
+    if(o.v === 1) return o.seqs;                       // written before v1.66.0
+    if(o.v !== 2) return null;
+    const out = {};
+    Object.keys(o.seqs).forEach(k=>{
+      const e = o.seqs[k];
+      if(Array.isArray(e)){ out[k] = e; return; }      // tolerate a v1 entry in a v2 file
+      if(!e || !Array.isArray(e.b)) return;
+      const arr = e.b; if(e.s > 0) arr.stepMs = e.s;
+      out[k] = arr;
+    });
+    return out;
   }catch(e){ return null; }
 }
 /* attach candidate bricks to a sequence IF they honestly describe it:
@@ -480,28 +559,48 @@ function blocksTryAttach(seq, cand){
   if(!seq || !cand || !cand.length || !seq.frames || !seq.frames.length) return false;
   if(typeof BLKH === 'undefined' || !BLKH.loaded()) return false;
   const blocks = cand.map(b=>{ const nb = Object.assign({}, b); nb.id = BLK_NEXT_ID++; return nb; });
-  let frames;
-  try{ frames = blockCompile({name:seq.name, frames:seq.frames, blocks}); }
-  catch(e){ return false; }
-  if(!frames || frames.length !== seq.frames.length) return false;
-  for(let i=0;i<frames.length;i++){
-    const a = frames[i], b = seq.frames[i];
-    if(a.duration !== b.duration) return false;
-    const n = Math.max(a.targets.length, b.targets.length);
-    for(let k=0;k<n;k++) if((a.targets[k]||0) !== (b.targets[k]||0)) return false;
+  const same = f => {
+    if(!f || f.length !== seq.frames.length) return false;
+    for(let i=0;i<f.length;i++){
+      const a = f[i], b = seq.frames[i];
+      if(a.duration !== b.duration) return false;
+      const n = Math.max(a.targets.length, b.targets.length);
+      for(let k=0;k<n;k++) if((a.targets[k]||0) !== (b.targets[k]||0)) return false;
+    }
+    return true;
+  };
+  /* the step the file says it was drawn at, then the legacy 120 for a v1
+     payload or one whose step was lost. Frames are still the truth: match
+     neither and the bricks are dropped and counted, never fitted. */
+  const tries = [];
+  if(cand.stepMs > 0) tries.push(cand.stepMs);
+  tries.push(BLK_RAMP_STEP_MS);
+  if(tries.indexOf(BLK_STEP_DEFAULT) < 0) tries.push(BLK_STEP_DEFAULT);
+  let frames = null, usedStep = 0;
+  for(const stepMs of tries){
+    let f;
+    try{ f = blockCompile({name:seq.name, frames:seq.frames, blocks, stepMs}); }
+    catch(e){ continue; }
+    if(same(f)){ frames = f; usedStep = stepMs; break; }
   }
+  if(!frames) return false;
   seq.blocks = blocks;
+  seq.stepMs = usedStep;
   seq.frames = frames;         // a routine's frames are derived — adopt the compiled names too
   return true;
 }
 
-function blockCompile(seq){
+function blockCompile(seq, opts){
+  /* opts.stepMs lets a caller compile at a step the routine does not carry —
+     blocksTryAttach() uses it to test an imported routine against the legacy
+     120 ms as well as its own. Everything else takes the routine's. */
+  const stepMs = (opts && opts.stepMs > 0) ? opts.stepMs : blockStepMs(seq);
   if(!blockIsRoutine(seq) || !BLKH.loaded()) return seq ? seq.frames : [];
   const chans = BLKH.servoChannels();
   const base = {};
   chans.forEach(c=>{ base[c.i] = blockClosed(c); });
 
-  const bounds = blockBoundaries(seq);
+  const bounds = blockBoundaries(seq, stepMs);
   const total = blockEndCompiled(seq);      // v1.46.0 — an unwired brick must not stretch the frame list
   if(!bounds.length || total <= 0){
     /* an empty routine still has to emit ONE frame, or the subroutine
@@ -552,8 +651,30 @@ function blockCompile(seq){
         if(v !== null && c) targets[c.i] = v;
       }
     });
+    const duration = Math.max(0, Math.round(next - t));
+    /* THE SPEED THAT MAKES THE DURATION TRUE (v1.66.0). A frame commands its
+       targets and then waits `duration`, so a channel moving in this frame has
+       exactly that long to do it. Handing the board the speed that FILLS the
+       frame is the other half of the step-size lever: without it a coarser
+       staircase is a bigger lunge, with it the horn crosses the step at a
+       steady rate and the ripple falls away. 0 = this channel does not move
+       here, so leave whatever the bench set for it alone.
+
+       Targets and durations are UNCHANGED by this — the speeds ride alongside.
+       That is what keeps a .mstr honest (Control Center ignores what it cannot
+       see and still plays the authored timing) and the round trip exact. */
+    const speeds = [];
+    let anySpeed = false;
+    chans.forEach(c=>{
+      const d = targets[c.i] - last[c.i];
+      if(!d || !duration){ speeds[c.i] = 0; return; }
+      const sp = BLKH.speedForMs ? BLKH.speedForMs(c, d, duration) : 0;
+      speeds[c.i] = sp; if(sp) anySpeed = true;
+    });
     chans.forEach(c=>{ last[c.i] = targets[c.i]; });
-    frames.push({name:'t'+Math.round(t), duration:Math.max(0, Math.round(next - t)), targets});
+    const fr = {name:'t'+Math.round(t), duration, targets};
+    if(anySpeed) fr.speeds = speeds;
+    frames.push(fr);
   }
   /* land on the home pose so the close is real and not a delta artefact */
   const home = []; chans.forEach(c=>{ home[c.i] = base[c.i]; });
@@ -806,9 +927,21 @@ function blockHistReset(seq){
   BLKHIST.undo.length = 0;
   BLKHIST.redo.length = 0;
 }
-/* a deep copy of the routine's editable state, or null for a frame list */
+/* a deep copy of the routine's editable state, or null for a frame list.
+   v1.66.0 — the RAMP STEP is part of that state, not decoration: changing
+   it rewrites every frame, so an undo that put the bricks back and left the
+   new step would restore a routine that never existed. */
 function blockHistCapture(seq){
-  return blockIsRoutine(seq) ? JSON.parse(JSON.stringify(seq.blocks)) : null;
+  return blockIsRoutine(seq)
+    ? { blocks: JSON.parse(JSON.stringify(seq.blocks)), stepMs: blockStepMs(seq) }
+    : null;
+}
+/* one door back into a routine, so undo and redo cannot disagree */
+function blkHistRestore(seq, snap){
+  if(!snap) return;
+  seq.blocks = snap.blocks;
+  seq.stepMs = snap.stepMs;
+  blockSync(seq);                             // frames regenerate from both
 }
 function blkHistSame(seq){ if(BLKHIST.seq !== seq) blockHistReset(seq); }
 function blkHistStore(seq, snap){
@@ -827,7 +960,11 @@ function blockHistPush(seq){
    (a plain click on a brick) records nothing */
 function blockHistCommit(seq, before){
   if(!blockIsRoutine(seq) || !before) return;
-  if(JSON.stringify(before) === JSON.stringify(seq.blocks)) return;
+  /* compared against a CAPTURE, not against seq.blocks — since v1.66.0 a
+     snapshot is {blocks, stepMs} and comparing it to the bare block list
+     could never match, which would have recorded a history entry for every
+     gesture including a plain click that changed nothing. */
+  if(JSON.stringify(before) === JSON.stringify(blockHistCapture(seq))) return;
   blkHistStore(seq, before);
 }
 function blockCanUndo(seq){ return !!(blockIsRoutine(seq) && BLKHIST.seq === seq && BLKHIST.undo.length); }
@@ -835,15 +972,13 @@ function blockCanRedo(seq){ return !!(blockIsRoutine(seq) && BLKHIST.seq === seq
 function blockUndo(seq){
   if(!blockCanUndo(seq)) return false;
   BLKHIST.redo.push(blockHistCapture(seq));
-  seq.blocks = BLKHIST.undo.pop();
-  blockSync(seq);                             // frames regenerate from the blocks
+  blkHistRestore(seq, BLKHIST.undo.pop());
   return true;
 }
 function blockRedo(seq){
   if(!blockCanRedo(seq)) return false;
   BLKHIST.undo.push(blockHistCapture(seq));
-  seq.blocks = BLKHIST.redo.pop();
-  blockSync(seq);
+  blkHistRestore(seq, BLKHIST.redo.pop());
   return true;
 }
 

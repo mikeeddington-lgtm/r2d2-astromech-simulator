@@ -67,6 +67,24 @@ function pcaGenHeader(channels, sequences, meta){
   s += '   Calibrate the PCA9685 oscillator (maestro.begin(<hz>)) or these\n';
   s += '   values are only nominal on the wire. */\n';
   s += '#pragma once\n#include <MaestroPCA.h>\n\n';
+  /* THE GUARD (v1.66.0). A header WITHOUT speeds works against any version of
+     the library, so it gets no guard and nothing changes for anybody. A header
+     WITH them read by a library that predates MPCA_SEQ_SPEEDS is the dangerous
+     direction and it is silent: the old code would walk the rows with the
+     single stride, read speeds as targets, and drive channels to numbers
+     nobody asked for. There is no runtime tell — the frames just look wrong —
+     so it has to fail at COMPILE time, next to the fix. */
+  const anySpeeds = (sequences||[]).some(q=>
+    !(q && (q.gen === 'osc' || q.gen === 'wander')) &&
+    ((q && q.frames) || []).some(fr=>fr.speeds && fr.speeds.some(v=>v)));
+  if(anySpeeds){
+    s += '/* This file carries a SPEED per channel per frame, which needs a\n';
+    s += '   MaestroPCA library of v1.66.0 or later. An older copy would read the\n';
+    s += '   rows at the wrong stride and drive the wrong channels, quietly. */\n';
+    s += '#ifndef MPCA_SEQ_SPEEDS\n';
+    s += '#error "This sequences.h needs MaestroPCA v1.66.0 or later (MPCA_SEQ_SPEEDS). Update arduino/MaestroPCA in your libraries folder, or regenerate this file from a build that does not use per-frame speeds."\n';
+    s += '#endif\n\n';
+  }
   s += '#define MPCA_CHANNELS  '+n+'\n';
   s += '#define MPCA_SEQUENCES '+sequences.length+'\n';
   /* Pololu's restartScript() sends the subroutine number as 7-BIT data
@@ -97,12 +115,17 @@ function pcaGenHeader(channels, sequences, meta){
   });
   s += '};\n\n';
 
-  s += '/* Frame stride = 1 duration + '+n+' targets. 0 = channel not driven\n';
+  s += '/* Frame stride = 1 duration + '+n+' targets — or 1 + '+n+' targets + '+n+'\n';
+  s += '   speeds on a sequence flagged MPCA_SEQ_SPEEDS, which is how a ramp is\n';
+  s += '   paced so the move fills its frame instead of being chased flat out.\n';
+  s += '   A speed of 0 there means the channel keeps its own setting.\n';
+  s += '   0 = channel not driven\n';
   s += '   by that frame (the Maestro sequencer convention).\n';
   s += '   Sequences on disjoint channels play AT THE SAME TIME; one that\n';
   s += '   claims a channel another is using displaces it. MPCA_SEQ_LOOP\n';
   s += '   repeats until stopped or displaced. */\n';
   const seqNames = [];
+  const seqSpeeds = [];
   const isGen = q => q.gen === 'osc' || q.gen === 'wander';
   sequences.forEach((seq,k)=>{
     if(isGen(seq)){
@@ -118,12 +141,35 @@ function pcaGenHeader(channels, sequences, meta){
       seqNames.push(seq.name);
       return;
     }
+    /* THE SPEEDS RIDE WITH THE TARGETS (v1.66.0), when the compiler put any
+       there. The stride doubles and MPCA_SEQ_SPEEDS tells the library so —
+       see MaestroPCA.h. A routine with no speeds writes exactly the rows it
+       always did, so nothing that does not need this changes at all. */
+    const hasSpeeds = seq.frames.some(fr=>fr.speeds && fr.speeds.some(v=>v));
+    seqSpeeds[k] = hasSpeeds;
+    /* the comment after the brace is the ONLY place the routine's real name
+       survives (pcaCName strips the spaces out of the symbol), and
+       pcaHeaderParse reads it back as the name — so nothing else may go in
+       it. Adding "— duration, targets, then speeds" here renamed every
+       imported routine and cost it its bricks; the stride is explained once,
+       above the sequences, where it belongs. */
     s += 'static const uint16_t MPCA_SEQ'+k+'[] PROGMEM = {   /* '+seq.name+' */\n';
     seq.frames.forEach(fr=>{
       const dur = Math.max(0, Math.min(65535, fr.duration|0));
       const tg = [];
       for(let c=0;c<n;c++) tg.push(Math.max(0, Math.min(65535, fr.targets[c]|0)));
-      s += '  '+String(dur).padStart(5)+', '+tg.join(', ')+',\n';
+      let row = '  '+String(dur).padStart(5)+', '+tg.join(', ');
+      if(hasSpeeds){
+        const sp = [];
+        for(let c=0;c<n;c++){
+          const v = (fr.speeds && fr.speeds[c]) | 0;
+          /* 0 means "leave the channel's own speed alone", so a frame that
+             genuinely wants no limit has to say MPCA_SPEED_FREE instead */
+          sp.push(v > 0 ? Math.min(16000, v) : 0);
+        }
+        row += ',   ' + sp.join(', ');
+      }
+      s += row + ',\n';
     });
     s += '};\n';
     seqNames.push(seq.name);
@@ -135,6 +181,7 @@ function pcaGenHeader(channels, sequences, meta){
     if(seq.background) f.push('MPCA_SEQ_BACKGROUND');
     if(seq.gen === 'osc') f.push('MPCA_SEQ_OSC');
     if(seq.gen === 'wander') f.push('MPCA_SEQ_WANDER');
+    if(seqSpeeds[k]) f.push('MPCA_SEQ_SPEEDS');
     const count = isGen(seq) ? (seq.entries||[]).length : seq.frames.length;
     const note = [seq.gen === 'osc' ? 'sweeps' : null,
                   seq.gen === 'wander' ? 'wanders' : null,

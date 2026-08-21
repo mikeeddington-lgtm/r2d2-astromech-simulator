@@ -279,6 +279,63 @@ int main(){
     ok("a sequence with no flags word plays once and stops", !m.scriptRunning());
   }
 
+  printf("\n==== a frame can carry a SPEED as well as a target (v1.66.0) ====\n");
+  {
+    /* Two channels, stride 1 + 2*2 = 5 words a row:
+         durationMs, target0, target1, speed0, speed1
+       Both start at 6000 (home). The first row asks ch0 to 8000 over a
+       600 ms frame at speed 20, and leaves ch1 alone with a 0 target.
+       Speed 20 is 2 quarter-us per ms, so 2000 quarter-us takes 1000 ms —
+       DELIBERATELY longer than the frame, because that is what proves the
+       speed was applied at all: without it the horn is unlimited and
+       arrives inside the first tick. */
+    static const MpcaChannelDef T2[2] PROGMEM = {
+      { 0,0, 4000, 8000, 6000, 0, 0, 0, MPCA_EASE_NONE },
+      { 0,1, 4000, 8000, 6000, 0, 0, 0, MPCA_EASE_NONE }
+    };
+    static const uint16_t WITHSPD[] PROGMEM = {
+      600, 8000,    0,   20,    0,
+      600, 4000, 7000,   40,  MPCA_SPEED_FREE
+    };
+    static const MpcaSeqDef SS[1] PROGMEM = { { WITHSPD, 2, MPCA_SEQ_SPEEDS } };
+    MaestroPCA m(B,1,T2,2,SS,1); m.begin();
+    m.restartScript(0);
+    adv(m, 300);
+    uint16_t half = m.getPosition(0);
+    ok("the frame's speed is obeyed — it is still on its way, not already there",
+       half > 6000 && half < 8000, numf("at %ld", (long)half));
+    ok("a 0 target still leaves its channel alone, speeds or no speeds",
+       m.getPosition(1) == 6000, numf("ch1 %ld", (long)m.getPosition(1)));
+    adv(m, 400);
+    ok("the stride is read right — the second row arrives on time, not late",
+       m.getPosition(1) != 6000, numf("ch1 %ld", (long)m.getPosition(1)));
+    adv(m, 4000);
+    ok("MPCA_SPEED_FREE means unlimited for that move", m.getPosition(1) == 7000,
+       numf("ch1 %ld", (long)m.getPosition(1)));
+    ok("and the routine's speeds are handed back when it ends — the table says 0",
+       !m.scriptRunning() && m.getPosition(0) == 4000);
+    /* the real point of handing them back: the NEXT move must use the
+       channel's own setting, not whatever the last frame needed */
+    m.setTarget(0, 8000);
+    adv(m, 20);
+    ok("a move made AFTER the routine runs at the table's speed, not the routine's",
+       m.getPosition(0) == 8000, numf("at %ld", (long)m.getPosition(0)));
+  }
+  {
+    /* the same rows WITHOUT the flag: single stride, no speeds, unchanged */
+    static const MpcaChannelDef T2[2] PROGMEM = {
+      { 0,0, 4000, 8000, 6000, 0, 0, 0, MPCA_EASE_NONE },
+      { 0,1, 4000, 8000, 6000, 0, 0, 0, MPCA_EASE_NONE }
+    };
+    static const uint16_t PLAIN[] PROGMEM = { 600, 8000, 0,   600, 4000, 7000 };
+    static const MpcaSeqDef SS[1] PROGMEM = { { PLAIN, 2, 0 } };
+    MaestroPCA m(B,1,T2,2,SS,1); m.begin();
+    m.restartScript(0);
+    adv(m, 20);
+    ok("a sequence without the flag is untouched — unlimited, arrives at once",
+       m.getPosition(0) == 8000, numf("at %ld", (long)m.getPosition(0)));
+  }
+
   printf("\n%d passed, %d failed\n", pass, fail);
   return fail?1:0;
 }

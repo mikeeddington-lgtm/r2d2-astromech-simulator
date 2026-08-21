@@ -72,6 +72,7 @@ $('sqVFull').addEventListener('click',()=>viewFrame('full'));
 
 function buildSequencer(){
   const seq = MSTR.loaded ? MSTR.sequences[EDIT.seq] : null;
+  sqStepSync();                       /* the ramp step belongs to the ROUTINE (v1.66.0) */
   $('seqName').textContent = seq
     ? (seq.name + '  ·  ' + (blockIsRoutine(seq) ? blockList(seq).length+' bricks' : seq.frames.length+' frames')
        + '  ·  ' + (seqTotal(seq)/1000).toFixed(1) + 's'
@@ -142,6 +143,37 @@ function sqAdvViews(){
     const b = $(id); if(b) b.classList.toggle('hide', !on);
   });
   if(!on && (EDIT.view === 'pose' || EDIT.view === 'table')) setSeqView('blocks');
+  sqStepSync();
+}
+/* ============================== THE RAMP STEP (v1.66.0)
+   How coarsely THIS routine's ramps are drawn, and nothing else — the
+   timing is the same at every setting, because blockCompile() gives each
+   frame a speed that fills it. What changes is how many waypoints the
+   servo is asked to stop at on the way, and that is the whole of the
+   difference between a horn that buzzes through a ramp and one that
+   crosses it: measured velocity ripple CV 1.33 at 120 ms against 0.24 at
+   500 ms for the same routine.
+
+   A SELECT, not a number box. The useful range is 200 ms to 1 s — below
+   200 the per-frame speed stops buying anything because the steps are
+   finer than the servo's own ramp — and offering a free number invites
+   50 ms, which would look like a setting that does nothing. The legacy
+   120 ms appears only on a routine that is already using it, so an old
+   routine shows the truth about itself without being offered as a choice.
+   Only ever set on a ROUTINE: a frame list has no ramps to draw. */
+const SQ_STEP_CHOICES = [250, 500, 750, 1000];
+function sqStepSync(){
+  const wrap = $('sqStepWrap'), sel = $('sqStep');
+  if(!wrap || !sel) return;
+  const seq = (typeof MSTR !== 'undefined' && MSTR.loaded) ? MSTR.sequences[EDIT.seq] : null;
+  const show = !!BLK.adv && !!seq && typeof blockIsRoutine === 'function' && blockIsRoutine(seq);
+  wrap.classList.toggle('hide', !show);
+  if(!show) return;
+  const cur = blockStepMs(seq);
+  const opts = SQ_STEP_CHOICES.slice();
+  if(opts.indexOf(cur) < 0) opts.unshift(cur);        // whatever it really is, including 120
+  sel.innerHTML = opts.map(v=>'<option value="'+v+'"'+(v===cur?' selected':'')
+    + '>'+(v/1000).toFixed(2).replace(/0$/,'')+' s'+(v === BLK_RAMP_STEP_MS ? ' (old)' : '')+'</option>').join('');
 }
 function setSeqView(v){
   EDIT.view = v;
@@ -367,6 +399,23 @@ function sqBuildLabel(){
   const b = $('sqBuild'); if(!b) return;
   b.textContent = '⚙ ' + ((typeof bldTitle === 'function') ? bldTitle() : 'Build your Maestro');
 }
+$('sqStep').addEventListener('change',()=>{
+  const seq = MSTR.loaded ? MSTR.sequences[EDIT.seq] : null;
+  if(!seq || !blockIsRoutine(seq)) return;
+  const was = blockStepMs(seq);
+  const now = blockStepClamp(+$('sqStep').value);
+  if(now === was) return;
+  /* one undo step for the whole thing — this rewrites every frame in the
+     routine, which is exactly the kind of edit somebody wants back */
+  if(typeof blockHistPush === 'function') blockHistPush(seq);
+  seq.stepMs = now;
+  blockSync(seq);
+  buildSequencer();
+  const n = seq.frames.length;
+  lg('mae','ramp step for “'+seq.name+'”: '+was+' ms → '+now+' ms ('+n+' frame'+(n===1?'':'s')
+         +'). The timing is unchanged — each frame carries a speed that fills it.');
+  if(typeof toast === 'function') toast('Ramp step ' + (now/1000) + ' s — ' + n + ' frames');
+});
 $('sqAdv').addEventListener('change',()=>{
   BLK.adv = $('sqAdv').checked;
   PREFS.seqAdv = BLK.adv; prefsSave();

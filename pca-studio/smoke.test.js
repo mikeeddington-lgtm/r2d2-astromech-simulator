@@ -104,8 +104,17 @@ const LIVE = fs.readFileSync(path.resolve(__dirname,'..','examples','R2-dome-pad
     const P=mstrImportText(text,'R2-dome-padawan.mstr');
     return pcaGenHeader(P.channels, P.sequences, {source:'R2-dome-padawan.mstr'});
   }, LIVE);
-  ok('header: 18 channels, 2 boards, endpoints verbatim',
-     hdr.indexOf('#define MPCA_CHANNELS  18')>=0 && hdr.indexOf('0x41')>=0 && /4544, {2}7296/.test(hdr));
+  /* v1.63.0 stopped naming I2C addresses in the generated header on purpose —
+     the sketches SCAN for their boards now (Mike: "I and others may jumper them
+     differently"), so a header that said "board 1 -> 0x41" was naming an address
+     the boot scan may never use, and somebody wires to the comment. This used to
+     assert 0x41 and went on passing only because pca-studio/PCA-Studio.html is a
+     TRACKED generated file that had not been rebuilt since. It asserts the thing
+     the header actually promises now: the board-to-CHANNEL mapping. */
+  ok('header: 18 channels over 2 boards, endpoints verbatim',
+     hdr.indexOf('#define MPCA_CHANNELS  18')>=0
+     && /board 0 -> channels 0\.\.15/.test(hdr) && /board 1 -> channels 16\.\.17/.test(hdr)
+     && /4544, {2}7296/.test(hdr));
   ok('header: slot define for Dome Pies Open is slot 0', hdr.indexOf('#define MPCA_SLOT_DOME_PIES_OPEN 0')>=0);
 
   /* frame-row parser must stop at the `s` marker */

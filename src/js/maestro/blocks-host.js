@@ -153,6 +153,12 @@ const BLKH = {
   travelMs(c, dist){
     return (typeof chanTravelMs === 'function') ? chanTravelMs(c, dist) : 0;
   },
+  /* and the other way round (v1.66.0) — the speed that makes a move of
+     `dist` last exactly `ms`, which is how a one-move ramp keeps the
+     brick's authored duration. */
+  speedForMs(c, dist, ms){
+    return (typeof chanSpeedForMs === 'function') ? chanSpeedForMs(c, dist, ms) : 0;
+  },
   neutral(){ return (typeof DEFAULT_NEUTRAL !== 'undefined') ? DEFAULT_NEUTRAL : 6000; },
 
   /* -------------------------------------------------------------- hooks */

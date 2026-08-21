@@ -62,6 +62,12 @@ async function droid(page, tuned){
    exactly like an imported one: frames, no bricks */
 const asFrameList = (page, name, tuned) => page.evaluate(([N,slow])=>{
   const s = MSTR.sequences[blockNewRoutine(N)];
+  /* an IMPORTED Maestro file is fine-grained — Control Center's own sequences
+     are frame lists at whatever density their author used, and this fixture is
+     standing in for one. Since v1.66.0 a NEW routine is created at the 500 ms
+     step, so ask for the fine one out loud rather than inheriting a default
+     that is about smoothness, not about what an import looks like. */
+  s.stepMs = BLK_RAMP_STEP_MS;
   blockAdd(s,'act','pie0',    0,   {dur:900,  rise:250, fall:400});
   blockAdd(s,'act','pie1',    300, {dur:1200, rise:150, fall:150});
   blockAdd(s,'act','panel0',  1100,{dur:1500, rise:300, fall:300});

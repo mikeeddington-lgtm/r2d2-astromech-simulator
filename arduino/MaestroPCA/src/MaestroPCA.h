@@ -78,11 +78,39 @@ typedef struct {
 #define MPCA_SEQ_OSC        0x04  /* data is oscillator entries, not frames */
 #define MPCA_SEQ_WANDER     0x08  /* data is wander entries, not frames     */
 #define MPCA_SEQ_GENERATOR  (MPCA_SEQ_OSC | MPCA_SEQ_WANDER)
+/* v1.66.0 — the rows carry a SPEED per channel as well as a target, and
+   the stride doubles to (1 + 2*channels). See the layout note below.
+
+   Why it exists: the app compiles a ramp as a run of frames, and a frame
+   commands its targets and then waits its duration. Without a speed the
+   horn is chased flat out and arrives early, so a ramp is a stack of
+   lunges; with the speed that FILLS the frame it crosses at a steady rate.
+   The sim measured a velocity-ripple CV of 1.33 against 0.24 for the same
+   routine at a 500 ms step.
+
+   A header generated WITHOUT this flag is unchanged in every way, so an
+   older sequences.h keeps working untouched. The dangerous direction is
+   the other one — a NEWER header against an older copy of this library
+   would read a doubled stride with the single-stride arithmetic and drive
+   the wrong channels to garbage. The generator therefore emits a
+   compile-time guard on this very symbol; do not rename it without
+   changing maestro/pca-gen.js to match. */
+#define MPCA_SEQ_SPEEDS     0x10
 
 /* A normal sequence is a flat PROGMEM uint16_t array, stride (1+channels):
      durationMs, target_ch0 .. target_chN-1,  durationMs, targets...
    A target of 0 means "this frame does not drive this channel" — the
    Maestro sequencer convention, NOT "go to zero".
+
+   With MPCA_SEQ_SPEEDS the stride is (1 + 2*channels) and each row is
+     durationMs, target_ch0..chN-1, speed_ch0..speed_chN-1
+   where a speed of 0 means "leave this channel's configured speed alone"
+   (the same do-nothing convention as a 0 target) and MPCA_SPEED_FREE means
+   "unlimited for this move", which 0 cannot say because 0 is already taken.
+   A speed set by a frame is the ROUTINE's, not the channel's: it is put
+   back from the channel table the moment the track lets the channel go,
+   or a finished routine would leave the droid running at whatever pace
+   its last frame happened to need.
 
    An OSC or WANDER sequence instead holds `count` entries of 5 words:
      channel, lo, hi, periodMs, phase(0..359)
@@ -94,6 +122,8 @@ typedef struct {
    speed/acceleration carry it there, which is what reads as idle life.
    Both run until stopped or displaced. `phase` offsets one entry against
    another, so a pan and a tilt need not swing together. */
+#define MPCA_SPEED_FREE 0xFFFF   /* a frame asking for "no limit", since 0 means "unchanged" */
+
 typedef struct {
   const uint16_t* data;
   uint16_t frameCount;   /* frames, or generator entries */
@@ -277,6 +307,9 @@ private:
                            released — so re-driving it eases rather than
                            snapping */
     uint16_t lastTicks; /* last value written to the PCA9685 */
+    bool     seqSpeed;  /* a running sequence set this channel's speed, so it
+                           has to be put back from the table when the track
+                           releases it (v1.66.0) */
   };
 
   struct Track {
@@ -305,6 +338,11 @@ private:
   void     initCommon();
   void     applyFrame(uint8_t track, uint16_t f);
   uint32_t seqMask(uint8_t n) const;
+  /* words per frame row — doubles when the sequence carries speeds */
+  uint16_t seqStride(uint8_t flags) const {
+    return (uint16_t)1 + ((flags & MPCA_SEQ_SPEEDS) ? (uint16_t)2*_count : (uint16_t)_count);
+  }
+  void releaseSeqSpeeds(uint32_t mask);
   void     bgRemember(uint8_t n);
   void     bgResume();
   void     stepChannel(uint8_t ch);

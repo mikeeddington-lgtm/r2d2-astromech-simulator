@@ -26,3 +26,32 @@ function chanTravelMs(c, dist){
   if(d <= dRamp)  return 2 * Math.sqrt(d / a);    // triangular — never reaches vmax
   return 2 * (vmax / a) + (d - dRamp) / vmax;     // trapezoid
 }
+
+/* ---------------------------------------------- THE INVERSE (v1.66.0)
+   The speed that makes a move of `dist` take exactly `ms`, given the
+   channel's own acceleration. This is what lets the compiler hand the
+   board ONE Set Target per edge instead of a staircase and still keep the
+   authored duration honest — "the number is how long the move TAKES"
+   (Mike, bench, 2026-08-12) has to stay true whoever draws the curve.
+
+   Solving chanTravelMs() for vmax in the trapezoid case:
+
+       T = v/a + d/v      →      v² - a·T·v + a·d = 0
+
+   The SMALLER root is the trapezoid; the larger one is not a real profile
+   (it is the branch where the ramps alone are longer than the move).
+
+   A NEGATIVE DISCRIMINANT means this acceleration physically cannot cover
+   the distance in the time asked. That is not an error to swallow: it is
+   the accel-limited case, so we return the triangular peak — the fastest
+   this channel can go — and blockMinTravelMs() is what stops a brick
+   asking for it in the first place. Returns 0 for "nothing to limit". */
+function chanSpeedForMs(c, dist, ms){
+  const d = Math.abs(dist || 0);
+  if(!d || !(ms > 0)) return 0;
+  const a = ((c && c.acceleration) || 0) * 0.1 / 80;
+  if(!a) return Math.max(1, Math.min(16000, Math.round(10 * d / ms)));
+  const disc = a*a*ms*ms - 4*a*d;
+  const v = (disc <= 0) ? Math.sqrt(a*d) : (a*ms - Math.sqrt(disc)) / 2;
+  return Math.max(1, Math.min(16000, Math.round(10 * v)));
+}

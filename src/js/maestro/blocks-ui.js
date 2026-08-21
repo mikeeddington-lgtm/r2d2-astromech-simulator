@@ -801,6 +801,14 @@ function blkConvRun(seq, review){
   }
   const orig = JSON.parse(JSON.stringify(seq.frames));
   seq.blocks = t.bricks;
+  /* A TRACED ROUTINE DRAWS AT THE FINE STEP (v1.66.0). Everywhere else the
+     step is a smoothness choice and 500 ms is the better one. Here it is a
+     FIDELITY choice: these bricks are a guess at somebody's imported frame
+     list, the review door exists to measure that guess against the original
+     at every instant the file had an opinion about, and a coarse staircase
+     would round off the very detail being checked — the comparison stops
+     disagreeing and the review waves everything through. */
+  seq.stepMs = BLK_RAMP_STEP_MS;
   blockSync(seq);                       // the routine is now its bricks
   blockHistReset(seq);                  // a fresh history: undo must not reach behind the conversion
 

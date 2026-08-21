@@ -100,6 +100,7 @@ const BLKH = {
 
   /* ------------------------------------------------------------ physics */
   travelMs(c, dist){ return chanTravelMs(c, dist); },
+  speedForMs(c, dist, ms){ return chanSpeedForMs(c, dist, ms); },
   neutral(){ return 6000; },
 
   /* -------------------------------------------------------------- hooks */

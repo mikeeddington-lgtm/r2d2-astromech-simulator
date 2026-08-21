@@ -238,11 +238,11 @@ function pcaBgResume(E){
   }
 }
 function pcaStop(E){
-  E.tracks.forEach(t=>{ t.seq=-1; t.frame=-1; t.frameT=0; });
+  E.tracks.forEach(t=>{ if(t.seq>=0) pcaReleaseSpeeds(E, t.mask); t.seq=-1; t.frame=-1; t.frameT=0; });
   E.bgWait.fill(-1);                      /* an explicit stop means stop */
 }
 function pcaStopSeq(E, n){
-  E.tracks.forEach(t=>{ if(t.seq===n){ t.seq=-1; t.frame=-1; t.frameT=0; } });
+  E.tracks.forEach(t=>{ if(t.seq===n){ pcaReleaseSpeeds(E, t.mask); t.seq=-1; t.frame=-1; t.frameT=0; } });
   for(let i=0;i<E.bgWait.length;i++) if(E.bgWait[i]===n) E.bgWait[i]=-1;
 }
 
@@ -254,7 +254,28 @@ function pcaApplyFrame(E, ti, f){
   E.frameLog.push({t:E.ms, seq:t.seq, frame:f});
   for(let c=0;c<E.channels.length;c++){
     const v = fr.targets[c];
-    if(v && E.st[c]) pcaSetTarget(E, c, v);   /* 0 = frame leaves channel alone */
+    if(!v || !E.st[c]) continue;              /* 0 = frame leaves channel alone */
+    /* PER-FRAME SPEED (v1.66.0). The compiler sizes it so the move fills the
+       frame's own duration, which is what lets a ramp be ONE target instead
+       of a staircase. Set it BEFORE the target: pcaStepChannel reads the
+       speed on the tick after the command, and a target given at the old
+       speed would take its first tick at the wrong pace. */
+    if(fr.speeds && fr.speeds[c]){ E.st[c].seqSpeed = true; pcaSetSpeed(E, c, fr.speeds[c]); }
+    pcaSetTarget(E, c, v);
+  }
+}
+/* Put back what the channel table says (v1.66.0). A per-frame speed is the
+   ROUTINE's, not the channel's, and a Set Speed persists on a Maestro and
+   here alike — so a routine that ended would otherwise leave the pad, the
+   bench dial and every group action running at whatever pace its last frame
+   happened to need. Called wherever a track lets go of its channels. */
+function pcaReleaseSpeeds(E, mask){
+  for(let c=0;c<E.channels.length;c++){
+    const s = E.st[c];
+    if(!s || !s.seqSpeed) continue;
+    if(mask !== undefined && !(mask & (1 << (c < 31 ? c : 31)))) continue;
+    s.seqSpeed = false;
+    pcaSetSpeed(E, c, (E.channels[c] && E.channels[c].speed) | 0);
   }
 }
 
@@ -298,7 +319,7 @@ function pcaTick(E, dtms){
     }
 
     const frames = seq.frames;
-    if(!frames.length){ t.seq = -1; continue; }
+    if(!frames.length){ pcaReleaseSpeeds(E, t.mask); t.seq = -1; continue; }
     if(t.frame < 0){ t.frame=0; t.frameT=0; pcaApplyFrame(E,i,0); }
     else t.frameT += elapsed;
 
@@ -317,6 +338,7 @@ function pcaTick(E, dtms){
         t.frame = 0;
         pcaApplyFrame(E, i, 0);
       }else{
+        pcaReleaseSpeeds(E, t.mask);
         t.seq = -1;
       }
     }

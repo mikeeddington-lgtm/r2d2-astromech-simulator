@@ -250,6 +250,13 @@
             <span style="width:8px"></span>
             <!-- the snap picker lives in the timeline ruler's corner cell (v1.47.0, blkTimeline) -->
             <label class="blkswitch" id="sqAdvWrap" title="expert settings — per-brick speed and acceleration overrides"><input type="checkbox" id="sqAdv">Advanced</label>
+            <!-- v1.66.0 — how coarse this routine's ramps are drawn. Advanced-only
+                 and per ROUTINE, not a global preference: the step decides the
+                 frames, so a routine has to carry its own or it would not
+                 recompile to the frames it was saved with. -->
+            <label class="blkswitch hide" id="sqStepWrap" title="how coarsely this routine's ramps are drawn. Each frame is given a speed that fills it, so the timing is the same either way — a coarser step is a smoother servo and fewer frames.">Ramp step
+              <select id="sqStep" style="max-width:96px"></select>
+            </label>
             <span style="width:8px"></span>
             <button class="b" id="sqUndo" title="undo the last edit to this sequence (Ctrl+Z)" disabled>↶</button>
             <button class="b" id="sqRedo" title="redo (Ctrl+Y or Ctrl+Shift+Z)" disabled>↷</button>

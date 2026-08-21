@@ -621,6 +621,16 @@ function pcaHeaderParse(text, fileName){
   /* ------------------------------------------------------ the sequences */
   const sequences = [];
   let generators = 0;
+  /* WHICH SEQUENCES CARRY SPEEDS (v1.66.0). MPCA_SEQ_SPEEDS doubles a
+     sequence's stride to 1 + 2*channels — duration, targets, then speeds —
+     so this has to be known BEFORE the rows are walked. Reading it at the
+     single stride does not fail, it silently yields twice as many frames of
+     nonsense, which is exactly what the round-trip suite caught. */
+  const speedSeqs = {};
+  const flagPre = /\{\s*MPCA_SEQ(\d+)\s*,\s*\d+\s*,\s*([^}]*?)\}/g;
+  let fp;
+  while((fp = flagPre.exec(t)) !== null)
+    if(/MPCA_SEQ_SPEEDS/.test(fp[2])) speedSeqs[+fp[1]] = true;
   const stride = servoCount + 1;
   const seqRe = /static\s+const\s+uint16_t\s+MPCA_SEQ(\d+)\s*\[\]\s*(?:PROGMEM\s*)?=\s*\{[ \t]*(?:\/\*([\s\S]*?)\*\/)?([\s\S]*?)\n\};/g;
   let sm;
@@ -632,10 +642,21 @@ function pcaHeaderParse(text, fileName){
     if(/\bch\s*,\s*lo\s*,\s*hi\s*,\s*period/i.test(body)){ generators++; continue; }
     const nums = body.replace(/\/\*[\s\S]*?\*\//g,'').replace(/\/\/[^\n]*/g,'')
                      .split(/[\s,]+/).filter(x=>/^-?\d+$/.test(x)).map(Number);
+    const withSpeeds = !!speedSeqs[+sm[1]];
+    const rowLen = withSpeeds ? (1 + 2*servoCount) : stride;
     const frames = [];
-    for(let k=0; k + stride <= nums.length; k += stride){
-      frames.push({name:'Frame '+frames.length, duration:nums[k],
-                   targets:nums.slice(k+1, k+stride)});
+    for(let k=0; k + rowLen <= nums.length; k += rowLen){
+      const fr = {name:'Frame '+frames.length, duration:nums[k],
+                  targets:nums.slice(k+1, k+1+servoCount)};
+      if(withSpeeds){
+        /* 65535 is MPCA_SPEED_FREE — the firmware's way of saying "no limit
+           for this move", which 0 cannot say because 0 already means "leave
+           the channel's own setting alone". This app has no per-frame word
+           for unlimited, so it comes back as 0 and the channel governs. */
+        const sp = nums.slice(k+1+servoCount, k+rowLen).map(v=>v === 65535 ? 0 : v);
+        if(sp.some(v=>v)) fr.speeds = sp;
+      }
+      frames.push(fr);
     }
     /* the name lost its spaces on the way out (pcaCName), so the comment is
        the only place the routine's real name survives */
@@ -668,8 +689,8 @@ function pcaHeaderParse(text, fileName){
      why:'inverted travel was a simulator display setting and is retired in v1.46.0 — min is the shut end and max the open one, whatever their order. A panel that opens the wrong way is min and max the wrong way round; swap them.'},
     {field:'serial settings', n:0,
      why:'baud rate, device number, CRC and timeout are Maestro board settings. A .mstr exported from this config gets this app\'s defaults, not the original board\'s.'},
-    {field:'frame speed/acceleration', n:0,
-     why:'a MaestroPCA frame is one duration and one target per channel. Any per-frame speed row the original had was already gone before the file was written; your channel table governs the motion.'}
+    {field:'per-frame acceleration', n:0,
+     why:'since v1.66.0 a frame can carry a SPEED per channel and that survives the round trip both ways. Acceleration still cannot — it stays the channel table\'s, which is what shapes the ends of every move.'}
   ];
   if(/#define\s+(?:SERVO_HZ|OSC_HZ|PCA_BOARDS)/.test(t))
     dropped.push({field:'oscillator and PWM frequency', n:0,

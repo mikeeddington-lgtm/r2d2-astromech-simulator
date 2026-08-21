@@ -123,6 +123,7 @@ void MaestroPCA::begin(uint32_t oscillatorHz, float servoHz){
     _st[i].releaseMs = d.releaseMs;
     _st[i].settled = 0; _st[i].launch = 0;
     _st[i].active = false; _st[i].known = false; _st[i].lastTicks = 0xFFFF;
+    _st[i].seqSpeed = false;
   }
   goHome();
   _lastMs = millis();
@@ -170,8 +171,9 @@ uint32_t MaestroPCA::seqMask(uint8_t n) const {
     }
     return mask;
   }
+  const uint16_t stride = seqStride(sd.flags);
   for(uint16_t f = 0; f < sd.frameCount; f++){
-    const uint16_t* row = sd.data + (uint32_t)f * (1 + _count) + 1;
+    const uint16_t* row = sd.data + (uint32_t)f * stride + 1;
     for(uint8_t c = 0; c < _count; c++)
       if(pgm_read_word(&row[c])) mask |= 1UL << (c < 31 ? c : 31);
   }
@@ -211,6 +213,7 @@ void MaestroPCA::restartScript(uint8_t n){
       MpcaSeqDef od; memcpy_P(&od, &_seqs[_tk[i].seq], sizeof(MpcaSeqDef));
       if((od.flags & MPCA_SEQ_BACKGROUND) && _tk[i].seq != (int8_t)n)
         bgRemember((uint8_t)_tk[i].seq);
+      releaseSeqSpeeds(_tk[i].mask);      /* its speeds go back with its channels */
       _tk[i].seq = -1;
       if(slot < 0) slot = i;
     }
@@ -232,6 +235,7 @@ void MaestroPCA::restartScript(uint8_t n){
 
 void MaestroPCA::stopScript(){
   for(uint8_t i = 0; i < MPCA_MAX_TRACKS; i++){
+    if(_tk[i].seq >= 0) releaseSeqSpeeds(_tk[i].mask);
     _tk[i].seq = -1; _tk[i].frame = -1; _tk[i].frameT = 0;
     _bgWait[i] = -1;                  /* an explicit stop means stop */
   }
@@ -239,7 +243,10 @@ void MaestroPCA::stopScript(){
 
 void MaestroPCA::stopSequence(uint8_t n){
   for(uint8_t i = 0; i < MPCA_MAX_TRACKS; i++){
-    if(_tk[i].seq == (int8_t)n){ _tk[i].seq = -1; _tk[i].frame = -1; _tk[i].frameT = 0; }
+    if(_tk[i].seq == (int8_t)n){
+      releaseSeqSpeeds(_tk[i].mask);
+      _tk[i].seq = -1; _tk[i].frame = -1; _tk[i].frameT = 0;
+    }
     if(_bgWait[i] == (int8_t)n) _bgWait[i] = -1;
   }
 }
@@ -397,7 +404,7 @@ void MaestroPCA::update(){
     Track &t = _tk[i];
     if(t.seq < 0) continue;
     MpcaSeqDef sd; memcpy_P(&sd, &_seqs[t.seq], sizeof(MpcaSeqDef));
-    if(!sd.frameCount){ t.seq = -1; continue; }
+    if(!sd.frameCount){ releaseSeqSpeeds(t.mask); t.seq = -1; continue; }
 
     if(sd.flags & MPCA_SEQ_GENERATOR){
       uint32_t before = t.frameT;
@@ -426,7 +433,7 @@ void MaestroPCA::update(){
     else t.frameT += elapsed;
 
     while(t.frame < (int16_t)sd.frameCount){
-      uint16_t dur = pgm_read_word(&sd.data[(uint32_t)t.frame * (1 + _count)]);
+      uint16_t dur = pgm_read_word(&sd.data[(uint32_t)t.frame * seqStride(sd.flags)]);
       if(t.frameT < dur) break;
       t.frameT -= dur;
       t.frame++;
@@ -440,6 +447,7 @@ void MaestroPCA::update(){
         t.frame = 0;
         applyFrame(i, 0);
       }else{
+        releaseSeqSpeeds(t.mask);
         t.seq = -1;
       }
     }
@@ -457,12 +465,41 @@ void MaestroPCA::update(){
 
 void MaestroPCA::applyFrame(uint8_t track, uint16_t f){
   if(_tk[track].seq < 0) return;
-  const uint16_t* row = (const uint16_t*)pgm_read_ptr(&_seqs[_tk[track].seq].data);
+  MpcaSeqDef sd; memcpy_P(&sd, &_seqs[_tk[track].seq], sizeof(MpcaSeqDef));
+  const uint16_t* row = sd.data;
   if(!row) return;
-  row += (uint32_t)f * (1 + _count) + 1;      /* skip the duration word */
+  const bool withSpeeds = (sd.flags & MPCA_SEQ_SPEEDS) != 0;
+  row += (uint32_t)f * seqStride(sd.flags) + 1;   /* skip the duration word */
   for(uint8_t c=0; c<_count; c++){
     uint16_t t = pgm_read_word(&row[c]);
-    if(t != 0) setTarget(c, t);               /* 0 = frame leaves it alone */
+    if(t == 0) continue;                          /* 0 = frame leaves it alone */
+    if(withSpeeds){
+      /* BEFORE the target, not after: the step that follows reads the speed
+         on its very first tick, and a target given at the old speed would
+         take that tick at the wrong pace. 0 = leave the channel's own
+         setting; MPCA_SPEED_FREE = unlimited for this move. */
+      uint16_t sp = pgm_read_word(&row[_count + c]);
+      if(sp != 0){
+        _st[c].speed = (sp == MPCA_SPEED_FREE) ? 0 : sp;
+        _st[c].seqSpeed = true;
+      }
+    }
+    setTarget(c, t);
+  }
+}
+
+/* Put back what the channel table says. A frame's speed belongs to the
+   ROUTINE, and Set Speed persists — so without this a routine that ended
+   would leave the pad, a group action and every later move running at
+   whatever pace its last frame happened to need. Called wherever a track
+   lets go of its channels. */
+void MaestroPCA::releaseSeqSpeeds(uint32_t mask){
+  for(uint8_t c=0; c<_count; c++){
+    if(!_st[c].seqSpeed) continue;
+    if(mask && !(mask & (1UL << (c < 31 ? c : 31)))) continue;
+    MpcaChannelDef d; rowOf(_table, c, &d);
+    _st[c].speed = d.speed;
+    _st[c].seqSpeed = false;
   }
 }
 
