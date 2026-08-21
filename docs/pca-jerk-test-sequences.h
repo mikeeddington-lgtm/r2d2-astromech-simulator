@@ -9,7 +9,7 @@
    Calibrate the PCA9685 oscillator (maestro.begin(<hz>)) or these
    values are only nominal on the wire. */
 #pragma once
-#include <MaestroPCA.h>
+#include "MaestroPCA.h"
 
 #define MPCA_CHANNELS  6
 #define MPCA_SEQUENCES 4

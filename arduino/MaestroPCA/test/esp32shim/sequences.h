@@ -4,7 +4,7 @@
    the test folder. Eight channels, two slots — the shapes are what matter,
    not the numbers. */
 #pragma once
-#include <MaestroPCA.h>
+#include "MaestroPCA.h"
 
 #define MPCA_CHANNELS  8
 #define MPCA_SEQUENCES 2

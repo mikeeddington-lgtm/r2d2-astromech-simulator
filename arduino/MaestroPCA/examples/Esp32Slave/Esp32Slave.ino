@@ -41,7 +41,7 @@
    quantising, which is exactly why the master sends µs and not duty counts.
                                                                        */
 
-#include <MaestroPCA.h>
+#include "MaestroPCA.h"
 #include <MpcaEsp32.h>
 
 /* ============================================================== config */

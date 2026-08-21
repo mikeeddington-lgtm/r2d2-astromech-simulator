@@ -19,7 +19,7 @@
    Targets are QUARTER-MICROSECONDS: 6000 = 1500 us.
    ===================================================================== */
 #pragma once
-#include <MaestroPCA.h>
+#include "MaestroPCA.h"
 
 #define MPCA_CHANNELS  8
 #define MPCA_SEQUENCES 3

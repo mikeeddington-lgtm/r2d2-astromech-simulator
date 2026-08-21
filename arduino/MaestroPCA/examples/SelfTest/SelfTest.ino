@@ -9,8 +9,8 @@
 
 #include <Wire.h>
 #include <Adafruit_PWMServoDriver.h>
-#include <MaestroPCA.h>
-#include <MpcaScan.h>
+#include "MaestroPCA.h"
+#include "MpcaScan.h"
 #include "sequences.h"
 
 /* v1.53.0 — 0x40 is where a board with no jumpers bridged sits, but that

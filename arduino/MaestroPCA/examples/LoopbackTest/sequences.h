@@ -8,7 +8,7 @@
 
    Layout: one PCA9685 at 0x40, servos on pins 0..3. */
 #pragma once
-#include <MaestroPCA.h>
+#include "MaestroPCA.h"
 
 #define MPCA_CHANNELS  4
 #define MPCA_SEQUENCES 2

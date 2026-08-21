@@ -38,10 +38,10 @@
 
 #include <Wire.h>
 #include <Adafruit_PWMServoDriver.h>
-#include <MpcaScan.h>
+#include "MpcaScan.h"
 #include <PololuMaestro.h>
-#include <MaestroPCA.h>
-#include <MaestroLink.h>
+#include "MaestroPCA.h"
+#include "MaestroLink.h"
 #include "sequences.h"
 
 /* ------------------------------------------------------------ config */
