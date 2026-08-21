@@ -2571,6 +2571,73 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
      other.wired && other.oneChannelOnly, JSON.stringify(other));
   ok('unassigning frees the channel again', other.cleared);
 
+  /* ================================================================
+     HOW MANY EXPANDERS THE STEP SAYS YOU HAVE (v1.66.3)
+
+     Mike, with three PCA9685s set on this very step: "capped at 32".
+     The channel table was 48 rows the whole time — the SENTENCE was wrong.
+     `topo.pca` is a property of the SHAPE (`p1x2` declares 2, because that
+     is the picture it draws) and the count has been an ANSWER since v1.54.0.
+     That release fixed the derivation and the board-picture strip and missed
+     the two places that render the line a person actually reads. So these
+     assert the rendered STRING, not the model behind it — the model was
+     never wrong, which is exactly why three releases missed this. */
+  console.log('\n════ the expander count, as the step words it ════');
+  const said = await ev(()=>[1,2,3,5,8].map(n=>{
+    buildSet('domeServo', servoCoprocId(n)); wizFinish(); buildEnsureMaestro();
+    const host = document.createElement('div'); wizServosStep(host, {});
+    const txt = (host.textContent||'').replace(/\s+/g,' ');
+    return { set:n,
+             says: (txt.match(/\d+ × PCA9685 — \d+ channels/)||['(none)'])[0],
+             rows: MSTR.channels.length,
+             summary: buildServoAnswer(buildGet()).short,
+             total: buildPcaTotal(buildGet()) };
+  }));
+  said.forEach(r=>console.log('  '+JSON.stringify(r)));
+  ok('the step names the number of boards you actually set, 1 through 8',
+     said.every(r=>r.says === r.set + ' × PCA9685 — ' + (r.set*16) + ' channels'),
+     JSON.stringify(said.map(r=>r.says)));
+  ok('…and the channel table really has that many rows',
+     said.every(r=>r.rows === r.set*16), JSON.stringify(said.map(r=>r.rows)));
+  ok('the build summary agrees with it', said.every(r=>r.summary === 'PCA ×'+r.set),
+     JSON.stringify(said.map(r=>r.summary)));
+  ok('and buildPcaTotal() is the one place the number comes from',
+     said.every(r=>r.total === r.set), JSON.stringify(said.map(r=>r.total)));
+
+  /* THE OTHER HALF of "without extra steps". Changing the count on a build
+     that already speaks PCA9685 grows the table there and then. It does NOT
+     when the loaded table is a MAESTRO one — that is a change of kind, and
+     v1.65.0 made it an offer on purpose. The offer now appears on the step
+     where the number was typed, instead of three screens away in the bench. */
+  console.log('\n════ …and the table that has not followed yet ════');
+  const gap = await ev(()=>{
+    buildSet('domeServo','mpca32'); wizFinish(); buildEnsureMaestro();
+    loadProfile('maestro25'); setBoard('mini24'); makeStarter('dome','mini24');
+    MSTR.channels[5].name = 'MIKES ROW'; MSTR.channels[5].min = 4321; MSTR.channels[5].act = 'pie0';
+    const hw = Object.assign({}, HW.setup()||{}); hw.boards = 3; HW.setSetup(hw);
+    const before = { rows: MSTR.channels.length, short: HW.short() };
+    const host = document.createElement('div'); wizServosStep(host, {});
+    const txt = (host.textContent||'').replace(/\s+/g,' ');
+    const notice = /channel table still has \d+ rows, not \d+/.exec(txt);
+    const btn = Array.from(host.querySelectorAll('button')).find(x=>/add the missing/.test(x.textContent));
+    const label = btn ? btn.textContent.trim() : null;
+    if(btn) btn.click();
+    return { before, notice: notice ? notice[0] : null, label,
+             rows: MSTR.channels.length, short: HW.short(),
+             kept: MSTR.channels[5].name+'/'+MSTR.channels[5].min+'/'+MSTR.channels[5].act,
+             newRowMode: MSTR.channels[40] && MSTR.channels[40].mode };
+  });
+  console.log('  '+JSON.stringify(gap));
+  ok('the step says both numbers when the table is short',
+     gap.notice === 'channel table still has 24 rows, not 48', String(gap.notice));
+  ok('and offers to close the gap right there', gap.label === 'add the missing 24 rows', String(gap.label));
+  ok('clicking it grows the table to what the build asks for',
+     gap.rows === 48 && gap.short === null, JSON.stringify({rows:gap.rows, short:gap.short}));
+  ok('GROW ONLY — an existing row keeps its name, its endpoint and its part',
+     gap.kept === 'MIKES ROW/4321/pie0', gap.kept);
+  ok('and the new rows arrive as Input, not silently driving something',
+     gap.newRowMode === 'Input', String(gap.newRowMode));
+
   console.log('\n════ no page errors ════');
   ok('nothing threw', errs.length===0, errs.join(' | '));
 

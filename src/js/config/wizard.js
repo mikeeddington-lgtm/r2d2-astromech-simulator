@@ -898,7 +898,9 @@ function wizServosStep(host, step){
         id=>{ buildSet('servoSize2', id); buildStartup(); });
     }
   }else{
-    const total = (topo.pca || 1) * (topo.links > 1 ? topo.links : 1);
+    /* the count is an ANSWER, not a property of the shape — buildPcaTotal()
+       in hardware.js is the one place that knows the difference (v1.66.3) */
+    const total = buildPcaTotal(b, topo);
     if(topo.direct){
       /* no controller at all: there is nothing to choose here, so say what the
          arrangement means instead of offering an answer it does not have */
@@ -926,6 +928,7 @@ function wizServosStep(host, step){
       form.appendChild(c);
     }
   }
+  wizServoTableGap(form, b);
   s3.appendChild(form);
   wizBoardPics(s3, b);
 
@@ -940,6 +943,39 @@ function wizServosStep(host, step){
   gb.addEventListener('click',()=>wizGo(wizStepIndex('_servoSet')));
   go.appendChild(gb);
   host.appendChild(go);
+}
+
+/* ------------------------------------- and the table, if it has not followed
+   (v1.66.3) On a build that already speaks PCA9685, changing the number of
+   expanders grows the channel table then and there — measured: 32 rows to 48,
+   every existing name, endpoint and mapping untouched, because growing only
+   ever fills holes (`HW.ensure`, and `HW.trim()` is a deliberate no-op).
+
+   It does NOT follow when the loaded table is a MAESTRO one — a dome starter,
+   or somebody's imported .mstr — because that is a change of kind rather than
+   of size, and v1.65.0 made it an offer for good reason. The offer just lived
+   in the bench, three screens from the question that caused it. Mike, setting
+   three boards here: "lets make sure all are viewable without extra steps".
+   So the offer is here too, on the step where the number is typed, saying both
+   figures and doing exactly what the bench's button does. */
+function wizServoTableGap(host, b){
+  if(typeof HW === 'undefined' || !HW.short) return null;
+  if(typeof setupCanAdoptBoards === 'function' && !setupCanAdoptBoards()) return null;
+  const gap = HW.short();
+  if(!gap) return null;
+  const n = el('div','note am');
+  n.innerHTML = '<b>The channel table still has ' + gap.have + ' rows, not ' + gap.want + '.</b> '
+    + 'It is a Maestro table, so it did not follow the expander count on its own — a change of kind '
+    + 'rather than of size. Adding the rows leaves every name, endpoint and mapping you already have '
+    + 'exactly where it is; the new ones arrive as Input, ready to be set to Servo on the ones you '
+    + 'have wired. ';
+  const btn = el('button','mini','add the missing ' + gap.missing + ' rows');
+  btn.addEventListener('click', ()=>{
+    if(typeof setupAdoptBoards === 'function' && setupAdoptBoards()) buildStartup();
+  });
+  n.appendChild(btn);
+  host.appendChild(n);
+  return n;
 }
 
 /* ------------------------------------------- the boards, as pictures
@@ -965,8 +1001,7 @@ function wizBoardPics(host, b){
     want.push({step:'servoMcu', id:b.servoMcu, cap:'the controller' + (mcu ? ' — ' + mcu.label : '')});
     /* v1.54.0 — the count is an answer now, not a property of which card is
        lit, so the strip draws however many the build actually has */
-    const per = topo.counted ? b.pcaBoards : (topo.pca || 1);
-    const n = per * (topo.links > 1 ? topo.links : 1);
+    const n = buildPcaTotal(b, topo);
     want.push({step:'servos', id:servoCoprocId(n),
                cap:n + ' × PCA9685 — ' + (n*16) + ' channels'});
   }

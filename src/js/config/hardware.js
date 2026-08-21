@@ -624,6 +624,34 @@ const SERVO_SPLIT_OPTIONS = [
   {id:'one', label:'One for the whole droid', sim:'full',
    note:'A single board running the panels, the doors and the arms. The cheapest thing that works on a bench or a body-only test rig, and fine on a droid whose dome is fixed — you just have to get every dome lead across the slip ring.'}
 ];
+/* ================================ HOW MANY PCA9685s THIS BUILD HAS (v1.66.3)
+   One function, because it was three, and only one of them had been fixed.
+
+   `topo.pca` is a property of the SHAPE — `p1x2` declares 2 because that is
+   the picture it draws — and since v1.54.0 the count is an ANSWER instead
+   (`b.pcaBoards`, 1–8, `topo.counted`). v1.54.0 updated the derivation and the
+   board-picture strip and missed the two places that render the sentence the
+   user actually reads, so a build with three expanders went on saying
+   "2 × PCA9685 — 32 channels" on the very step where you set it to three.
+   Mike found it by believing it: *"capped at 32"*. The channel table was 48
+   rows the whole time.
+
+   TWO QUANTITIES, and conflating them is what makes this get rewritten:
+   PER LINK is what sizes one co-processor's answer (`p2s`/`p1s` split their
+   expanders across two links, so each link holds only some of them); TOTAL is
+   how many boards exist on the droid. Anything showing the user a number of
+   BOARDS or of CHANNELS wants the total. */
+function buildPcaPerLink(b, topo){
+  b = b || buildGet();
+  topo = topo || buildServoTopo(b);
+  return topo.counted ? Math.max(1, b.pcaBoards|0) : (topo.pca || 1);
+}
+function buildPcaTotal(b, topo){
+  b = b || buildGet();
+  topo = topo || buildServoTopo(b);
+  return buildPcaPerLink(b, topo) * (topo.links > 1 ? topo.links : 1);
+}
+
 function buildServoSplit(b){
   b = b||buildGet();
   return (b.servoSplit === 'one' && servoSharable(b.domeServo)) ? 'one' : 'two';
@@ -735,7 +763,7 @@ function buildServoAnswer(b){
             short: two ? servoShort(b.domeServo)+' + '+servoShort(b.bodyServo) : servoShort(b.domeServo),
             note:'', sim: topo.sim};
   }
-  const n = (topo.pca || 1) * (topo.links > 1 ? topo.links : 1);
+  const n = buildPcaTotal(b, topo);
   return {label: 'PCA9685 × ' + n + ' — ' + topo.label.toLowerCase() + mcu,
           short: 'PCA ×' + n + (topo.links > 1 ? ' · 2 links' : ''),
           note:'', sim: topo.sim};
@@ -1108,7 +1136,7 @@ function buildNormaliseServos(b, changed){
          own declared `topo.pca`: `p2s` and `p1s` split the expanders across
          two links and are both sim:'park' anyway, so inventing a count for
          them would be describing an arrangement nothing drives. */
-      const nWant = topo.counted ? b.pcaBoards : topo.pca;
+      const nWant = buildPcaPerLink(b, topo);        /* PER LINK — see the note above */
       const per = topo.direct ? 'mod2026' : servoCoprocId(nWant);
       b.domeServo = per;
       b.bodyServo = per;
