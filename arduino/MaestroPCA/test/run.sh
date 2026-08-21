@@ -202,4 +202,12 @@ echo "== the downloadable packs still build =="
 # above — there is no second copy in the repository to go stale. This runs
 # the same script the release workflow runs, so a change that would ship a
 # broken pack fails here instead of on a stranger's bench.
-../../packs/make-packs.sh
+#
+# CALLED THROUGH bash ON PURPOSE, not as ./make-packs.sh. The executable bit
+# is not something a checkout can be relied on to carry — it is absent on a
+# Windows clone with core.filemode false, absent from a downloaded zip, and it
+# was absent from the commit that first added this line, which failed the
+# v1.67.0 release with `exit code 126` and no explanation on the page. The
+# mode bit is set in the index as well; this is so losing it again cannot
+# matter.
+bash ../../packs/make-packs.sh
