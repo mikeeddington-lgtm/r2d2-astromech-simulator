@@ -237,12 +237,12 @@ function cuePlayStep(dtms){
   CUE.play.forEach(p=>p.owns.forEach(a=>{ CUE.owned[a] = true; }));
   if(PUPPET.play) return;
   for(const p of CUE.play){
-    if(p.i < 0){ p.i = 0; p.t = 0; if(p.frames[0]) applyFrameTargets(p.frames[0].targets); }
+    if(p.i < 0){ p.i = 0; p.t = 0; if(p.frames[0]) applyFrameTargets(p.frames[0].targets, p.frames[0].speeds); }
     else p.t += dtms;
     while(p.frames[p.i] && p.t >= p.frames[p.i].duration){
       p.t -= p.frames[p.i].duration;
       p.i++;
-      if(p.frames[p.i]) applyFrameTargets(p.frames[p.i].targets);
+      if(p.frames[p.i]) applyFrameTargets(p.frames[p.i].targets, p.frames[p.i].speeds);
     }
   }
   CUE.play = CUE.play.filter(p=>!!p.frames[p.i]);

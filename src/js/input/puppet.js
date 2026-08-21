@@ -312,12 +312,12 @@ function pupPlayLast(){
 }
 function pupPlayStep(dtms){
   const s = PUPPET.play;
-  if(s.i < 0){ s.i = 0; s.t = 0; if(s.frames[0]) applyFrameTargets(s.frames[0].targets); }
+  if(s.i < 0){ s.i = 0; s.t = 0; if(s.frames[0]) applyFrameTargets(s.frames[0].targets, s.frames[0].speeds); }
   else s.t += dtms;
   while(s.frames[s.i] && s.t >= s.frames[s.i].duration){
     s.t -= s.frames[s.i].duration;
     s.i++;
-    if(s.frames[s.i]) applyFrameTargets(s.frames[s.i].targets);
+    if(s.frames[s.i]) applyFrameTargets(s.frames[s.i].targets, s.frames[s.i].speeds);
   }
   if(!s.frames[s.i]){ PUPPET.play = null; pupBuildBar(); }
 }

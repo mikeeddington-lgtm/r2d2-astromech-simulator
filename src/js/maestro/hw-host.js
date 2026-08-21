@@ -181,13 +181,35 @@ const HW = {
   /* One command, three places: the engine (which is the board's model and
      the position bar's source), the wire, and the 3D droid. The wire is
      the engine's onWrite, so it happens by itself. */
-  drive(ch, qus){
-    pcaSetTarget(this.engine(), ch, qus);
+  drive(ch, qus, speed){
+    const E = this.engine();
+    /* THE FRAME'S OWN SPEED (v1.66.1), when the caller has one. The wire
+       does not need a speed COMMAND — PCA_Bridge writes raw ticks and never
+       interpolates; this engine does the kinematics and `onWrite` streams
+       the result at 100 Hz, so one frame target already goes down the wire
+       as ~40 stepped positions. What was missing is that it paced them at
+       the CHANNEL's speed rather than the frame's, so a 500 ms ramp step
+       was crossed in 429 ms and then waited. Set it, and the real droid
+       moves on the beat the sequencer authored.
+
+       Falsy speed RESTORES the channel table's own, so a routine cannot
+       leave the pad and the bench dial running at whatever pace its last
+       frame needed — the same rule the firmware follows in
+       releaseSeqSpeeds(). */
+    if(speed > 0){
+      if(E.st[ch]){ E.st[ch].seqSpeed = true; pcaSetSpeed(E, ch, speed|0); }
+    }else if(E.st[ch] && E.st[ch].seqSpeed){
+      E.st[ch].seqSpeed = false;
+      pcaSetSpeed(E, ch, (MSTR.channels[ch] && MSTR.channels[ch].speed) | 0);
+    }
+    pcaSetTarget(E, ch, qus);
     const c = MSTR.channels[ch];
     if(c && c.act && typeof ACT_T !== 'undefined' && typeof chanNorm === 'function'){
       if(qus) ACT_T[c.act] = chanNorm(c, qus);
     }
   },
+  /* every channel back to the table's speed — the door for disarming */
+  releaseDriveSpeeds(){ pcaReleaseSpeeds(this.engine()); },
   pos(ch){ return pcaPos(this.engine(), ch); },
 
   /* ------------------------------------------- which part a channel drives

@@ -140,13 +140,17 @@ function chanPosNorm(c){
      which would have made them the one kind that never went live;
    · a channel mapped to a part still updates the model when nothing is
      connected, which is the normal case and must cost nothing. */
-function applyFrameTargets(targets){
+/* `speeds` is the frame's own, when the caller has a frame in hand (v1.66.1).
+   It changes nothing on the model — the 3D droid eases at its own global rate
+   — and everything on the wire, where the bench engine turns one target into
+   ~40 stepped positions and needs to know how long it has to get there. */
+function applyFrameTargets(targets, speeds){
   for(const c of MSTR.channels){
     const v = targets[c.i];
     if(v===undefined || v===0) continue;      // 0 = channel off / untouched
     if(c.act) ACT_T[c.act] = chanNorm(c, v);
     chanPosSet(c.i, chanNorm(c, v));          // …and the channel's own reading — see CHPOS
-    if(typeof liveWrite === 'function') liveWrite(c, v);
+    if(typeof liveWrite === 'function') liveWrite(c, v, speeds && speeds[c.i]);
   }
 }
 function applyLivePose(){
@@ -178,12 +182,12 @@ function seqFreeOverlay(s, done){
   for(const a in free) ACT_T[a] = free[a];      //     the free lanes' own "home frame"
 }
 function seqStepPlayback(slotKey, s, dtms){
-  if(s.i<0){ s.i=0; s.t=0; if(s.frames[0]) applyFrameTargets(s.frames[0].targets); }
+  if(s.i<0){ s.i=0; s.t=0; if(s.frames[0]) applyFrameTargets(s.frames[0].targets, s.frames[0].speeds); }
   else s.t += dtms;
   while(s.frames[s.i] && s.t >= s.frames[s.i].duration){
     s.t -= s.frames[s.i].duration;
     s.i++;
-    if(s.frames[s.i]) applyFrameTargets(s.frames[s.i].targets);
+    if(s.frames[s.i]) applyFrameTargets(s.frames[s.i].targets, s.frames[s.i].speeds);
   }
   if(!s.frames[s.i]){ seqFreeOverlay(s, true); delete MAESTRO.slot[slotKey]; }
   else seqFreeOverlay(s, false);

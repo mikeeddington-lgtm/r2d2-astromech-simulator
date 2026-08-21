@@ -208,6 +208,50 @@ const ok = (n,c,x='') => { c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+' 
        return $('sqStepWrap').classList.contains('hide');
      }));
 
+  console.log('\n════ the wire carries the authored timing (v1.66.1) ════');
+  /* PCA_Bridge has NO speed command and needs none: it writes raw PCA9685
+     ticks and never interpolates. The bench engine is what interpolates, and
+     its onWrite IS the wire — one frame target already goes down as ~40
+     stepped positions at 100 Hz. What was missing is that it paced them at the
+     CHANNEL's speed rather than the FRAME's, so a 500 ms ramp step was crossed
+     at whatever rate the bench happened to be set to and then waited. */
+  const wire = await ev(()=>{
+    const E = HW.engine();
+    const c = MSTR.channels.find(x=>/^servo/i.test(x.mode) && x.act);
+    const span = Math.abs(c.max - c.min);
+    const run = speed => {
+      pcaSetSpeed(E, c.i, c.speed|0);
+      pcaSetTarget(E, c.i, Math.min(c.min,c.max));
+      for(let i=0;i<60;i++) pcaStepChannel(E, c.i);
+      let writes = 0; const real = E.onWrite;
+      E.onWrite = (ch)=>{ if(ch === c.i) writes++; };
+      LIVE.on = true;
+      HW.drive(c.i, Math.max(c.min,c.max), speed);
+      let ticks = 0;
+      while(E.st[c.i].pos256 !== (E.st[c.i].aim<<8) && ticks < 500){ pcaStepChannel(E, c.i); ticks++; }
+      E.onWrite = real;
+      return { writes, ms: ticks*10 };
+    };
+    const none = run(0);
+    const p500 = run(chanSpeedForMs(c, span, 500));
+    const p900 = run(chanSpeedForMs(c, span, 900));
+    HW.releaseDriveSpeeds();
+    LIVE.on = false;
+    return { chanSpeed: c.speed, none, p500, p900, restored: E.st[c.i].speed };
+  });
+  console.log('  '+JSON.stringify(wire));
+  ok('one frame target is already ~40 stepped positions on the wire — the bridge '
+     +'never needed a speed command', wire.none.writes > 20, JSON.stringify(wire.none));
+  ok('a frame speed paces the wire to the frame: 500 ms asked, 500 ms taken',
+     Math.abs(wire.p500.ms - 500) <= 60, JSON.stringify(wire.p500));
+  ok('…and 900 ms asked, 900 ms taken — it follows the number, not a constant',
+     Math.abs(wire.p900.ms - 900) <= 80 && wire.p900.writes > wire.p500.writes,
+     JSON.stringify(wire.p900));
+  ok('without a frame speed it still runs at the channel\'s own, unchanged',
+     Math.abs(wire.none.ms - 410) <= 80, JSON.stringify(wire.none));
+  ok('and disarming hands every channel back to the channel table',
+     wire.restored === wire.chanSpeed, JSON.stringify(wire));
+
   ok('no page errors', errs.length === 0, errs.join(' | '));
   console.log('\n'+pass+' passed, '+fail+' failed');
   await browser.close();

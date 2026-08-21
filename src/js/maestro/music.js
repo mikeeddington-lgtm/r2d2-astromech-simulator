@@ -323,9 +323,9 @@ function musicApplyAt(seq, tSec, prevIdx){
   const i = musicFrameAt(seq, tSec);
   if(typeof prevIdx === 'number' && prevIdx < i){
     // v1.39.5: a tick must not step over a short frame — same law as seqStepPlayback
-    for(let j = prevIdx + 1; j <= i; j++) applyFrameTargets(seq.frames[j].targets);
+    for(let j = prevIdx + 1; j <= i; j++) applyFrameTargets(seq.frames[j].targets, seq.frames[j].speeds);
   } else {
-    applyFrameTargets(seq.frames[i].targets);
+    applyFrameTargets(seq.frames[i].targets, seq.frames[i].speeds);
   }
   return i;
 }

@@ -86,11 +86,16 @@ function liveUnlimited(){
 /* ------------------------------------------------------------- the seam
    Called for every channel of every frame. Cheap and silent when disarmed,
    because it is on the playback path of a 60 Hz loop. */
-function liveWrite(c, qus){
+function liveWrite(c, qus, speed){
   if(!LIVE.on || !c || !/^servo/i.test(c.mode || '')) return;
   if(!liveOn()) return;
   if(!qus) return;                     /* 0 means "leave this channel alone" */
-  if(typeof HW !== 'undefined' && HW.drive) HW.drive(c.i, qus);
+  /* `speed` is the FRAME's, sized so the move fills that frame (v1.66.0's
+     compiler). PCA_Bridge has no speed command and needs none — it writes raw
+     ticks and never interpolates. The bench engine is what interpolates, and
+     its onWrite is the wire, so pacing it here is what puts the authored
+     timing on a real servo. Absent restores the channel's own. */
+  if(typeof HW !== 'undefined' && HW.drive) HW.drive(c.i, qus, speed);
 }
 
 /* --------------------------------------------------------- arm / disarm */
@@ -98,6 +103,11 @@ async function liveSet(on, opts){
   const o = opts || {};
   if(!on){
     LIVE.on = false; LIVE.asked = false;
+    /* hand every channel back to the table's own speed (v1.66.1). A routine's
+       per-frame speeds are the ROUTINE's; leaving the last one in place would
+       have the bench dial and the pad running at whatever pace the final frame
+       of the last thing you played happened to need. */
+    if(typeof HW !== 'undefined' && HW.releaseDriveSpeeds) HW.releaseDriveSpeeds();
     liveUiSync();
     /* Deliberately NOT cutting the pulses. A released servo is a dead
        servo, and a dead servo holding a heavy panel open drops it. The
