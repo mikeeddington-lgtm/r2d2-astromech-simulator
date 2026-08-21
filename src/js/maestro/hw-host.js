@@ -203,6 +203,9 @@ const HW = {
       pcaSetSpeed(E, ch, (MSTR.channels[ch] && MSTR.channels[ch].speed) | 0);
     }
     pcaSetTarget(E, ch, qus);
+    /* a board that ramps for itself takes the move whole, once — the engine's
+       stream is suppressed for it (serial-link.js, TWO BOARDS TWO DOORS) */
+    if(typeof serialMove === 'function') serialMove(ch, qus, speed);
     const c = MSTR.channels[ch];
     if(c && c.act && typeof ACT_T !== 'undefined' && typeof chanNorm === 'function'){
       if(qus) ACT_T[c.act] = chanNorm(c, qus);

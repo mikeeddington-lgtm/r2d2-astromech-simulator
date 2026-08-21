@@ -163,8 +163,16 @@ const ok = (n,c,x='') => { c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+' 
   await txReset();
   const routed = await ev(()=>{
     SER.port = {}; SER.blocked = false; SER.kind = 'maestro';
-    SER.lastTicks = {}; SER.warnedWide = false;
+    SER.lastTicks = {}; SER.lastSpeed = {}; SER.warnedWide = false;
     MST.on = true; MST.chCount = 18;
+    /* THIS BLOCK IS ABOUT THE STREAM, so it asks for the streamed mode out
+       loud (v1.66.2). serialWrite() is the streamed door; on a Maestro that
+       is drawing its own ramps the positions go through serialMove() instead,
+       once per move, and serialWrite deliberately says nothing. `quiet` is
+       what picks between them — it means the board has been zeroed and the
+       simulator is shaping, which is the streamed case. The paced door has
+       its own coverage below and in tests/ramp-step.test.js. */
+    MST.quiet = true;
     serialWrite(2, 6000);
     const first = window.__tx[window.__tx.length-1];
     serialWrite(2, 6000);                        /* same value again */
@@ -185,6 +193,36 @@ const ok = (n,c,x='') => { c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+' 
      JSON.stringify(routed.off) === '[132,2,0,0]', JSON.stringify(routed.off));
   ok('a channel past the board\'s count is DROPPED, not folded', routed.past === true);
   ok('and the PCA9685 config frames are never sent to a Maestro', routed.cfg === true);
+
+  /* THE OTHER DOOR (v1.66.2). A Maestro left to draw its own ramps takes one
+     Set Speed and one Set Target per move — the engine's 100 Hz stream is
+     suppressed for it, because the board does not need to be told the middle
+     of a ramp it is already drawing. An OFF is the exception: "stop pulsing"
+     is an event rather than a position, so it still goes through the stream. */
+  await txReset();
+  const paced = await ev(()=>{
+    SER.port = {}; SER.blocked = false; SER.kind = 'maestro';
+    SER.lastTicks = {}; SER.lastSpeed = {}; SER.warnedWide = false;
+    MST.on = true; MST.chCount = 18; MST.quiet = false;
+    const paces = serialPaces();
+    window.__tx.length = 0;
+    serialWrite(2, 6000);                        /* a streamed position: ignored */
+    const streamSaid = window.__tx.length;
+    serialMove(2, 6000, 94);                     /* the paced door */
+    const cmds = window.__tx.slice();
+    window.__tx.length = 0;
+    serialWrite(2, null);                        /* an off still goes */
+    const offSaid = window.__tx.length;
+    MST.quiet = true;
+    return {paces, streamSaid, cmds, offSaid};
+  });
+  ok('a Maestro drawing its own ramps IS paced, and the stream says nothing to it',
+     paced.paces === true && paced.streamSaid === 0, JSON.stringify(paced));
+  ok('the paced door sends Set Speed 0x87 then Set Target 0x84',
+     paced.cmds.length === 2 && paced.cmds[0][0] === 0x87 && paced.cmds[1][0] === 0x84,
+     JSON.stringify(paced.cmds));
+  ok('but an OFF is an event, not a position, and still reaches it',
+     paced.offSaid === 1, String(paced.offSaid));
 
   console.log('\n════ which board the build says is out there ════');
   const which = await ev(()=>{

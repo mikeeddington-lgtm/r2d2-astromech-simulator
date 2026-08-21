@@ -252,6 +252,67 @@ const ok = (n,c,x='') => { c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+' 
   ok('and disarming hands every channel back to the channel table',
      wire.restored === wire.chanSpeed, JSON.stringify(wire));
 
+  console.log('\n════ a Maestro is the other case — it ramps for itself (v1.66.2) ════');
+  /* The bridge writes raw ticks and never interpolates, so it wants the
+     engine's 100 Hz stream. A Maestro does interpolate: Set Target starts a
+     ramp it runs on the board. So it wants ONE Set Speed and ONE Set Target
+     per move, and then silence. The two look nothing alike on the wire, which
+     is right rather than a compromise — each board is asked for the thing it
+     is good at. */
+  const mst = await ev(()=>{
+    const bytes = [];
+    serialRaw = arr => bytes.push(Array.from(arr));
+    SER.port = {fake:true}; SER.kind = 'maestro'; SER.blocked = false;
+    SER.lastTicks = {}; SER.lastSpeed = {};
+    MST.on = true; MST.chCount = 24; MST.quiet = false; MST.proto = 'compact';
+    LIVE.on = true;
+    const E = HW.engine();
+    const c = MSTR.channels.find(x=>/^servo/i.test(x.mode) && x.act);
+    const open = Math.max(c.min,c.max), shut = Math.min(c.min,c.max);
+    const val = f => f[2] | (f[3] << 7);              // Pololu compact: low 7, high 7
+    const grab = fn => { bytes.length = 0; fn();
+                         for(let i=0;i<120;i++) pcaStepChannel(E, c.i);
+                         return bytes.slice(); };
+
+    const p500 = grab(()=>HW.drive(c.i, open, chanSpeedForMs(c, open-shut, 500)));
+    pcaSetTarget(E, c.i, shut); for(let i=0;i<120;i++) pcaStepChannel(E,c.i);
+    SER.lastTicks = {}; SER.lastSpeed = {};
+    const p900 = grab(()=>HW.drive(c.i, open, chanSpeedForMs(c, open-shut, 900)));
+    const again = grab(()=>HW.drive(c.i, open, chanSpeedForMs(c, open-shut, 900)));
+    const off   = grab(()=>serialWrite(c.i, null));
+
+    MST.quiet = true;                                  // the sim shapes instead
+    SER.lastTicks = {}; SER.lastSpeed = {};
+    pcaSetTarget(E, c.i, shut); for(let i=0;i<120;i++) pcaStepChannel(E,c.i);
+    const streamed = grab(()=>HW.drive(c.i, open, chanSpeedForMs(c, open-shut, 500)));
+    MST.quiet = false; LIVE.on = false; SER.port = null; SER.kind = '';
+
+    return {
+      p500: { n:p500.length, cmds:p500.map(f=>f[0]), speed:p500[0] && val(p500[0]),
+              target:p500[1] && val(p500[1]) },
+      p900speed: p900[0] && val(p900[0]),
+      repeatBytes: again.length,
+      offCmds: off.map(f=>f[0]),
+      streamed: { n:streamed.length, anySetSpeed: streamed.some(f=>f[0]===0x87) },
+      open
+    };
+  });
+  console.log('  '+JSON.stringify(mst));
+  ok('a paced Maestro gets ONE Set Speed then ONE Set Target — not a stream',
+     mst.p500.n === 2 && mst.p500.cmds[0] === 0x87 && mst.p500.cmds[1] === 0x84,
+     JSON.stringify(mst.p500));
+  ok('the target on the wire is the frame\'s, decoded from Pololu\'s two 7-bit halves',
+     mst.p500.target === mst.open, JSON.stringify(mst.p500));
+  ok('and the speed is the FRAME\'s — a longer frame sends a slower one',
+     mst.p500.speed > mst.p900speed && mst.p900speed > 0,
+     '500ms→'+mst.p500.speed+'  900ms→'+mst.p900speed);
+  ok('the same move twice says nothing the second time', mst.repeatBytes === 0,
+     String(mst.repeatBytes));
+  ok('an OFF is an event, not a position — it still reaches a paced board',
+     mst.offCmds.length === 1 && mst.offCmds[0] === 0x84, JSON.stringify(mst.offCmds));
+  ok('and with the sim shaping instead, it is a stream again with no Set Speed',
+     mst.streamed.n > 20 && !mst.streamed.anySetSpeed, JSON.stringify(mst.streamed));
+
   ok('no page errors', errs.length === 0, errs.join(' | '));
   console.log('\n'+pass+' passed, '+fail+' failed');
   await browser.close();

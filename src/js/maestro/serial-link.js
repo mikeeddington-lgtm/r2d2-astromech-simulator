@@ -34,7 +34,7 @@
    Nothing needs re-flashing to keep working; re-flashing is what unlocks
    channels 32 and up. */
 const SER = { port:null, writer:null, reader:null, q:[], flushing:false,
-              lastTicks:{}, blocked:false, banner:'',
+              lastTicks:{}, lastSpeed:{}, blocked:false, banner:'',
               /* narrow until a banner proves otherwise — the safe default,
                  because guessing wide at a v1 board misaddresses servos */
               wide:false, chMax:61, cfgOsc:62, cfgServo:63, warnedWide:false,
@@ -410,7 +410,7 @@ async function serialConnect(){
     const port=await navigator.serial.requestPort();
     await port.open({baudRate:115200});
     SER.port=port; SER.writer=port.writable.getWriter();
-    SER.lastTicks={}; SER.blocked=false; SER.banner='';
+    SER.lastTicks={}; SER.lastSpeed={}; SER.blocked=false; SER.banner='';
     serialSetWidth(false);              /* until a banner says otherwise */
     serialUiSync();
     monShow(true);
@@ -590,6 +590,52 @@ function serialAllOff(){
 }
 /* v1.39.5: the tick period follows HW.freq() */
 function serialTicksFor(qus){ return (qus==null) ? 8191 : pcaQusToTicks(qus, 1000000/HW.freq()); }
+/* ===================================================== TWO BOARDS, TWO DOORS
+   Does the board on the other end interpolate for ITSELF? (v1.66.2)
+
+   A Pololu Maestro does. Speed and acceleration are its own, a Set Target
+   starts a ramp it runs on the board, and it will draw that ramp whether or
+   not anything else arrives — so the right traffic is ONE Set Speed and ONE
+   Set Target per move, and then silence.
+
+   PCA_Bridge does not, and deliberately: it computes board and pin and calls
+   setPWM, with no position, no velocity and no stepping loop anywhere in the
+   sketch. Its own header opens "The BROWSER runs …". So the right traffic
+   there is the engine's 100 Hz stream — measured at 41 stepped positions for
+   one full-throw move.
+
+   The two therefore look completely different on the wire, and that is the
+   correct answer rather than a compromise: each board is being asked for the
+   thing it is good at. `serialWrite()` below is the STREAM; `serialMove()` is
+   the PACED door. `mstrQuiet` picks between them on a Maestro — quiet means
+   the board has been zeroed and the sim is shaping, which is the streamed
+   case again. */
+function serialPaces(){
+  return SER.kind === 'maestro' && typeof MST !== 'undefined' && !MST.quiet;
+}
+/* THE PACED DOOR. Sending the speed the frame asked for is not optional and
+   not free: a Maestro ramps at whatever speed it has STORED, so a 500 ms frame
+   on a channel Mike tuned to 80 (a 1.1 s throw) overruns and the routine drifts
+   further behind with every brick. Writing it is the only way the authored
+   timing can land — and it is a RUNTIME write to a board he tuned by hand, so
+   the Serial pane says so and a power cycle brings his numbers back. Pololu
+   have no Get Speed, so it cannot be read first and put back afterwards.
+
+   With no frame speed (a bench dial, a group action) the channel table's own
+   goes down instead, which leaves the board in a state the sim can predict
+   rather than whatever the last routine happened to need. */
+function serialMove(ch, qus, speed){
+  if(!SER.port || SER.blocked || !serialPaces()) return false;
+  if(ch >= MST.chCount) return false;          /* serialWrite says so, once */
+  const t  = (qus == null) ? 0 : (qus|0);
+  const c  = (typeof MSTR !== 'undefined' && MSTR.channels) ? MSTR.channels[ch] : null;
+  const sp = (speed > 0) ? (speed|0) : ((c && c.speed) | 0);
+  if(SER.lastSpeed[ch] !== sp){ SER.lastSpeed[ch] = sp; mstrSetSpeed(ch, sp); }
+  if(SER.lastTicks[ch] === t) return true;     /* spare the wire */
+  SER.lastTicks[ch] = t;
+  mstrSetTarget(ch, t);
+  return true;
+}
 function serialWrite(ch, qus){          /* qus null = off */
   if(!SER.port || SER.blocked) return;
   /* ---- a real Pololu Maestro. Same unit, different envelope: the target
@@ -607,6 +653,11 @@ function serialWrite(ch, qus){          /* qus null = off */
       return;
     }
     const t = (qus == null) ? 0 : (qus|0);
+    /* PACED: the board is drawing the ramp itself, so the engine's per-tick
+       stream is NOT the door — serialMove() is, once per move. An OFF is the
+       exception and still goes through here: "stop pulsing" is an event, not
+       a position, and nothing else would ever send it. */
+    if(serialPaces() && qus != null) return;
     if(SER.lastTicks[ch] === t) return;   /* spare the wire, as below */
     SER.lastTicks[ch] = t;
     mstrSetTarget(ch, t);
@@ -636,7 +687,15 @@ function serialWrite(ch, qus){          /* qus null = off */
 }
 function serialSyncAll(){
   const E = HW.engine();
-  E.channels.forEach((c,i)=>{ if(E.st[i] && E.st[i].servo) serialWrite(i, E.st[i].active?pcaPos(E,i):null); });
+  E.channels.forEach((c,i)=>{
+    if(!E.st[i] || !E.st[i].servo) return;
+    const qus = E.st[i].active ? pcaPos(E,i) : null;
+    /* through whichever door this board uses — a resync on a paced Maestro
+       must carry the channel's speed too, or the first move after connecting
+       runs at whatever the board was last left with */
+    if(serialPaces() && qus != null) serialMove(i, qus);
+    else serialWrite(i, qus);
+  });
 }
 
 
@@ -676,7 +735,12 @@ async function serialTryMaestro(){
     + 'reads positions back and can tell you when the board <b>clamps</b> one. '
     + '<b>The port drives but it does not configure</b>: each channel\'s stored min, '
     + 'max, neutral, home and mode still come from Control Center. '
-    + 'This board is also applying its own speed and acceleration on top of the sim\'s — '
-    + '<button class="mini" id="bMstQuiet">let the sim shape the moves</button>');
+    + '<b>The board draws the ramps</b>, which is what a Maestro is for: each move goes out as one '
+    + 'Set Speed and one Set Target, sized so it lasts exactly as long as the sequencer says. '
+    + 'That <b>writes this channel table\'s speed to the board</b> as it goes — a runtime write, so '
+    + 'a power cycle brings your own numbers back, and Pololu have no Get Speed for us to read them '
+    + 'first. The board\'s <b>acceleration</b> is left alone and still shapes the ends of every move. '
+    + 'Prefer the simulator to shape them instead, streaming positions the way the PCA bridge is '
+    + 'driven? <button class="mini" id="bMstQuiet">let the sim shape the moves</button>');
   return true;
 }
