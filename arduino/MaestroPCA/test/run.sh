@@ -68,16 +68,41 @@ echo "== the droid sketch carries its own copy of the library =="
 # copy in the sketch that ends up in the droid is the worst place for one.
 SKETCH=../examples/MaestroReplacement
 COPIES="MpcaScan.h MaestroPCA.h MaestroPCA.cpp MaestroLink.h MaestroLink.cpp"
+# R2_Bench_Console carries the same five, and is checked for the same reason —
+# it was found MISSING MpcaScan.h entirely, which is the failure this guard is
+# for: not a copy that drifted, a copy that was never there. The sketch
+# compiled anyway for as long as the library happened to be installed, and
+# stopped the moment it was not.
+BENCH=../../bench-sketches/R2_Bench_Console
 drift=0
-for f in $COPIES; do
-  if cmp -s "../src/$f" "$SKETCH/$f"; then
-    echo "  PASS  $f matches ../src"
-  else
-    echo "  FAIL  $f has drifted from ../src   —   cp ../src/$f $SKETCH/$f"
-    drift=1
-  fi
+for d in "$SKETCH" "$BENCH"; do
+  for f in $COPIES; do
+    if [ ! -f "$d/$f" ]; then
+      echo "  FAIL  $(basename $d)/$f is MISSING            —   cp ../src/$f $d/$f"
+      drift=1
+    elif cmp -s "../src/$f" "$d/$f"; then
+      echo "  PASS  $(basename $d)/$f matches ../src"
+    else
+      echo "  FAIL  $(basename $d)/$f has drifted from ../src   —   cp ../src/$f $d/$f"
+      drift=1
+    fi
+  done
 done
-[ $drift -eq 0 ] || { echo "  the droid sketch is compiling something other than the library"; exit 1; }
+# and every one of our includes must be QUOTED: an <angled> include is only
+# found on the LIBRARY path, so a folder carrying its own copies cannot use it
+for d in "$SKETCH" "$BENCH"; do
+  for f in "$d"/*.ino; do
+    bad=$(grep -n '#include *<\(MaestroPCA\|MaestroLink\|MpcaScan\)\.h>' "$f" || true)
+    if [ -n "$bad" ]; then
+      echo "  FAIL  $(basename $f) includes ours with <angles>, which the sketch folder is not searched for:"
+      echo "$bad" | sed 's/^/          /'
+      drift=1
+    else
+      echo "  PASS  $(basename $f) includes ours in quotes"
+    fi
+  done
+done
+[ $drift -eq 0 ] || { echo "  a sketch is compiling something other than the library beside it"; exit 1; }
 
 echo
 echo "== …and compiles from that folder ALONE (nothing installed) =="
