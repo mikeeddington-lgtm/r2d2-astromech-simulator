@@ -66,7 +66,15 @@ function pcaGenHeader(channels, sequences, meta){
   s += '   the Maestro channel table — endpoints are YOUR calibration.\n';
   s += '   Calibrate the PCA9685 oscillator (maestro.begin(<hz>)) or these\n';
   s += '   values are only nominal on the wire. */\n';
-  s += '#pragma once\n#include <MaestroPCA.h>\n\n';
+  /* QUOTED, not <angled> (v1.66.4). An angled include is only ever found on
+     the LIBRARY path, so a generated header that uses one cannot be compiled
+     from a sketch folder carrying its own copy of MaestroPCA — the IDE answers
+     "MaestroPCA.h: No such file or directory" with the file sitting two lines
+     away in the same directory. A quoted include searches the including file's
+     own folder FIRST and the library path afterwards, so it works both ways.
+     Found by Mike's compiler on a real flash, twice: once in the .ino and then
+     again here, because this file writes its own include and never read it. */
+  s += '#pragma once\n#include "MaestroPCA.h"\n\n';
   /* THE GUARD (v1.66.0). A header WITHOUT speeds works against any version of
      the library, so it gets no guard and nothing changes for anybody. A header
      WITH them read by a library that predates MPCA_SEQ_SPEEDS is the dangerous

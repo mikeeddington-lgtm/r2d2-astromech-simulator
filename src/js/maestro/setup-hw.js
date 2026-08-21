@@ -1085,7 +1085,15 @@ function setupServosH(){
   s += '   .mstr you export. Endpoints are YOUR calibration: captured against the\n';
   s += '   real linkage on the dial, not taken from a datasheet. Nothing that\n';
   s += '   generates a sequence is allowed to change them. */\n';
-  s += '#pragma once\n#include <MaestroPCA.h>\n\n';
+  /* QUOTED, not <angled> (v1.66.4). An angled include is only ever found on
+     the LIBRARY path, so a generated header that uses one cannot be compiled
+     from a sketch folder carrying its own copy of MaestroPCA — the IDE answers
+     "MaestroPCA.h: No such file or directory" with the file sitting two lines
+     away in the same directory. A quoted include searches the including file's
+     own folder FIRST and the library path afterwards, so it works both ways.
+     Found by Mike's compiler on a real flash, twice: once in the .ino and then
+     again here, because this file writes its own include and never read it. */
+  s += '#pragma once\n#include "MaestroPCA.h"\n\n';
   s += '#define SERVO_HZ     '+SETUP.hw.freq+'\n';
   s += '#define OSC_HZ       '+SETUP.hw.osc+'UL\n';
   s += '#define PCA_BOARDS   '+SETUP.hw.boards+'\n';

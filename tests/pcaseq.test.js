@@ -418,6 +418,31 @@ const LIVE = fs.readFileSync(path.resolve(__dirname,'fixtures-live-dome.mstr'),'
   ok('endpoints cross unchanged — both formats already speak quarter-µs',
      !units.missing && units.same && units.declaredQus,
      JSON.stringify(units.mine)+' → '+JSON.stringify(units.got));
+  /* ================================================================
+     THE GENERATED HEADERS INCLUDE THEIR LIBRARY IN QUOTES (v1.66.4)
+
+     An <angled> include is only ever found on the LIBRARY path. A sketch
+     folder that carries its own copy of MaestroPCA — which is how
+     examples/MaestroReplacement now ships — cannot compile a generated
+     header that uses one: the IDE answers "MaestroPCA.h: No such file or
+     directory" with the file sitting two lines away in the same folder.
+     Quoted searches the including file's own directory first and the
+     library path afterwards, so it works BOTH ways.
+
+     Mike's compiler found this twice in one evening: first in the .ino,
+     then again in sequences.h, because that file writes its own include
+     line and nobody had ever read it. Asserted on the STRING the writer
+     emits, which is the only place the mistake can live. */
+  console.log('\n════ the generated header includes its library in quotes ════');
+  const inc = await ev(()=>{
+    makeStarter('dome');
+    const h = pcaGenHeader(MSTR.channels, MSTR.sequences.slice(0,1), {source:'t'});
+    const line = (h.match(/^#include.*MaestroPCA\.h.*$/m)||['(none)'])[0];
+    return { line, angled: /#include\s*<MaestroPCA\.h>/.test(h) };
+  });
+  ok('sequences.h includes "MaestroPCA.h", not <MaestroPCA.h>',
+     inc.line === '#include "MaestroPCA.h"' && !inc.angled, JSON.stringify(inc));
+
 
   console.log('\n'+pass+' passed, '+(fail?fail+' FAILED':'0 failed'));
   console.log('page errors: '+(errs.length?errs.join(' | '):'none'));
