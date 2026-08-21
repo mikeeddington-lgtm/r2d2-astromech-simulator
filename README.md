@@ -11,6 +11,18 @@
 </p>
 
 <p align="center">
+  <b>…and when you are ready to wire one:</b><br>
+  <a href="https://github.com/mikeeddington-lgtm/r2d2-astromech-simulator/releases/latest/download/R2_Bench_Console.zip">🔧 <strong>R2 Bench Console</strong></a>
+  — drive your servos by typing at them<br>
+  <sub>A Maestro, a MaestroReplacement or a PCA9685 rig, all with the same commands</sub><br>
+  <a href="https://github.com/mikeeddington-lgtm/r2d2-astromech-simulator/releases/latest/download/MaestroReplacement.zip">🤖 <strong>Maestro Replacement</strong></a>
+  — a £10 board that answers like a Pololu Maestro<br>
+  <sub>Your host sketch needs no changes: same library, same slot numbers, same three bytes</sub><br>
+  <sub>Two Arduino sketch packs · unzip, edit <code>Config.h</code>, upload · one library from Library Manager and nothing else to download<br>
+  <a href="arduino/bench-sketches/R2_Bench_Console/README.md">bench console walkthrough</a> · <a href="arduino/MaestroPCA/examples/MaestroReplacement/README.md">replacement walkthrough</a></sub>
+</p>
+
+<p align="center">
   <a href="https://github.com/mikeeddington-lgtm/r2d2-astromech-simulator/releases/latest/download/R2D2-Simulator-Manual.html">📖 <strong>The builder's manual</strong></a> — twenty-one chapters, eight clips.<br>
   <em>The simulator links to it too: a <strong>📖 Manual</strong> button in its header, on the setup screen, in Learn and in the ? panel.</em>
   &nbsp;·&nbsp;

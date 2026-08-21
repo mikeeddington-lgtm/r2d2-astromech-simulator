@@ -1,145 +1,187 @@
-# R2 Bench Console
+# R2 Bench Console — drive your droid's servos by typing at them
 
-A sketch you drive by typing at it, so a servo can be tested without a
-Padawan360 build, a USB Host Shield, an Xbox controller or a droid.
+No USB Host Shield, no Xbox controller, no Sabertooth, no audio player, no
+droid. One Arduino, one wire to your servo hardware, and the Serial Monitor.
+You ask the servo layer for anything Padawan would ever ask it — and, crucially,
+you can see the answer.
 
-One sketch, three back ends, **the same commands on all three** — so a
-move proved on the bench Maestro is proved the same way on the PCA rig,
-and a difference in behaviour is a difference in the *hardware* rather
-than in the test.
+It talks to **three different back ends with the same commands**, so a sequence
+you proved on a bench Maestro can be proved again on a PCA9685 rig without
+relearning anything. A difference in behaviour is then a difference in the
+*hardware*, not in the test.
 
-| `BENCH_TARGET` | drives | needs |
-|---|---|---|
-| `BT_MAESTRO` *(default)* | a real Pololu Mini/Micro Maestro over a UART | `PololuMaestro` |
-| `BT_PCA` | PCA9685 board(s) over I2C, via MaestroPCA | `MaestroPCA`, `Adafruit_PWMServoDriver`, `sequences.h` |
-| `BT_LEDC` | ESP32 pins directly, no expander (16 channels max) | `MaestroPCA`, `sequences.h` |
+---
 
-Change the one `#define BENCH_TARGET` line near the top. Everything else
-in section 2 is configuration: ports, baud, channel count, the flap
-dwell, the nudge step.
+## What you need
 
-## Wiring
+| | |
+|---|---|
+| A board | Any Arduino. A **Mega / ADK / Leonardo** is easiest — it has a spare hardware serial port. |
+| Something to drive | A **Pololu Mini/Micro Maestro**, or a **MaestroReplacement**, or **PCA9685** boards on this Arduino's own I2C pins |
+| Software | The **Arduino IDE** |
 
-**`BT_MAESTRO`** — three things, and only three:
+---
 
-```
-Arduino TX  ->  Maestro RX      (they cross over)
-Arduino GND ->  Maestro GND     <- the one people forget
-Maestro servo power + logic power (the VSRV=VIN jumper does both)
-```
+## Step 1 — Install the library you need
 
-Optional fourth wire, **Maestro TX -> Arduino RX**, and it is worth
-running: it is what lets `p`, `err` and `state` answer at all, and it is
-the only way to catch a silent clamp (below).
+**Tools → Manage Libraries…**, then install whichever matches your rig:
 
-Mega / Mega ADK uses `Serial1`, so TX is pin 18. Leonardo uses `Serial1`,
-pin 1. A Uno has no spare hardware UART and falls back to SoftwareSerial
-on pin 11 — the sketch prints which it picked at boot.
+- Driving a **Maestro, a MaestroReplacement or an Esp32Droid** over a wire →
+  **PololuMaestro** (by Pololu)
+- Driving **PCA9685 boards on this Arduino's own I2C pins** →
+  **Adafruit PWM Servo Driver Library** (by Adafruit), plus `Adafruit BusIO`
+  if it offers
 
-The board must be in **UART, fixed baud rate** at `MAESTRO_BAUD`, CRC
-disabled, and *Apply Settings* must have been clicked.
+Installing both is fine. Everything else this sketch needs is already in
+this folder.
 
-**`BT_PCA`** — PCA9685 on I2C (Mega SDA 20 / SCL 21, ESP32 21 / 22), V+
-from a real 5–6 V servo supply and **never** the Arduino's 5 V, a common
-ground, 1000–4700 µF across V+/GND. The bus is scanned at boot, so the
-boards are found wherever you jumpered them.
+## Step 2 — Put the folder in your sketchbook
 
-**`BT_LEDC`** — servos on the GPIOs listed in `LEDC_PINS`. Sixteen
-channels is the silicon's limit, not a setting.
-
-## Typing at it
-
-Open the serial monitor at 115200. Two styles work at once:
-
-- **one key, no Enter** — every hotkey is a digit or punctuation, never a
-  letter, so `home` can never be read as `h`,`o`,`m`,`e`. These work with
-  the monitor set to *No line ending*.
-- **words, then Enter** — set the monitor to *Newline* and both styles
-  work together.
+Unzip it so you end up with:
 
 ```
-0-9  fire that script slot        !  stop the script
-[ ]  select prev / next channel   /  go home
-< >  selected to min / max        =  to the midpoint
-+ -  nudge it by the step         *  flap it 3 times
-#    state and counters           .  ALL channels limp
-?    the command list
+Documents\Arduino\R2_Bench_Console\R2_Bench_Console.ino
 ```
 
+**Not** inside `Documents\Arduino\libraries\` — everything under `libraries\` is
+scanned as a library, so a sketch left there is compiled twice and produces a
+wall of *multiple definition* errors.
+
+## Step 3 — Make sure MaestroPCA is *not* also installed
+
+If `Documents\Arduino\libraries\MaestroPCA\` exists, **move it out of
+`libraries\` entirely**. This folder carries its own copy, and two copies means
+every symbol reaches the linker twice.
+
+Renaming the folder does not help — the IDE reads what is *inside* each folder
+under `libraries\`, not what it is called.
+
+## Step 4 — Edit `Config.h`, and nothing else
+
+Open the `Config.h` tab. Two things there actually matter:
+
+**1. `BENCH_TARGET` — which back end you are driving.**
+
+| Your setup | Set it to |
+|---|---|
+| A serial cable to a Maestro, a MaestroReplacement or an Esp32Droid | `BT_MAESTRO` |
+| PCA9685 boards wired to *this* Arduino's own SDA/SCL pins | `BT_PCA` |
+| Servos straight off ESP32 pins | `BT_LEDC` |
+
+> **The common mistake.** Choosing `BT_PCA` when there is a *serial cable*
+> to a MaestroReplacement. `BT_PCA` opens no serial port at all, so the link
+> pins sit idle and not one byte ever leaves the board. Everything looks
+> alive and nothing happens. A MaestroReplacement answers the Maestro's own
+> protocol on purpose — it is `BT_MAESTRO`.
+
+**2. `BENCH_CHANNEL_LIST` — what your channels are called and how far they go.**
+
+One line per channel, in channel order:
+
+```c
+X( "PP5", 4544, 7296 )   /* channel 0 */
 ```
-list                  the channel table
-sel <ch>              choose the working channel
-t <ch> <qus>          set target (0 = stop pulsing)
-us <ch> <us>          set target in microseconds
-pct <ch> <0-100>      set it as a % of min..max
-p [ch]                read the position back
-min|max|mid [ch]      drive to an endpoint
-off [ch]              stop pulsing that one (limp)
-all min|max|mid|home|off
-flap [ch] [n]         throw it n times, non-blocking
-nudge <qus>           set the + / - step
-speed <ch> <v>        0 = unlimited   (RUNTIME only)
-accel <ch> <v>        0 = unlimited   (RUNTIME only)
-g <n>                 restartScript(n)
-x                     stopScript
-home                  goHome
-state                 moving / script / counters
-mon [ms]              stream the position; mon 0 stops
-rate                  loop rate
-err                   [Maestro] read AND CLEAR the error flags
-raw <hex> <hex> ...   [Maestro] send bytes verbatim
-loopback              [Maestro] TX->RX jumper test
-scan                  [PCA] re-scan the I2C bus
+
+Add or remove lines freely; nothing counts them but the list itself, so there is
+no second number to keep in step. The numbers are **quarter-microseconds**
+(6000 = 1500 µs, the usual centre) and they are *your* linkage's endpoints. The
+list shipped here is Mike's dome Maestro — if that isn't your droid, those are
+not your numbers. Start anything unknown at a safe `5000, 7000`.
+
+Everything else in `Config.h` has a working default.
+
+## Step 5 — Choose your board and upload
+
+**Tools → Board**, **Tools → Port**, then the arrow.
+
+## Step 6 — Wire it
+
+**`BT_MAESTRO` on a Mega / ADK / Leonardo** — the port is `Serial1` and its pins
+are fixed by the chip:
+
+```
+   pin 18 (TX1)  ---------->  the servo board's RX
+   pin 19 (RX1)  <----------  the servo board's TX     (for read-back)
+   GND           -----------  GND                       <- always
 ```
 
-Targets are **quarter-microseconds** throughout, exactly as a Maestro and
-a `.mstr` use them: 6000 = 1500 µs.
+Two Megas — a bench console and a MaestroReplacement — is therefore
+**18 → 19 and 19 → 18** between them. A Mega talking to a MaestroReplacement on a
+Nano is `18 → Nano 8` and `Nano 9 → 19`.
 
-## The four things this exists to catch
+**On an Uno / Nano** it falls back to SoftwareSerial on pins **10 (RX)** and
+**11 (TX)**.
 
-**A read that hangs forever.** `PololuMaestro::getPosition()` is written
-`while (_stream->available() < 2);` — no timeout. Call it with the
-Maestro's TX not wired back, which is how most droids are wired, and the
-sketch stops dead in a way that looks exactly like a dead board. Every
-read here is done by hand against `REPLY_MS` and a silent board is
-*reported* as silent.
+That return wire is optional but worth running: it is what makes `p`, `err` and
+`state` able to answer at all, and it is the only way to catch a silent clamp.
 
-**The silent clamp.** A Set Target outside a channel's stored limits is
-clamped with no error and no reply. The dial keeps turning, the panel
-stops moving, and it reads precisely like a binding linkage or a dying
-servo. The console warns when a target falls outside the endpoints it
-knows about, and `p` is what proves where the servo actually went.
+**Driving a real Pololu Maestro?** Two things bite everyone:
 
-**`speed 0` / `accel 0`.** Zero means *unlimited* on a Maestro, on
-MaestroPCA and on PCA_Bridge alike: full-torque lunge at every step of
-every ramp, which is audible, visible, and stacks inrush when several
-servos start together. The console says so when you set it.
+- The Maestro must be set to serial mode **"UART, fixed baud rate"** at
+  `MAESTRO_BAUD`, CRC disabled, and **Apply Settings pressed**. A factory-reset
+  board comes up in *USB Dual Port* mode, which ignores its RX pin **by design** —
+  every test on one is meaningless.
+- **Do not wire TXIN.** The Mini Maestro has three serial pins: RX, TX and TXIN.
+  TXIN is a daisy-chain input used only in USB Chained mode and is dead in UART
+  mode. A wire on it is indistinguishable from a dead board.
 
-**TXIN.** The Mini Maestro has three serial pins — RX, TX and TXIN. TXIN
-is a daisy-chain input used only in USB Chained mode and is dead in UART
-mode; a wire on it is indistinguishable from a dead board. A
-factory-reset Maestro also comes up in USB Dual Port mode, which ignores
-the RX pin by design, so every test on one is meaningless until Serial
-Settings have been applied.
+**`BT_PCA`** — PCA9685 on this board's I2C (Mega SDA 20 / SCL 21, Uno A4/A5),
+`V+` from a real 5–6 V servo supply, common ground, and 1000–4700 µF across
+`V+`/`GND`.
 
-## The channel table
+## Step 7 — Type at it
 
-On `BT_PCA` / `BT_LEDC` the table lives in `sequences.h` and is read
-straight out of PROGMEM, so the console and the sequences can never
-disagree. The `sequences.h` shipped here is a **placeholder** — export
-the real one from the simulator (Maestro tab → *Export PCA9685 header*)
-or from PCA Studio.
+Open **Tools → Serial Monitor** at **9600**, and set the line ending to
+**"Newline"** so both command styles work at once.
 
-On `BT_MAESTRO` the board holds its own limits and will not hand them
-over the command port, so the sketch carries its own copy: Mike's dome
-Mini Maestro 18, names and endpoints as measured on the droid. **That
-table is read-only.** Nothing in this sketch rewrites it, and `speed` and
-`accel` are runtime writes that a power cycle undoes.
+| | |
+|---|---|
+| `?` | the full command list |
+| `list` | the channel table, with each one's endpoints |
+| `t 0 7296` | move channel 0 to 7296 quarter-µs |
+| `< > =` | selected channel to min / max / centre |
+| `+ -` | nudge it by the current step |
+| `[ ]` | select the previous / next channel |
+| `p` | read the position back — needs the return wire |
+| `g 0` | fire sequence slot 0, exactly as `restartScript(0)` would |
+| `flap` | throw a channel end to end, repeatedly, without blocking |
+| `err` | the board's error flags (reading them clears them) |
+| `state` | what's selected, what's moving, what the script is doing |
+| `loopback` | jumper this board's TX to its own RX — proves the port itself |
 
-## Compiled before delivery
+Punctuation and bracket keys fire the instant you press them; word commands need
+Enter. Start with `list`, then `t`, then `g 0`. If `t` moves a servo and `g 0` does
+nothing, the link is fine and the problem is the sequence — a different and much
+easier question.
 
-- `BT_MAESTRO` — `avr-g++` for the ATmega2560 against the real Arduino
-  core and Pololu's own library. Clean, no warnings.
-- `BT_PCA` — same, against MaestroPCA and a stub `Adafruit_PWMServoDriver.h`.
-- `BT_LEDC` — host `g++` against a faked ESP32, then `setup()` and
-  `loop()` actually run, and a scripted session exercises the parser.
+---
+
+## When it doesn't work
+
+| What you see | What it is |
+|---|---|
+| `MaestroPCA.h: No such file or directory` | A file is missing from the folder, or you opened the `.ino` from somewhere else. All eight files must sit together. |
+| Pages of `multiple definition of MaestroPCA::…` | `MaestroPCA` is also in `libraries\`, or you unzipped this into `libraries\`. See steps 2 and 3. |
+| Everything looks alive, **nothing moves, no bytes leave the board** | `BENCH_TARGET` is `BT_PCA` but your servo board is on the *other end of a serial cable*. Set it to `BT_MAESTRO`. |
+| `p`, `err` and `state` all say **"no reply"** | The return wire isn't there. That's a legitimate way to run — most droids are wired one wire, outbound only — but the read-back is the only thing that catches a silent clamp. |
+| Console asks for 4000, servo stops short, no error | The **board** clamped it. Boards clamp silently, which reads exactly like a binding linkage or a dying servo. `p` is what tells them apart. |
+| A real Maestro does nothing at all | It is almost certainly still in USB Dual Port mode, or you have a wire on TXIN. See step 6. |
+| The sketch hangs the moment you type `p` | Not this sketch — it can't. Pololu's own library spins forever on a board that never answers; every read here is done against a `REPLY_MS` deadline and a silent board is *reported* silent. That is most of why this exists. |
+
+---
+
+## The files in here
+
+`R2_Bench_Console.ino` is the console. `Config.h` is yours to edit.
+
+`MpcaScan.h`, `MaestroPCA.h`, `MaestroPCA.cpp`, `MaestroLink.h` and
+`MaestroLink.cpp` are copies of the MaestroPCA library, kept beside the sketch so
+the folder compiles on its own. They are included **in quotes** on purpose: a
+sketch folder is not on the compiler's include path for an `<angled>` include, so
+`<MaestroPCA.h>` fails with the file sitting right next to the `.ino`.
+
+`sequences.h` matters only on `BT_PCA` and `BT_LEDC`, where the channel names and
+endpoints are read straight out of it so that the console and the sequences
+cannot disagree. The one here is a **placeholder** — eight generic channels, so
+something moves before you have exported anything. The real file comes out of the
+R2-D2 Simulator: *Maestro tab → Export PCA9685 header*.

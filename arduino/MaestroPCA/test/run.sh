@@ -169,3 +169,37 @@ g++ -std=c++11 -O0 -w \
     esp32shim/compile_esp32_slave.cpp ../src/MaestroPCA.cpp ../src/MaestroLink.cpp \
     -o /tmp/maestroesp32slave_compile
 timeout 30 /tmp/maestroesp32slave_compile
+
+echo
+echo "== the bench console compiles, on BOTH back ends =="
+# The sketch a human types at with a droid on the bench, compiled against
+# Pololu's REAL library rather than a stand-in for it. It had no compile
+# check at all until v1.67.0 — and it is the sketch that was found missing
+# MpcaScan.h, and the one left pointing at the wrong back end for an
+# evening. A compile would not have caught either on its own; the guards
+# above catch those. This catches everything after them.
+g++ -std=c++11 -O0 -w \
+    -I shim -I . -I "$POLOLU" -I ../../bench-sketches/R2_Bench_Console \
+    compile_bench_console.cpp "$POLOLU/PololuMaestro.cpp" -o /tmp/bench_maestro
+timeout 30 /tmp/bench_maestro
+
+# The OTHER back end, reached the way a user reaches it: copy the folder,
+# edit BENCH_TARGET in Config.h. A -D flag would test a route nobody takes.
+rm -rf /tmp/bench_pca
+cp -r ../../bench-sketches/R2_Bench_Console /tmp/bench_pca
+sed -i 's/^#define BENCH_TARGET   BT_MAESTRO/#define BENCH_TARGET   BT_PCA/' /tmp/bench_pca/Config.h
+grep -q '^#define BENCH_TARGET   BT_PCA' /tmp/bench_pca/Config.h || {
+  echo "  FAIL  could not switch BENCH_TARGET in Config.h — has the line moved?"; exit 1; }
+g++ -std=c++11 -O0 -w \
+    -I shim -I . -I "$POLOLU" -I /tmp/bench_pca -DBENCH_INO='"/tmp/bench_pca/R2_Bench_Console.ino"' \
+    compile_bench_console.cpp /tmp/bench_pca/MaestroPCA.cpp /tmp/bench_pca/MaestroLink.cpp \
+    -o /tmp/bench_pca_bin
+timeout 30 /tmp/bench_pca_bin
+
+echo
+echo "== the downloadable packs still build =="
+# The two zips the README links to are GENERATED from the sketch folders
+# above — there is no second copy in the repository to go stale. This runs
+# the same script the release workflow runs, so a change that would ship a
+# broken pack fails here instead of on a stranger's bench.
+../../packs/make-packs.sh

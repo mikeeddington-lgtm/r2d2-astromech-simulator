@@ -19,6 +19,26 @@ on:
   workflow_dispatch:
 
 jobs:
+  # The Arduino side. It needs g++ and Pololu's library and nothing else, so
+  # it runs beside the browser suites rather than after them.
+  #
+  # This guards the two DOWNLOADABLE PACKS the README links to: that each
+  # sketch folder still carries its own byte-identical copy of the library,
+  # that both sketches compile from that folder alone with nothing installed,
+  # that Config.h exists and is actually read, and that make-packs.sh can
+  # still build the zips a release attaches. A pack that ships broken fails
+  # here instead of on a stranger's bench.
+  firmware:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Fetch Pololu's own Maestro library
+        run: git clone --depth 1 https://github.com/pololu/maestro-arduino.git /tmp/maestro-arduino
+
+      - name: Compile the library, the sketches and the packs
+        run: arduino/MaestroPCA/test/run.sh
+
   suites:
     runs-on: ubuntu-latest
     steps:

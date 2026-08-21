@@ -63,6 +63,17 @@
    BT_LEDC - servos straight off ESP32 pins listed in LEDC_PINS. Sixteen
    channels maximum; that is the silicon, not a setting.
 
+   BT_MAESTRO ALSO TALKS TO A MaestroReplacement / Esp32Droid, because
+   MaestroLink makes one answer the Maestro's own protocol. Use BT_MAESTRO,
+   not BT_PCA - BT_PCA is for a PCA9685 wired to THIS board's I2C pins.
+     this board's TX  ->  the replacement's LINK_RX_PIN  (Nano 8, ESP32 4)
+     its LINK_TX_PIN  ->  this board's RX  (Nano 9, ESP32 2) - needed for
+                          p, err and state, and worth the wire
+     GND ------------------ GND
+   Match MAESTRO_BAUD to its LINK_BAUD (9600 on both examples), and edit
+   BENCH_CHANNEL_LIST in Config.h to YOUR rig - the one shipped is the
+   dome Maestro's, and its endpoints are not your PCA rig's.
+
    ---------------------------------------------------------------------
    TYPING AT IT
 
@@ -86,37 +97,69 @@
 #define BT_PCA     2      /* MaestroPCA + PCA9685(s), over I2C         */
 #define BT_LEDC    3      /* MaestroPCA + ESP32 pins direct (16 max)   */
 
-#ifndef BENCH_TARGET
-#define BENCH_TARGET BT_MAESTRO       /* <<<<<< CHANGE THIS ONE LINE */
+#include "Config.h"       /* <<<<<< THE ONLY FILE YOU EDIT */
+
+#ifndef BENCH_TARGET      /* Config.h normally sets this */
+#define BENCH_TARGET BT_MAESTRO
 #endif
 
 
 /* ============================ 2. CONFIGURATION ===================== */
 
 #define CONSOLE        Serial         /* where you type                */
-#define CONSOLE_BAUD   115200
+#ifndef CONSOLE_BAUD
+#define CONSOLE_BAUD   9600
+#endif
+#ifndef CONSOLE_ECHO
 #define CONSOLE_ECHO   1              /* 0 if your monitor echoes too   */
+#endif
 
+#ifndef REPLY_MS
 #define REPLY_MS       50             /* how long to wait for a board
                                          that may not be wired to answer */
+#endif
+#ifndef DEFAULT_NUDGE
 #define DEFAULT_NUDGE  100            /* quarter-us for + / -  (= 25 us) */
+#endif
+#ifndef FLAP_HOLD_MS
 #define FLAP_HOLD_MS   1200           /* per throw; a full travel at
                                          speed 80 / accel 10 is ~1.1 s   */
+#endif
 
 #if BENCH_TARGET == BT_MAESTRO
   /* Leave MAESTRO_PORT undefined to let the board pick: Mega/ADK and
      Leonardo get Serial1, a Uno falls back to SoftwareSerial on pin 11.
      On an ESP32 name the port yourself and give begin() its pins below. */
   /* #define MAESTRO_PORT Serial1 */
-  #define MAESTRO_BAUD    9600        /* must match FixedBaudRate       */
+  /* ON AN ESP32, NAME THE PINS. Serial1's default pins on a classic
+     ESP32 are GPIO 9/10, which are wired to the flash chip: begin()
+     without pins appears to work and not one byte ever leaves the board.
+     Uncomment these and Serial1 is brought up on the pins you say. */
+  /* #define MAESTRO_RX_PIN 16 */
+  /* #define MAESTRO_TX_PIN 17 */
+  #ifndef MAESTRO_BAUD
+  #define MAESTRO_BAUD    9600        /* must match FixedBaudRate, or a
+                                         MaestroReplacement's LINK_BAUD  */
+  #endif
+  #ifndef MAESTRO_IS_MINI
   #define MAESTRO_IS_MINI 1           /* 0 for a 6-channel Micro Maestro */
-  #define MAESTRO_CHANNELS 18         /* channels on YOUR board          */
+  #endif
+  /* MAESTRO_CHANNELS is COUNTED from BENCH_CHANNEL_LIST further down.
+     It used to be typed here as well, and a table that disagreed with
+     it left rows whose name was a null pointer for the console to
+     print. One list, counted once, cannot disagree with itself. */
 #endif
 
 #if BENCH_TARGET == BT_PCA
+  #ifndef PCA_BOARDS_MAX
   #define PCA_BOARDS_MAX  2           /* how many drivers to declare     */
+  #endif
+  #ifndef PCA_OSC_HZ
   #define PCA_OSC_HZ      25000000UL  /* trim if pulses measure off      */
+  #endif
+  #ifndef PCA_SERVO_HZ
   #define PCA_SERVO_HZ    50.0f
+  #endif
 #endif
 
 #if BENCH_TARGET == BT_LEDC
@@ -148,12 +191,12 @@
     MicroMaestro maestro(MAESTRO_PORT);
   #endif
 #else
-  #include <MaestroPCA.h>
+  #include "MaestroPCA.h"
   #include "sequences.h"              /* the sim's export, or the starter */
   #if BENCH_TARGET == BT_PCA
     #include <Wire.h>
     #include <Adafruit_PWMServoDriver.h>
-    #include <MpcaScan.h>
+    #include "MpcaScan.h"
     Adafruit_PWMServoDriver pcaA(0x40);
     #if PCA_BOARDS_MAX > 1
       Adafruit_PWMServoDriver pcaB(0x41);
@@ -203,34 +246,21 @@
 
 #if BENCH_TARGET == BT_MAESTRO
 struct BenchChan { const char* name; uint16_t lo, hi; };
-const BenchChan CHAN[MAESTRO_CHANNELS] = {
-  { "PP5",    4544, 7296 },   /*  0  pie panel                        */
-  { "PP6",    4544, 7296 },   /*  1  pie panel                        */
-  { "PP1",    5056, 7744 },   /*  2  pie panel  (saber launcher)      */
-  { "PP2",    4544, 7296 },   /*  3  pie panel  (lifeform scanner)    */
-  { "HP3-1",  3968, 8000 },   /*  4  holo 3                           */
-  { "HP3-2",  3968, 8000 },   /*  5  holo 3                           */
-  { "P13",    4032, 7616 },   /*  6  side panel                       */
-  { "HP1-1",  3968, 8000 },   /*  7  holo 1                           */
-  { "HP1-2",  3968, 8000 },   /*  8  holo 1                           */
-  { "P1-Fix", 3968, 8000 },   /*  9  side panel                       */
-  { "P2",     4032, 7616 },   /* 10  side panel                       */
-  { "P3",     4032, 7360 },   /* 11  side panel                       */
-  { "P4",     3968, 7616 },   /* 12  side panel                       */
-  { "P7",     4416, 8000 },   /* 13  side panel                       */
-  { "HP2-1",  3776, 8000 },   /* 14  holo 2                           */
-  { "HP2-2",  3968, 8000 },   /* 15  holo 2                           */
-  { "P11",    4416, 7744 },   /* 16  side panel                       */
-  { "(spare)",3968, 8000 },   /* 17  unnamed, no sequence drives it   */
-};
 
-/* The slot map of R2-dome-padawan.mstr, so `g 4` can say what it fired. */
-const char* const SLOT[] = {
-  "Dome Pies Open", "Dome Pies Close", "Dome Panels Open",
-  "Dome Panels Close", "Whole Dome Open", "Whole Dome Close",
-  "Dome Wave", "Dome Home"
-};
-#define SLOT_COUNT 8
+/* Built from BENCH_CHANNEL_LIST in Config.h. The count is taken from the
+   list rather than typed a second time: a table and a separate count that
+   disagree leave rows whose name is a null pointer, and this console
+   prints channel names. */
+#define X(nm, mn, mx) { nm, mn, mx },
+const BenchChan CHAN[] = { BENCH_CHANNEL_LIST };
+#undef X
+#define MAESTRO_CHANNELS ((uint8_t)(sizeof(CHAN) / sizeof(CHAN[0])))
+
+/* Slot names, so `g 4` can say what it fired. Same arrangement. */
+#define X(nm) nm,
+const char* const SLOT[] = { BENCH_SLOT_LIST };
+#undef X
+#define SLOT_COUNT ((uint8_t)(sizeof(SLOT) / sizeof(SLOT[0])))
 #endif
 
 
@@ -326,7 +356,11 @@ static int32_t maestroRead(uint8_t want, uint8_t* into){
 }
 
 static void hwBegin(){
+#if defined(ESP32) && defined(MAESTRO_RX_PIN) && defined(MAESTRO_TX_PIN)
+  MAESTRO_PORT.begin(MAESTRO_BAUD, SERIAL_8N1, MAESTRO_RX_PIN, MAESTRO_TX_PIN);
+#else
   MAESTRO_PORT.begin(MAESTRO_BAUD);
+#endif
   delay(50);
 }
 static void hwUpdate(){}
@@ -948,7 +982,10 @@ void setup(){
 #if BENCH_TARGET == BT_MAESTRO
   CONSOLE.print(F("back end: real Pololu Maestro at "));
   CONSOLE.print(MAESTRO_BAUD); CONSOLE.println(F(" baud"));
-  #ifdef MAESTRO_SOFT
+  #if defined(ESP32) && defined(MAESTRO_RX_PIN) && defined(MAESTRO_TX_PIN)
+    CONSOLE.print(F("port: RX pin ")); CONSOLE.print(MAESTRO_RX_PIN);
+    CONSOLE.print(F(", TX pin ")); CONSOLE.println(MAESTRO_TX_PIN);
+  #elif defined(MAESTRO_SOFT)
     CONSOLE.println(F("port: SoftwareSerial, TX on pin 11 (no spare UART"
                       " on this board)"));
   #else

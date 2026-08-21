@@ -20,6 +20,12 @@ docs/shots/shot-*.png
 # regenerate. The two PRINTABLE pages beside it are hand-written and tracked.
 docs/manual/R2D2-Simulator-Manual.html
 
+# The two downloadable sketch packs are generated the same way, by
+# arduino/packs/make-packs.sh, from the sketch folders themselves. A zip
+# committed here would go stale the first time somebody fixed a bug in a
+# sketch, and nothing would say so; release.yml builds them instead.
+arduino/packs/dist/
+
 # ---- dependencies ----
 node_modules/
 
