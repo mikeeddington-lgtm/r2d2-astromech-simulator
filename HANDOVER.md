@@ -1179,6 +1179,19 @@ not missing, it was folded in here (noted 2026-08-17).
 - **Git cannot be driven over the cloud session's FILE MOUNT** (it cannot
   delete, so git strands its own `index.lock`). Through the mount, read only —
   `git --no-optional-locks`.
+- **And "read only" is not enough on its own: a plain `git status` through the
+  mount TAKES the lock** and then cannot remove it, so every later GitKraken
+  call fails with a bare `exit status 128` and no message. That happened on
+  2026-08-21 (a `git status --porcelain` at 10:55 blocked the commit at 13:30).
+  Always pass `--no-optional-locks`. To recover, **`mv` the lock out** —
+  `mv .git/index.lock _to_delete/gitlock/` — because the mount cannot delete
+  it, and `_to_delete/` is gitignored.
+- **A stale index makes files look modified when they are not.** After that
+  lock cleared, three files listed as modified all session (`app/wiring.js`,
+  `cad/naming.js`, `cad/ui.js`) turned out to be byte-identical to HEAD — an
+  unrefreshed index entry under `* text=auto`, not an edit. Check
+  `git diff HEAD --stat -- <file>` before believing a status taken through the
+  mount.
 - **But a cloud session can still commit**, via the GitKraken MCP tools
   exposed by the desktop app (`git_status`, `git_add`, `git_commit`,
   `git_push`, `git_graph`). Those run natively on the desktop, outside the
