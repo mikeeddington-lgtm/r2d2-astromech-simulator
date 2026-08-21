@@ -114,6 +114,38 @@ g++ -std=c++11 -O0 -w \
 timeout 30 /tmp/maestrorepl_selfcontained
 
 echo
+echo "== the link port: both branches, and the Mega guard =="
+# THE MEGA TRAP. SoftwareSerial's RX needs a pin-change interrupt and digital 8
+# on a Mega2560 (PH5) has none: the port opens, the sketch runs, and not one
+# byte is ever received, with no error anywhere. So the sketch takes a hardware
+# UART wherever one is spare, and REFUSES to build on a Mega if somebody forces
+# it back onto a pin that cannot receive. Both paths are compiled here because
+# the harness would otherwise only ever exercise the fallback.
+cat > /tmp/mpca_hwport.h <<'HDR'
+#pragma once
+#include <stddef.h>
+#include <stdint.h>
+struct __HwPort { void begin(unsigned long){} int available(){return 0;} int read(){return -1;}
+                  size_t write(const uint8_t*,size_t){return 0;} size_t write(uint8_t){return 0;} };
+extern __HwPort Serial1;
+#define SERIAL_PORT_HARDWARE_OPEN Serial1
+HDR
+echo '#include "/tmp/mpca_hwport.h"' > /tmp/mpca_hwport.cpp
+echo '__HwPort Serial1;'            >> /tmp/mpca_hwport.cpp
+g++ -std=c++11 -O0 -w -I shim -I . -I ../examples/MaestroReplacement -include /tmp/mpca_hwport.h \
+    compile_maestro_replacement.cpp /tmp/mpca_hwport.cpp \
+    ../src/MaestroPCA.cpp ../src/MaestroLink.cpp -o /tmp/maestrorepl_hw
+timeout 30 /tmp/maestrorepl_hw
+
+if g++ -std=c++11 -O0 -w -D__AVR_ATmega2560__ -DLINK_FORCE_SOFT -I shim -I . \
+       -I ../examples/MaestroReplacement compile_maestro_replacement.cpp -fsyntax-only 2>/dev/null; then
+  echo "  FAIL  a Mega forced onto LINK_RX_PIN 8 BUILT — the guard is not working"
+  exit 1
+else
+  echo "  PASS  a Mega forced onto a pin that cannot receive refuses to build"
+fi
+
+echo
 echo "== MaestroReplacement.ino compiles and boots (the sketch in the droid) =="
 g++ -std=c++11 -O0 -w \
     -I shim -I . -I ../src -I ../examples/MaestroReplacement \
