@@ -572,6 +572,103 @@ const LIVE = fs.readFileSync(path.resolve(__dirname,'fixtures-live-dome.mstr'),'
      && noTable.servo.blocked===false && noTable.both.blocked===false,
      noTable.choreography.why.slice(0,90));
 
+  /* =================================================================
+     v1.69.0 — THE THREE THINGS A ROUND TRIP THROUGH YOUR OWN FILE
+     WAS QUIETLY REWRITING.
+
+     All three are the same mistake wearing different clothes: the
+     import door re-derived something it could have read. The board's
+     slot numbers came from the library rather than the script, a sub
+     was matched back to its routine by a symbol the exporter no
+     longer emits, and a sequence flag was read at the header's slot
+     number against an array that had stopped being indexed by it.
+     Each one survives a save and only shows itself on the droid, so
+     each one gets an assertion here and not merely a fix.
+     ================================================================= */
+  console.log('\n════ v1.69.0 — a curated loadout keeps its slot numbers ════');
+  const curated = await ev(()=>{
+    setBoard('mini24'); makeStarter('dome','mini24');
+    /* the loadout is the board: a subset of the library, in the order
+       the builder chose, and it is what decides which routine
+       restartScript(n) plays */
+    const want = ['Dome Flutter','Whole Dome Open','Dome Pies Close'];
+    MSTR.loadout = want.slice();
+    reindexSubs();
+    const text = buildMstrText();
+    parseMstr(text, 'curated.mstr');
+    /* and the proof it stuck: save it AGAIN and read the script back.
+       That second file is the one that gets flashed. */
+    reindexSubs();
+    const scr = new DOMParser().parseFromString(buildMstrText(), 'application/xml')
+                  .getElementsByTagName('Script')[0].textContent;
+    return {
+      want,
+      loadout: (MSTR.loadout||[]).slice(),
+      slots: parseScriptSubs(scr).filter(s=>!/^frame_/i.test(s.name)).map(s=>s.name),
+      nSeq: MSTR.sequences.length
+    };
+  });
+  ok('re-importing your own .mstr keeps the loadout the file was built from',
+     JSON.stringify(curated.loadout)===JSON.stringify(curated.want),
+     JSON.stringify(curated.loadout));
+  ok('...so a re-export compiles the same subs in the same order — no renumbering',
+     JSON.stringify(curated.slots)===JSON.stringify(curated.want.map(n=>n.replace(/\s+/g,'_'))),
+     JSON.stringify(curated.slots));
+  ok('...and the rest of the library is still there, merely not on the board',
+     curated.nSeq===8, curated.nSeq+' sequence(s)');
+
+  console.log('\n════ v1.69.0 — a round trip invents no routines ════');
+  const phantom = await ev(()=>{
+    setBoard('mini24'); makeStarter('dome','mini24');
+    /* the two shapes scriptSubNames() rewrites: a name that starts
+       with a digit (a bare `2001_Salute` is a literal to the Maestro
+       compiler, so it ships as `s_2001_Salute`) and a pair that
+       niceName() collapses onto one symbol (the second gets _2) */
+    MSTR.sequences[0].name = '2001 Salute';
+    MSTR.sequences[1].name = 'Dome Wave';
+    MSTR.sequences[2].name = 'Dome_Wave';
+    loadoutReset(); reindexSubs();
+    const before = MSTR.sequences.length;
+    parseMstr(buildMstrText(), 'rt1.mstr');
+    const once = {n:MSTR.sequences.length, names:MSTR.sequences.map(s=>s.name),
+                  load:(MSTR.loadout||[]).length, recovered:MSTR.report.seqRecovered};
+    reindexSubs();
+    parseMstr(buildMstrText(), 'rt2.mstr');
+    return {before, once, twice:{n:MSTR.sequences.length, load:(MSTR.loadout||[]).length}};
+  });
+  ok('a leading-digit name and a niceName clash both match their own sub back',
+     phantom.once.n===phantom.before && phantom.once.recovered===0,
+     phantom.once.n+' sequence(s) from '+phantom.before+', '+phantom.once.recovered+' "recovered"');
+  ok('...so no phantom copy of a routine is appended under its sub symbol',
+     phantom.once.names.indexOf('s_2001_Salute')<0 && phantom.once.names.indexOf('Dome_Wave_2')<0,
+     phantom.once.names.join(', '));
+  ok('...and the library does not grow again on the next cycle',
+     phantom.twice.n===phantom.before && phantom.twice.load===phantom.before,
+     phantom.twice.n+' sequence(s), loadout '+phantom.twice.load);
+
+  console.log('\n════ v1.69.0 — a header flag lands on the routine it was written for ════');
+  const flags = await ev(()=>{
+    setBoard('mini24'); makeStarter('dome','mini24');
+    const frames = ()=>JSON.parse(JSON.stringify(MSTR.sequences[0].frames));
+    /* a generator is skipped by the reader — it is five numbers per
+       entry, not a frame — so from slot 1 on, the header's slot number
+       and the position in the parsed array are no longer the same */
+    MSTR.sequences = [
+      {name:'Idle Sweep', gen:'osc', entries:[{ch:0,lo:4000,hi:8000,period:2000,phase:0}]},
+      {name:'Alpha',      frames:frames()},
+      {name:'Beta Loop',  frames:frames(), loop:true},
+      {name:'Gamma',      frames:frames(), background:true}
+    ];
+    loadoutReset();
+    const h = pcaGenFromLoadout();
+    if(typeof pcaHeaderParse !== 'function') return {missing:true};
+    const P = pcaHeaderParse(h, 'gen.h');
+    return {got: P.sequences.map(q=>q.name+':'+(q.loop?'loop':'-')+':'+(q.background?'bg':'-'))};
+  });
+  ok('the loop flag stays on the routine the header put it on, past a generator',
+     JSON.stringify(flags.got)===JSON.stringify(['Alpha:-:-','Beta Loop:loop:-','Gamma:-:bg']),
+     JSON.stringify(flags.got));
+
   ok('no uncaught page errors', errs.length===0, errs.join(' | '));
   await browser.close();
   console.log('\n'+pass+' passed, '+fail+' failed');

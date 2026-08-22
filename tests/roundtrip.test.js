@@ -340,6 +340,108 @@ const clickAsk = async (page, id) => {
         && buildMstrText().indexOf('ff0000') < 0;
   }));
 
+  /* =====================================================================
+     THE .mstr DOOR ITSELF (v1.69.1)
+
+     Everything above asks "does the routine survive the trip?" on a table
+     whose two halves agree and whose frames are dense, which is the one
+     shape in which all four of these bugs are invisible. They live in the
+     WRITER, so each probe below drives export.js directly rather than
+     through the sequencer, and asks about the bytes it produced.
+     ===================================================================== */
+  console.log('\n════════ the .mstr export door itself ════════');
+  await page.evaluate(()=>localStorage.clear());
+  await freshDroid(page, false);
+
+  /* 1 — genFrameRow got the v1.39.5 hole guard and genSeqBody did not, so
+         the half of the file the BOARD runs wrote the literal token
+         `undefined` wherever a compiled frame was short of the table. */
+  const holes = await page.evaluate(()=>{
+    const seq = {name:'Hole probe', frames:[
+      {name:'short', duration:500, targets:[6000]},          // one value, a table's worth of channels
+      {name:'zeros', duration:500, targets:[6000,0,0,0]}     // holes and explicit 0s are the same frame
+    ]};
+    const script = genScript([seq], enabledChannels());
+    const body   = genSeqBody(seq, enabledChannels(), []);
+    const zeroLn = body.split('\n').find(l=>l.indexOf('# zeros') >= 0) || '';
+    return {undef:(script.match(/undefined/g)||[]).length, zeroLn:zeroLn,
+            row:body.split('\n')[0]};
+  });
+  ok('the script never writes the literal token undefined',
+     holes.undef === 0, holes.undef+' occurrence(s) — e.g. '+JSON.stringify(holes.row));
+  ok('a hole and a 0 are the same target, so no channel is re-commanded',
+     /^\s*500 delay #/.test(holes.zeroLn), JSON.stringify(holes.zeroLn));
+
+  /* 2 — the frame row was written servoCount wide while the <Channels>
+         block was written MSTR.channels long. HW.ensure() moves one and
+         not the other, so a bench-grown table ships rows of two widths. */
+  const wide = await page.evaluate(()=>{
+    HW.ensure(31);                                    // the bench grows the table to 32 rows
+    const c = MSTR.channels[25];
+    c.mode='Servo'; c.name='Extra25'; c.min=4000; c.max=8000; c.home=4000; c.homemode='Goto';
+    const t=[]; t[25]=7000;
+    MSTR.sequences.push({name:'Wide probe', frames:[{name:'f0', duration:500, targets:t}]});
+    loadoutAdd('Wide probe');
+    const text  = buildMstrText();
+    const rows  = (text.match(/<Channel /g)||[]).length;
+    const m     = /<Frame [^>]*>([^<]*)<\/Frame>/.exec(text.slice(text.indexOf('"Wide probe"')));
+    const width = m ? m[1].trim().split(/\s+/).indexOf('s') : -1;
+    const sq    = mstrParse(text,'wide.mstr').sequences.find(s=>s.name === 'Wide probe');
+    return {rows, width, servoCount:MSTR.servoCount, chans:MSTR.channels.length,
+            back: sq ? (sq.frames[0].targets[25]||0) : -1};
+  });
+  ok('the frame row is as wide as the number of <Channel> rows written',
+     wide.rows === wide.width, wide.rows+' channels, '+wide.width+'-wide frames'
+     + ' (servoCount '+wide.servoCount+', table '+wide.chans+')');
+  ok('…so a channel the bench added still comes back driven',
+     wide.back === 7000, 'ch25 came back as '+wide.back);
+
+  /* 3 — the per-frame speeds a brick-compiled ramp carries do not reach the
+         board: the script has no speed opcode. The PCA door names every
+         field it loses; this one lost them silently. */
+  await page.evaluate(()=>localStorage.clear());
+  await freshDroid(page, false);
+  const drops = await page.evaluate(()=>{
+    const strip = s=>String(s||'').replace(/<[^>]+>/g,'');
+    MSTR.sequences.push({name:'Speed probe', frames:[
+      {name:'f0', duration:500, targets:[6000], speeds:[40]},
+      {name:'f1', duration:500, targets:[7000]}
+    ]});
+    loadoutAdd('Speed probe');
+    buildMstrText();
+    const mstrNote = strip(exportLintNote());
+    pcaGenFromLoadout();
+    const pcaNote  = strip(exportLintNote());
+    return {mstrNote, pcaNote};
+  });
+  ok('the .mstr receipt names the per-frame speed it drops',
+     drops.mstrNote.indexOf('per-frame speed') >= 0
+     && drops.mstrNote.indexOf('the Maestro script has no speed opcode') >= 0,
+     JSON.stringify(drops.mstrNote));
+  ok('…and the PCA receipt does not, because that door writes the speeds',
+     drops.pcaNote.indexOf('per-frame speed') < 0, JSON.stringify(drops.pcaNote));
+
+  /* 4 — the sidecar strippers ate the comment and left its newline, because
+         MSTR.xmlText is CRLF and the pattern only allowed for LF. One blank
+         line per round trip, forever. */
+  await page.evaluate(()=>localStorage.clear());
+  await freshDroid(page, false);
+  const cyc = await page.evaluate(()=>{
+    const out = [];
+    for(let k=0;k<5;k++){
+      const t = mstrBytes(buildMstrText());
+      /* split on CRLF only: the <Script> body is LF inside and stays one
+         chunk, so this counts blank lines in the XML structure alone */
+      out.push({blank:t.split('\r\n').filter(l=>l.trim() === '').length, bytes:t.length});
+      mstrApply(mstrParse(t,'cyc.mstr'));
+    }
+    return out;
+  });
+  ok('an export→import cycle does not add a blank line every time',
+     cyc[1].blank === cyc[4].blank, cyc.map(c=>c.blank).join(' → '));
+  ok('…so the file stops growing: after the first trip it is byte-stable',
+     cyc[1].bytes === cyc[4].bytes, cyc.map(c=>c.bytes).join(' → '));
+
   console.log('\n════ no page errors ════');
   ok('nothing threw', errs.length === 0, errs.join(' | '));
 

@@ -4,7 +4,7 @@
   "private": false,
   "description": "Browser simulator for an R2-D2 astromech build \u2014 real Padawan360 firmware sketches against a model of the hardware",
   "scripts": {
-    "build": "node tools/build.js",
+    "build": "./build.sh",
     "test": "./test.sh",
     "test:dev": "./test.sh dev.html"
   },

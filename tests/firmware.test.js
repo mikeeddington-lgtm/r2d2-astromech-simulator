@@ -98,8 +98,9 @@ const ok = (n,c,extra='') => { c?pass++:fail++;
   const chNames = await ev(()=>SERVO_DEFS[1].map(d=>d.ch+':'+d.name).join(' | '));
   console.log('  0x40 →', chNames);
 
+  ok('no page errors', errs.length===0, errs.join(' | '));
+
   console.log(`\n${pass} passed, ${fail} failed`);
-  console.log('page errors:', errs.length?errs:'none');
   await browser.close();
   process.exit(fail?1:0);
 })();

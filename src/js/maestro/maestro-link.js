@@ -263,30 +263,54 @@ function mstrClampNote(ch){
    bench that polls harder than it repaints is spending the wire on nothing.
 
    It reads the ERROR word too, on every fourth pass — the only reader
-   there is, because Get Errors clears what it reads. */
+   there is, because Get Errors clears what it reads.
+
+   200 ms BETWEEN passes, not every 200 ms. This was a setInterval, which
+   does not wait for its own fire: every ask chains on MST.busy behind a
+   400 ms timeout, so a board that is open but never answers — a Maestro in
+   the wrong serial mode, or the TTL half of a Dual Port pair — was served
+   2.5 asks a second while the timer queued 6.25. The chain grew without
+   bound, the readout aged with it, and the wire never went quiet. Nothing
+   caught it either: the only self-heal on this link is a failed WRITE, and
+   on a quiet-but-open port the writes all succeed.
+
+   Re-arming after the await is what makes the rate the BOARD's rather than
+   the clock's, and it is also what makes stopping honest. Between the ask
+   and the reply nothing is armed, so mstrUnwatch() has nothing to clear —
+   which is why the re-arm asks whether it is still the same watch (an
+   unwatch, a channel change, or a disconnect during an outstanding ask all
+   clear MST.watchCh) and drops itself if it is not. Same test guards the
+   readings: a reply that lands after the watch moved on belongs to nobody
+   and must not be filed under the new channel. */
 function mstrWatch(ch){
   mstrUnwatch();
   if(!MST.on || ch == null) return;
   MST.watchCh = ch; MST.settle = 0; MST.lastPos = null;
   let n = 0;
-  MST.watchTimer = setInterval(async ()=>{
-    if(!MST.on || MST.watchCh == null) return mstrUnwatch();
-    const p = await mstrGetPos(MST.watchCh);
+  const pass = async ()=>{
+    MST.watchTimer = null;                 /* nothing armed while an ask is out */
+    const mine = MST.watchCh;
+    if(!MST.on || mine == null) return mstrUnwatch();
+    const p = await mstrGetPos(mine);
+    if(MST.watchCh !== mine) return;       /* stopped, or moved on, while we asked */
     if(p != null){
-      MST.pos[MST.watchCh] = p;
+      MST.pos[mine] = p;
       if(p === MST.lastPos){ if(MST.settle < 3) MST.settle++; } else MST.settle = 0;
       MST.lastPos = p;
-      if(MST.settle >= 2) mstrClampCheck(MST.watchCh);
+      if(MST.settle >= 2) mstrClampCheck(mine);
     }
     if((++n & 3) === 0){
       const w = await mstrGetErrors();
+      if(MST.watchCh !== mine) return;
       if(w != null){ MST.err = w; MST.errAt = Date.now(); }
     }
     if(typeof mstrReadoutSync === 'function') mstrReadoutSync();
-  }, 200);
+    if(MST.on && MST.watchCh === mine) MST.watchTimer = setTimeout(pass, 200);
+  };
+  MST.watchTimer = setTimeout(pass, 200);
 }
 function mstrUnwatch(){
-  if(MST.watchTimer) clearInterval(MST.watchTimer);
+  if(MST.watchTimer) clearTimeout(MST.watchTimer);
   MST.watchTimer = null; MST.watchCh = null; MST.settle = 0; MST.lastPos = null;
 }
 function mstrReset(){

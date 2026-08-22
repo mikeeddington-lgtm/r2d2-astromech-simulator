@@ -105,7 +105,15 @@ function scriptTraps(text){
 function lintMaestro(opts){
   const o = opts || {};
   const out = [];
-  const add = (level, code, msg, fix)=>out.push({level, code, msg, fix:fix||''});
+  /* `ch` is optional and is the channel the item is ABOUT, when it is about
+     exactly one. It is not decoration: the builder's validate panel hangs
+     its "Fix channel N" button off it, and a report line that names a
+     channel in prose but not in a field is a line nothing can act on. */
+  const add = (level, code, msg, fix, ch)=>{
+    const it = {level, code, msg, fix:fix||''};
+    if(typeof ch === 'number') it.ch = ch;
+    out.push(it);
+  };
   if(!MSTR.loaded){ return { items:out, stats:{}, counts:{err:0,warn:0,note:0} }; }
 
   const bd     = boardById(MSTR.board);
@@ -118,7 +126,7 @@ function lintMaestro(opts){
     const k = c.autoName ? '' : (c.name||'').trim().toLowerCase();
     if(!k){
       add('warn','chan-blank','Channel '+c.i+' is a servo with no name.',
-          'Name it in Control Center — the name is what the part matcher reads.');
+          'Name it in Control Center — the name is what the part matcher reads.', c.i);
       return;
     }
     (seen[k] = seen[k] || []).push(c.i);
@@ -127,16 +135,17 @@ function lintMaestro(opts){
     if(seen[k].length > 1){
       const chs = seen[k];
       add('err','chan-dup','Channels '+chs.join(' and ')+' are both named "'+byIndex[chs[0]].name+'".',
-          'Two channels with one name is ambiguous everywhere — the wiring sheet, the part map and any sequence you write by name. Rename one.');
+          'Two channels with one name is ambiguous everywhere — the wiring sheet, the part map and any sequence you write by name. Rename one.',
+          chs[0]);
     }
   });
   servos.forEach(c=>{
     if(c.min >= c.max)
       add('err','chan-range','Channel '+c.i+' ('+c.name+') has min '+c.min+' >= max '+c.max+'.',
-          'Fix the endpoints in Control Center before running anything.');
+          'Fix the endpoints in Control Center before running anything.', c.i);
     // v1.39.5: home=0 on an Off channel is the file format, not a mistake — match pcaHomeQus
     if(!/off|ignore/i.test(c.homemode||'') && (c.home < Math.min(c.min,c.max) || c.home > Math.max(c.min,c.max)))
-      add('warn','chan-home','Channel '+c.i+' ('+c.name+') has home '+c.home+' outside its '+c.min+'-'+c.max+' range.','');
+      add('warn','chan-home','Channel '+c.i+' ('+c.name+') has home '+c.home+' outside its '+c.min+'-'+c.max+' range.','', c.i);
   });
 
   /* homemode=Off means limp at power-up: SOMETHING has to write every
@@ -152,8 +161,37 @@ function lintMaestro(opts){
       add('note','home-ok','homemode="Off" throughout — servos are limp until a script runs, and one sequence does write every channel. Fire that one first after power-up.','');
   }
 
-  /* ---------------------------------------------------- sequence targets */
+  /* ---------------------------------------------------- sequence targets
+     ONE LINE PER (CHANNEL, RULE), NOT ONE PER FRAME (v1.69.0). A walkthrough
+     of the builder's validate panel read "ERRORS 129" where 129 was one
+     channel with limits nobody had updated, restated once for every frame
+     that touched it. That is not a report, it is a wall — the nine warnings
+     underneath it were unreachable, and the one fact a reader needs (WHICH
+     CHANNEL) was buried in prose repeated 129 times.
+
+     The grouping lives HERE rather than in the panel that showed it because
+     the report has four consumers — the builder's step 3, the job wizard's
+     review step, exportLintNote() on both export doors, and counts.err,
+     which is what decides the export button's own label. Collapsing in one
+     view would have left the other three counting frames and calling them
+     errors. The frame count is not lost, it moves into the line and into
+     the item's own `n`, so nothing that wants the raw figure has to go
+     looking for it. stats.outOfRange / stats.onNonServo still count FRAMES,
+     as they always did; items now count PROBLEMS. */
   let outOfRange = 0, onNonServo = 0, emptyFrames = 0;
+  const tgtGroups = [];                  /* in first-seen order, for stable output */
+  const tgtByKey  = {};
+  const tgtHit = (code, ch, seqName, t)=>{
+    const k = code + ':' + ch;
+    let g = tgtByKey[k];
+    if(!g){ g = tgtByKey[k] = {code, ch, n:0, seqs:[], worst:t}; tgtGroups.push(g); }
+    g.n++;
+    if(g.seqs.indexOf(seqName) < 0) g.seqs.push(seqName);
+    /* the furthest offender is the one worth quoting — a target 30 qus over
+       is a rounding argument, one 3000 over is a panel through the shell */
+    const c = byIndex[ch];
+    if(c && Math.abs(t - c.home) > Math.abs(g.worst - c.home)) g.worst = t;
+  };
   (MSTR.sequences||[]).forEach(seq=>{
     (seq.frames||[]).forEach(fr=>{
       let driven = 0;
@@ -164,21 +202,64 @@ function lintMaestro(opts){
         if(!c) return;
         if(!/^servo/i.test(c.mode)){
           onNonServo++;
-          add('err','tgt-mode','"'+seq.name+'" drives channel '+ch+' ('+c.name+'), which is set to '+c.mode+'.',
-              'A non-Servo channel emits no pulses, so nothing moves. Switch it to Servo, or take it out of the sequence.');
+          tgtHit('tgt-mode', ch, seq.name, t);
           return;
         }
         if(t < Math.min(c.min,c.max) || t > Math.max(c.min,c.max)){
           outOfRange++;
-          add('err','tgt-range','"'+seq.name+'" sends channel '+ch+' ('+c.name+') to '+t+', outside its '+c.min+'-'+c.max+' limits.',
-              'The board clamps it, so the pose you see in the sim is not the pose you get.');
+          tgtHit('tgt-range', ch, seq.name, t);
         }
       });
       if(!driven) emptyFrames++;
     });
   });
+  /* the routines behind a group, named — a count on its own tells you the
+     size of the problem but not where to go and edit it */
+  const namesOf = g => g.seqs.slice(0,4).map(n=>'"'+n+'"').join(', ')
+                     + (g.seqs.length > 4 ? ' and '+(g.seqs.length-4)+' more' : '');
+  tgtGroups.forEach(g=>{
+    const c = byIndex[g.ch];
+    const where = 'channel '+g.ch+' ('+c.name+')';
+    const many  = g.n + ' frame' + (g.n===1?'':'s');
+    if(g.code === 'tgt-mode')
+      add('err','tgt-mode', many+' drive '+where+', which is set to '+c.mode+'.',
+          'A non-Servo channel emits no pulses, so nothing moves. Switch it to Servo, or take it out of '
+          + namesOf(g) + '.', g.ch);
+    else
+      add('err','tgt-range', many+' send '+where+' outside its '+c.min+'-'+c.max+' limits — the furthest is '+g.worst+'.',
+          'The board clamps them, so the pose you see in the sim is not the pose you get. In '
+          + namesOf(g) + '. Either widen the channel\'s endpoints or bring the targets inside them.', g.ch);
+    out[out.length-1].n = g.n;
+  });
   if(emptyFrames)
     add('note','frame-empty',emptyFrames+' frame(s) drive no channel at all — those compile to a bare delay.','');
+
+  /* A SEQUENCE WITH NO FRAMES (v1.69.0). Control Center writes
+     `<Sequence name="X"></Sequence>` for one you made and never filled in,
+     it imports as a routine with zero frames, and loadoutReset() puts it
+     straight on the board. On the Pololu route that compiles to a
+     subroutine that returns immediately — a slot that silently does
+     nothing. On the PCA9685 route it was worse: pcaGenHeader wrote
+     `static const uint16_t MPCA_SEQn[] PROGMEM = {\n};`, which is not legal
+     C++ at all, so the whole header stopped compiling over a routine the
+     builder never mentioned. The generator now skips them, which RENUMBERS
+     the slots after it — so this has to be said before the export, not
+     after. A generator sequence legitimately has no `frames`; it carries
+     `entries` instead, and is not this. */
+  const emptySeqs = (MSTR.sequences||[]).filter(s=>
+    s && !(s.gen === 'osc' || s.gen === 'wander') && !((s.frames||[]).length));
+  if(emptySeqs.length){
+    const onBoardNames = (typeof loadoutNames==='function') ? loadoutNames() : [];
+    const onBoard = emptySeqs.filter(s=>onBoardNames.indexOf(s.name) >= 0);
+    const list = emptySeqs.map(s=>'"'+s.name+'"').join(', ');
+    if(onBoard.length)
+      add('err','seq-empty', onBoard.length+' routine(s) on the board have no frames: '+
+          emptySeqs.map(s=>'"'+s.name+'"').join(', ')+'.',
+          'A routine with nothing in it is left out of the generated file, and everything after it moves down a slot — so restartScript(n) stops matching this list. Give it frames or take it off the board.');
+    else
+      add('warn','seq-empty', emptySeqs.length+' routine(s) in the library have no frames: '+list+'.',
+          'They are not on the board, so nothing is generated for them and no slot moves. Fill them in or delete them.');
+  }
 
   /* ------------------------------------------------------------ timing */
   const slowest = boardSlowestThrowMs();

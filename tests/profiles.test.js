@@ -269,8 +269,9 @@ function refMix(stickX, stickY, maxDriveSpeed, C, st){
      mp.ends[0] === -50 && mp.ends[1] === 50 && mp.centre === 0,
      JSON.stringify(mp.ends)+' centre '+mp.centre);
 
+  ok('no page errors', errs.length === 0, errs.join(' | '));
+
   console.log(`\n${pass} passed, ${fail} failed`);
-  console.log('page errors:', errs.length?errs:'none');
   await browser.close();
   process.exit(fail?1:0);
 })();

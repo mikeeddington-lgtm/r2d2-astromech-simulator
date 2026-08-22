@@ -96,7 +96,16 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
          whichever numeric end that is — not at my numeric max */
       invertedLandsOpen: f0[e1.i] === (function(){ const d=MSTR.channels.find(c=>c.act===__P.channels[1].act); return blockOpen(d); })(),
       speedsDropped: sq.frames.every(f=>!f.speeds && !f.accels),
-      untouchedStaysZero: f1[map(2,1).i] === undefined || true
+      /* their ch2 ("NoSuchPartHere") matched nothing of mine, and it
+         COMMANDED something — 5000 in f0. "Dropped" has to mean dropped, so
+         every index but the two that did match reads 0, the frame format's
+         own "not commanded", in both frames. Until v1.69.0 this line read
+         `f1[map(2,1).i] === undefined || true`, and both halves were wrong:
+         targets is a dense array of servoCount, so nothing in it is ever
+         undefined, and the `|| true` meant no one ever found that out. */
+      untouchedStaysZero: [f0,f1].every(f=>
+        f.length === MSTR.servoCount &&
+        f.every((v,k)=> k===e0.i || k===e1.i || v===0))
     };
   });
   ok('adoption appends under an Imported · category, as a plain frame list',
@@ -107,6 +116,7 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
   ok('an inverted mounting comes out the right way round', adopt.invertedLandsOpen);
   ok('their per-frame speed/accel rows are discarded — my limits govern', adopt.speedsDropped);
   ok('their unmatched channel was dropped, and reported', adopt.r.unmatched.length===1 && adopt.r.unmatched[0]===2);
+  ok('an unmatched channel leaves no target behind', adopt.untouchedStaysZero);
   /* 2026-08-18: an exact NAME match outranks the guessed act — a src act is
      always guessPart(name), and trusting the guess over the authored name
      cross-wired Mike's own round-trip (his "Panel7" drives `panel11`, not

@@ -190,8 +190,9 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
   ok('the note names the part driven by the taken channel', !!portNote && /Pie/.test(portNote), portNote);
   ok('and never the raw actuator id', !!portNote && !/\bpie3\b/.test(portNote), portNote);
 
+  ok('no page errors', errs.length===0, errs.join(' | '));
+
   console.log(`\n${pass} passed, ${fail} failed`);
-  console.log('page errors:', errs.length?errs:'none');
   await browser.close();
   process.exit(fail?1:0);
 })();

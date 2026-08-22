@@ -84,7 +84,7 @@ function pcaCreate(channels, sequences){
       settled:0, launch:0,
       active:false, known:false, servo:/^servo/i.test(c.mode||'Servo')
     })),
-    tracks: Array.from({length:PCA_MAX_TRACKS},()=>({seq:-1, frame:-1, frameT:0, mask:0, started:0})),
+    tracks: Array.from({length:PCA_MAX_TRACKS},()=>({seq:-1, frame:-1, frameT:0, mask:pcaMaskNew(), started:0})),
     bgWait: new Array(PCA_MAX_TRACKS).fill(-1),
     startCount:0, tickAcc:0, ms:0, rng:0x2545F491,
     writes:0, ticks:0, frameLog:[], onWrite:null
@@ -96,18 +96,52 @@ function pcaCreate(channels, sequences){
   return E;
 }
 
+/* THE CHANNEL MASK IS FOUR WORDS, NOT ONE (v1.69.0) — MaestroPCA.h's
+   `struct Mask`, mirrored integer-for-integer like everything else in this
+   file. It was a single uint32_t with every channel from 31 up folded into
+   bit 31, which the C++ note calls not a limit but a LIE, and it was: on
+   three PCA9685s two sequences that shared no servo at all read as
+   overlapping, so each displaced the other. "Several sequences at once, on
+   disjoint channels" is the whole reason this engine exists rather than a
+   Maestro, and it stopped working on exactly the rigs big enough to want it.
+
+   Two things moved with the width. The fold was at `c < 31`, so channel 31
+   — a perfectly ordinary channel on a two-board droid — was thrown in with
+   the overflow as well; the C++ boundary is `c < 32` and so is this one.
+   And the mask is now an OBJECT, so `t.mask & mask` and `busy |= t.mask` no
+   longer say anything: every reader of a mask goes through the helpers
+   below, which are the C++ methods by their own names.
+
+   A channel at or above 128 never joins a mask at all, exactly as in the
+   firmware — that loses it the collision check rather than handing it
+   somebody else's, and nothing in this project can produce one anyway. */
+const PCA_MASK_WORDS = 4;
+const PCA_MAX_MASK_CHANNELS = PCA_MASK_WORDS * 32;
+
+function pcaMaskNew(){ return new Array(PCA_MASK_WORDS).fill(0); }
+function pcaMaskSet(m, c){ if(c >= 0 && c < PCA_MAX_MASK_CHANNELS) m[c >>> 5] |= 1 << (c & 31); }
+function pcaMaskHas(m, c){
+  return c >= 0 && c < PCA_MAX_MASK_CHANNELS && (m[c >>> 5] & (1 << (c & 31))) !== 0;
+}
+function pcaMaskEmpty(m){ for(let i=0;i<PCA_MASK_WORDS;i++) if(m[i]) return false; return true; }
+function pcaMaskAdd(m, o){ for(let i=0;i<PCA_MASK_WORDS;i++) m[i] |= o[i]; }
+function pcaMaskOverlaps(m, o){
+  for(let i=0;i<PCA_MASK_WORDS;i++) if(m[i] & o[i]) return true;
+  return false;
+}
+
 /* which channels does sequence n ever drive? */
 function pcaSeqMask(E, n){
   const seq = E.sequences[n];
-  let mask = 0;
-  if(!seq) return 0;
+  const mask = pcaMaskNew();
+  if(!seq) return mask;
   if(pcaIsGen(seq)){
-    (seq.entries||[]).forEach(g=>{ if(g.ch < E.channels.length) mask |= 1 << (g.ch < 31 ? g.ch : 31); });
+    (seq.entries||[]).forEach(g=>{ if(g.ch < E.channels.length) pcaMaskSet(mask, g.ch|0); });
     return mask;
   }
   for(const fr of seq.frames)
     for(let c=0;c<E.channels.length;c++)
-      if(fr.targets[c]) mask |= 1 << (c < 31 ? c : 31);
+      if(fr.targets[c]) pcaMaskSet(mask, c);
   return mask;
 }
 function pcaRunning(E){ return E.tracks.some(t=>t.seq>=0); }
@@ -205,7 +239,7 @@ function pcaRestart(E, n){
   let slot = -1;
   E.tracks.forEach((t,i)=>{
     if(t.seq<0){ if(slot<0) slot=i; return; }
-    if(t.seq===n || (t.mask & mask)){
+    if(t.seq===n || pcaMaskOverlaps(t.mask, mask)){
       const old = E.sequences[t.seq];
       if(old && old.background && t.seq !== n) pcaBgRemember(E, t.seq);
       t.seq=-1;
@@ -230,9 +264,9 @@ function pcaBgResume(E){
     const n = E.bgWait[i];
     if(n < 0) continue;
     const mask = pcaSeqMask(E, n);
-    let busy = 0;
-    E.tracks.forEach(t=>{ if(t.seq>=0) busy |= t.mask; });
-    if(mask & busy) continue;             /* still borrowed — wait */
+    const busy = pcaMaskNew();
+    E.tracks.forEach(t=>{ if(t.seq>=0) pcaMaskAdd(busy, t.mask); });
+    if(pcaMaskOverlaps(mask, busy)) continue;   /* still borrowed — wait */
     E.bgWait[i] = -1;
     pcaRestart(E, n);
   }
@@ -273,7 +307,9 @@ function pcaReleaseSpeeds(E, mask){
   for(let c=0;c<E.channels.length;c++){
     const s = E.st[c];
     if(!s || !s.seqSpeed) continue;
-    if(mask !== undefined && !(mask & (1 << (c < 31 ? c : 31)))) continue;
+    /* an EMPTY mask means "every channel", as in releaseSeqSpeeds() — a
+       track that claimed nothing still has to give its speeds back */
+    if(mask && !pcaMaskEmpty(mask) && !pcaMaskHas(mask, c)) continue;
     s.seqSpeed = false;
     pcaSetSpeed(E, c, (E.channels[c] && E.channels[c].speed) | 0);
   }

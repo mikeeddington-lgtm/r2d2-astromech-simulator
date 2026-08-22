@@ -82,11 +82,36 @@ const near=(a,b,t)=>Math.abs(a-b)<=t;
   ok('…the HUD and the camera buttons go with it', stage.hud==='none' && stage.follow==='none');
   ok('…and the model chip stays, because it is the way back',
      stage.chip!=='none' && /servo/i.test(stage.chipSays), stage.chipSays);
-  ok('the renderer is skipped while it is up', await ev(()=>{
-    /* main.js: `if(SIM.draw && !SV.shown)` — SV.shown is the whole condition */
-    modelSet('servos', {frame:false});
-    return SV.shown === true && (typeof SIM === 'undefined' || true);
-  }));
+  /* THE SKIP, MEASURED — not restated. Until v1.69.0 this asked for
+     `SV.shown === true && (typeof SIM === 'undefined' || true)`, and the
+     right-hand half is a constant: the whole assertion was `SV.shown`, which
+     the four above already prove. It could not have been anything else at
+     the time, because main.js's guard is
+       if(SIM.draw && !(typeof SV !== 'undefined' && SV.shown)) renderer.render(…)
+     and this suite runs under ?norender, where SIM.draw is false — every
+     frame takes the else branch no matter what SV says, so there is no skip
+     to see. So put SIM.draw back on, swap renderer.render() for a counter
+     that never touches the GPU, and let real frames go by with the gauges up
+     and then with the droid back. Delete the `!SV.shown` half of the guard
+     and `up` stops being zero. */
+  const drawn = await ev(async ()=>{
+    let n = 0;
+    const orig = renderer.render.bind(renderer);
+    renderer.render = ()=>{ n++; };
+    const wasDraw = SIM.draw; SIM.draw = true;
+    const threeFrames = ()=>new Promise(r=>requestAnimationFrame(
+      ()=>requestAnimationFrame(()=>requestAnimationFrame(r))));
+    modelSet('servos', {frame:false}); await threeFrames();
+    const up = n;
+    modelSet('droid', {frame:false});  await threeFrames();
+    const down = n - up;
+    modelSet('servos', {frame:false});          // leave it as the section found it
+    SIM.draw = wasDraw; renderer.render = orig;
+    return {up, down, shown: SV.shown};
+  });
+  ok('the renderer is skipped while it is up', drawn.up === 0, JSON.stringify(drawn));
+  ok('…and draws again the moment the droid is back — so the counter is real',
+     drawn.down > 0 && drawn.shown === true, JSON.stringify(drawn));
 
   console.log('\n════ the grid follows the board ════');
   const counts = await ev(()=>{

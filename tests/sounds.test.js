@@ -299,24 +299,41 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
      evicted.detached[0] && evicted.detached[1], JSON.stringify(evicted.detached));
   await ev(()=>{ const h=$('toasts'); if(h) h.remove(); });
 
-  console.log('\n════ persistence (IndexedDB where the browser allows it) ════');
+  /* ══════════════════════════════════════════════════════════════════════
+     THE PROBE IS THE ASSERTION, NOT A SWITCH  (v1.69.0)
+
+     This probe used to feed an `if`. A false — from the catch, from
+     onerror, or from a probe that never settled at all, since nothing timed
+     it out — traded the two assertions below for a single
+     `ok('IndexedDB unavailable here …', true)`. Two real checks became one
+     unconditional pass, and because the TOTAL moved by only one, a run that
+     had quietly stopped testing persistence looked exactly like a run that
+     had tested it. A broken save path reported green.
+
+     Headless Chromium under file:// has IndexedDB. So the probe answering
+     anything but true IS the news, and it is now asserted like anything
+     else — with a timeout, so a hang reports as a hang rather than hanging.
+     ══════════════════════════════════════════════════════════════════════ */
+  console.log('\n════ persistence (IndexedDB, which this browser has) ════');
   const idbOk = await ev(()=>new Promise(res=>{
-    try{ const rq=indexedDB.open('r2sim-sounds',1); rq.onsuccess=()=>res(true); rq.onerror=()=>res(false); }
-    catch(e){ res(false); }
+    const t = setTimeout(()=>res('the open() never settled — 5 s'), 5000);
+    const done = v=>{ clearTimeout(t); res(v); };
+    try{ const rq=indexedDB.open('r2sim-sounds',1);
+         rq.onsuccess=()=>done(true);
+         rq.onerror=()=>done('open failed: '+((rq.error&&rq.error.name)||'?')); }
+    catch(e){ done('open threw: '+e.message); }
   }));
-  if(idbOk){
-    await page.reload();
-    await page.waitForFunction('typeof CAD!=="undefined" && CAD.loaded', {timeout:40000});
-    await page.waitForFunction('SBANK.count===2', {timeout:10000}).catch(()=>{});
-    ok('the bank survives a reload', await ev(()=>SBANK.count===2 && !!SBANK.bufs[1] && !!SBANK.bufs[7]));
-    await ev(()=>sbankClear());
-    ok('Clear forgets everything', await ev(()=>SBANK.count===0));
-  }else{
-    ok('IndexedDB unavailable here — session-only bank is the designed fallback', true);
-  }
+  ok('IndexedDB opens at all, so the bank has somewhere to live', idbOk === true, String(idbOk));
+  await page.reload();
+  await page.waitForFunction('typeof CAD!=="undefined" && CAD.loaded', {timeout:40000});
+  await page.waitForFunction('SBANK.count===2', {timeout:10000}).catch(()=>{});
+  ok('the bank survives a reload', await ev(()=>SBANK.count===2 && !!SBANK.bufs[1] && !!SBANK.bufs[7]));
+  await ev(()=>sbankClear());
+  ok('Clear forgets everything', await ev(()=>SBANK.count===0));
+
+  ok('no page errors', errs.length===0, errs.join(' | '));
 
   console.log(`\n${pass} passed, ${fail} failed`);
-  console.log('page errors:', errs.length?errs:'none');
   await browser.close();
   process.exit(fail?1:0);
 })();

@@ -209,7 +209,259 @@ const ok = (n,c,x='') => { c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+' 
      acts.stillInTable === acts.keptAct, acts.stillInTable);
   ok('every other mapping is still written', acts.others > 5, 'mapped='+acts.others);
 
-  console.log('\n'+(errs.length ? 'PAGE ERRORS: '+errs.join(' | ') : 'no page errors'));
+  /* ================================================================== 5
+     v1.69.0 — THE VALIDATE PANEL, AND WHAT THE GENERATOR DOES WITH A NAME
+
+     A walkthrough of the builder's step 3 read "ERRORS 129, WARNINGS 9",
+     and all 129 were one sentence repeated: every frame that pushed one
+     channel past its limits got its own line. A report nobody can read is
+     a report nobody reads, so the count below is about the number of LINES
+     the report contains, not the number of frames behind them — and the
+     line has to keep the channel number, because that is the only thing an
+     affordance can act on. The colour is the same argument in one glance:
+     errors were rendered in the warnings' amber, so the two piles looked
+     alike from across the room. */
+  console.log('\n════ the validate panel collapses duplicates and colours errors as errors ════');
+
+  const dedupe = await ev(()=>{
+    setBoard('mini24'); makeStarter('dome','mini24');
+    /* the first channel any starter frame actually drives — narrowing THAT
+       one is what puts every frame that touches it out of range */
+    let victim = -1;
+    (MSTR.sequences||[]).forEach(s=>(s.frames||[]).forEach(f=>
+      (f.targets||[]).forEach((t,i)=>{ if(t && victim < 0) victim = i; })));
+    const c = MSTR.channels[victim];
+    c.min = 10400; c.max = 10800;
+    const rep = lintMaestro();
+    const errItems = rep.items.filter(i=>i.level === 'err');
+    const range = errItems.filter(i=>i.code === 'tgt-range');
+    return {
+      victim,
+      frames: rep.stats.outOfRange,
+      lines: range.length,
+      errItems: errItems.length,
+      uniq: new Set(errItems.map(i=>i.msg)).size,
+      n: range.length ? range[0].n : null,
+      ch: range.length ? range[0].ch : null,
+      msg: range.length ? range[0].msg : ''
+    };
+  });
+  ok('the fixture really does put a pile of frames out of range',
+     dedupe.frames > 20, 'outOfRange=' + dedupe.frames);
+  ok('one channel over its limits is ONE error line, however many frames did it',
+     dedupe.lines === 1, dedupe.lines + ' line(s) for ' + dedupe.frames + ' frame(s)');
+  ok('…and the line carries the frame count, so nothing is hidden by collapsing it',
+     dedupe.n === dedupe.frames && new RegExp('\\b'+dedupe.frames+'\\b').test(dedupe.msg),
+     'n=' + dedupe.n + '  ' + dedupe.msg);
+  ok('…and the channel number, which is what an affordance can act on',
+     dedupe.ch === dedupe.victim, 'ch=' + JSON.stringify(dedupe.ch));
+  ok('no two errors in the whole report say the same sentence twice',
+     dedupe.errItems === dedupe.uniq, dedupe.errItems + ' error(s), ' + dedupe.uniq + ' distinct');
+
+  const panel = await ev(()=>{
+    try{
+      bldOpen();
+      const notes = Array.from(document.querySelectorAll('#bldWiz .note'));
+      const find = re => notes.find(n=>re.test(n.textContent||''));
+      const errNote  = find(/limits/i);
+      const warnNote = find(/home .* outside|cut short|loadout has/i);
+      const style = n => (n ? (n.getAttribute('style') || '') : '');
+      const foot = Array.from(document.querySelectorAll('#bldWiz .iwfoot button'))
+                        .map(b=>({t:(b.textContent||'').trim(), c:b.className}));
+      const fix = errNote ? errNote.querySelector('button[data-fixch]') : null;
+      return {
+        errStyle: style(errNote), warnStyle: style(warnNote),
+        hasErr: !!errNote, hasWarn: !!warnNote,
+        fixCh: fix ? fix.getAttribute('data-fixch') : null,
+        fixLabel: fix ? (fix.textContent||'').trim() : '',
+        foot
+      };
+    }catch(e){ return { thrown: String(e && e.message || e) }; }
+  });
+  ok('the errors panel does not paint itself in the warnings\' amber',
+     !panel.thrown && panel.hasErr && /var\(--rd/.test(panel.errStyle),
+     panel.thrown || JSON.stringify(panel.errStyle));
+  ok('…and the warnings panel is left alone, so the two now differ',
+     !panel.thrown && panel.hasWarn && !/var\(--rd/.test(panel.warnStyle),
+     panel.thrown || JSON.stringify(panel.warnStyle));
+  ok('the error offers a way to act on the channel it names',
+     panel.fixCh !== null && panel.fixCh !== undefined && /fix/i.test(panel.fixLabel),
+     JSON.stringify(panel.fixLabel) + ' data-fixch=' + JSON.stringify(panel.fixCh));
+
+  /* the two footer buttons are the OWNER's call and are deferred — this
+     pins that nothing here reordered or restyled them */
+  ok('the footer still ends "Export anyway" (primary) then "Done", untouched',
+     !panel.thrown && panel.foot.length >= 2
+     && /^Export anyway/i.test(panel.foot[panel.foot.length-2].t)
+     && /\bprim\b/.test(panel.foot[panel.foot.length-2].c)
+     && /^Done$/i.test(panel.foot[panel.foot.length-1].t),
+     JSON.stringify(panel.foot));
+
+  const reached = await ev(()=>{
+    try{
+      const b = document.querySelector('#bldWiz .note button[data-fixch]');
+      if(!b) return { missing:true };
+      const want = +b.getAttribute('data-fixch');
+      b.click();
+      return { want, open: !!(typeof SETUP !== 'undefined' && SETUP.open),
+               stepKey: (typeof SETUP_STEPS !== 'undefined' && SETUP_STEPS[SETUP.step])
+                        ? SETUP_STEPS[SETUP.step].key : null,
+               sel:  (typeof SETUP !== 'undefined') ? SETUP.sel  : null,
+               builderShut: (typeof BLD !== 'undefined') ? !BLD.open : null };
+    }catch(e){ return { thrown: String(e && e.message || e) }; }
+  });
+  ok('"Fix channel N" really lands on that channel in the bench',
+     !reached.thrown && !reached.missing && reached.open === true
+     && reached.stepKey === 'channels' && reached.sel === reached.want,
+     JSON.stringify(reached));
+
+  /* ================================================================== 6 */
+  console.log('\n════ a name can never end the comment it is written into ════');
+
+  const cmt = await ev(()=>{
+    setBoard('pca48'); makeStarter('dome','pca48');
+    MSTR.sequences[0].name = 'Wave */ int pwn = 1; /*';
+    MSTR.channels[1].name = 'Pie */ evil';
+    MSTR.channels[2].name = 'Multi\nline';
+    loadoutReset();
+    const h = pcaGenFromLoadout();
+    /* the prose blocks at the top of the header run over many lines, so
+       "opens one and closes one" is not the rule. The rule is that no
+       single line may CLOSE a comment twice, which is exactly what an
+       interpolated star-slash does and nothing else in the file does. */
+    const bad = h.split('\n').filter(l=>(l.match(/\*\//g) || []).length > 1);
+    const P = pcaHeaderParse(h, 'probe.h');
+    return { bad: bad.slice(0,3),
+             seqName: (P.sequences[0]||{}).name || '',
+             ch1: (P.channels[1]||{}).name || '',
+             ch2: (P.channels[2]||{}).name || '',
+             rows: P.channels.length };
+  });
+  ok('no generated line closes a comment twice', cmt.bad.length === 0, JSON.stringify(cmt.bad));
+  ok('the routine name survives the round trip instead of being truncated at the */',
+     /int pwn/.test(cmt.seqName), JSON.stringify(cmt.seqName));
+  ok('a channel name with a */ in it comes back whole', /evil/.test(cmt.ch1), JSON.stringify(cmt.ch1));
+  ok('a newline in a channel name never reaches the file',
+     cmt.ch2 === 'Multi line', JSON.stringify(cmt.ch2));
+
+  /* ================================================================== 7 */
+  console.log('\n════ a zero-frame routine never reaches the C ════');
+
+  const empty = await ev(()=>{
+    setBoard('pca48'); makeStarter('dome','pca48');
+    MSTR.sequences.push({name:'Empty One', frames:[]});
+    loadoutReset();
+    const h = pcaGenFromLoadout();
+    const rep = lintMaestro();
+    const arrays = (h.match(/static const uint16_t MPCA_SEQ\d+\[\]/g) || []).length;
+    const declared = /#define MPCA_SEQUENCES\s+(\d+)/.exec(h);
+    return {
+      emptyArray: /PROGMEM\s*=\s*\{[^\n]*\n\};/.test(h),
+      zeroRow: /\{\s*MPCA_SEQ\d+,\s*0,/.test(h),
+      arrays, declared: declared ? +declared[1] : -1,
+      named: /Empty One/.test(h),
+      lint: rep.items.filter(i=>i.code === 'seq-empty').map(i=>i.level + ':' + i.msg)
+    };
+  });
+  ok('no empty C array is written', !empty.emptyArray);
+  ok('no slot-table row claims a zero-frame sequence', !empty.zeroRow);
+  ok('MPCA_SEQUENCES counts the arrays that were actually written',
+     empty.declared === empty.arrays, empty.declared + ' declared / ' + empty.arrays + ' written');
+  ok('the header still names the routine it dropped', empty.named);
+  ok('the linter has a rule for it, so the builder says so before the export',
+     empty.lint.length === 1, JSON.stringify(empty.lint));
+
+  /* ================================================================== 8 */
+  console.log('\n════ a 90-second hold is still 90 seconds on the droid ════');
+
+  const longHold = await ev(()=>{
+    const ch = [0,1].map(i=>({i, name:'c'+i, mode:'Servo', min:4000, max:8000, home:6000,
+      homemode:'Goto', neutral:6000, range:1905, speed:0, acceleration:0, releaseMs:0,
+      ease:'', act:'', invert:false}));
+    const h = pcaGenHeader(ch, [{name:'Long Hold',
+      frames:[{name:'hold', duration:90000, targets:[7000, 0]}]}], {source:'test'});
+    const P = pcaHeaderParse(h, 'long.h');
+    const fr = P.sequences[0].frames;
+    return { durs: fr.map(f=>f.duration), total: fr.reduce((a,f)=>a+f.duration,0),
+             first: fr[0].targets.slice(0,2),
+             restQuiet: fr.slice(1).every(f=>f.targets.every(t=>!t)) };
+  });
+  ok('no emitted row can overflow the uint16 duration',
+     longHold.durs.every(d=>d >= 0 && d <= 65535), JSON.stringify(longHold.durs));
+  ok('…and the hold still adds up to the 90 s that was asked for',
+     longHold.total === 90000, longHold.total + ' ms');
+  ok('the targets ride on the first row only, so the split changes no motion',
+     longHold.first[0] === 7000 && longHold.restQuiet, JSON.stringify(longHold.first));
+
+  /* ================================================================== 9 */
+  console.log('\n════ the >128-sequence guard tells the truth about an old library ════');
+
+  const over = await ev(()=>{
+    const ch = [{i:0, name:'c0', mode:'Servo', min:4000, max:8000, home:6000, homemode:'Goto',
+      neutral:6000, range:1905, speed:0, acceleration:0, releaseMs:0, ease:'', act:'', invert:false}];
+    const seqs = [];
+    for(let k=0;k<130;k++) seqs.push({name:'S'+k, frames:[{name:'f', duration:100, targets:[6000]}]});
+    const h = pcaGenHeader(ch, seqs, {source:'test'});
+    const few = pcaGenHeader(ch, seqs.slice(0,8), {source:'test'});
+    return { h, guardWhenFew: /MPCA_MASK_WORDS/.test(few) };
+  });
+  ok('the warning no longer says an old library is unaffected',
+     !/on this board are unaffected/.test(over.h),
+     (over.h.match(/#warning[\s\S]{0,320}/) || [''])[0]);
+  ok('…it names int16_t Track::seq as the thing that decides it',
+     /int16_t/.test(over.h) && /sequenceRunning\(\)/.test(over.h));
+  ok('a #error keyed on MPCA_MASK_WORDS fails the build instead of scrolling past',
+     /#ifndef MPCA_MASK_WORDS[\s\S]{0,600}#error[\s\S]{0,600}#endif/.test(over.h),
+     (over.h.match(/#ifndef MPCA_MASK_WORDS[\s\S]{0,400}/) || [''])[0]);
+  ok('a header inside 128 sequences carries no such guard, so nothing changes for anybody',
+     !over.guardWhenFew);
+  /* the guard is only worth anything if the symbol it keys on really is the
+     one the fixed library defines — read the library, do not assume it */
+  ok('MPCA_MASK_WORDS is defined by the shipped arduino/MaestroPCA/src/MaestroPCA.h',
+     /^#define\s+MPCA_MASK_WORDS\s+\d+/m.test(
+       require('fs').readFileSync(path.resolve(__dirname,'..','arduino','MaestroPCA','src','MaestroPCA.h'),'utf8')));
+
+  /* ================================================================= 10 */
+  console.log('\n════ the JS channel mask is the firmware\'s four words again ════');
+
+  const wide = await ev(()=>{
+    try{
+      const ch = [];
+      for(let i=0;i<48;i++) ch.push({i, name:'c'+i, mode:'Servo', min:4000, max:8000, home:6000,
+        homemode:'Goto', neutral:6000, range:1905, speed:0, acceleration:0, releaseMs:0,
+        ease:'', act:'', invert:false});
+      const one = (idx,v)=>{ const a = new Array(48).fill(0); a[idx] = v; return a; };
+      const seqs = [
+        {name:'High A', frames:[{name:'f', duration:400, targets:one(32,7000)}]},
+        {name:'High B', frames:[{name:'f', duration:400, targets:one(40,7000)}]},
+        {name:'Edge31', frames:[{name:'f', duration:400, targets:one(31,7000)}]}
+      ];
+      const E = pcaCreate(ch, seqs);
+      const m0 = pcaSeqMask(E,0), m1 = pcaSeqMask(E,1), m2 = pcaSeqMask(E,2);
+      pcaRestart(E,0); pcaRestart(E,1);
+      return {
+        words: m0.length,
+        selfOverlap: pcaMaskOverlaps(m0, m0),
+        disjointHigh: pcaMaskOverlaps(m0, m1),
+        boundary: pcaMaskOverlaps(m2, m0),
+        has32: pcaMaskHas(m0, 32), has31: pcaMaskHas(m0, 31),
+        running: pcaRunningCount(E), a: pcaSeqRunning(E,0), b: pcaSeqRunning(E,1)
+      };
+    }catch(e){ return { thrown: String(e && e.message || e) }; }
+  });
+  ok('the mask is MPCA_MASK_WORDS words wide, like the C++',
+     wide.words === 4, wide.thrown || ('words=' + wide.words));
+  ok('a mask still overlaps itself', wide.selfOverlap === true, wide.thrown || String(wide.selfOverlap));
+  ok('two sequences on channels 32 and 40 no longer collide',
+     wide.disjointHigh === false, wide.thrown || String(wide.disjointHigh));
+  ok('…and 31 is no longer folded in with everything above it',
+     wide.boundary === false && wide.has32 === true && wide.has31 === false,
+     wide.thrown || JSON.stringify({b:wide.boundary, has32:wide.has32, has31:wide.has31}));
+  ok('so the sim runs both of them at once, exactly as the droid does',
+     wide.running === 2 && wide.a && wide.b, wide.thrown || ('running=' + wide.running));
+
+  ok('no page errors', errs.length === 0, errs.join(' | '));
+
   console.log('\n'+pass+' passed, '+fail+' failed');
   await browser.close();
   process.exit(fail ? 1 : 0);

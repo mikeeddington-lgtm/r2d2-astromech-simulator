@@ -19,9 +19,11 @@
      block it — Tab parks focus on buttons and '?' types nothing there.
 
    - It never opens over a surface that owns the keyboard — the confirm
-     dialog, the setup wizard, the import wizard, Build your Maestro —
-     because two things answering the same Esc is how containment bugs
-     start.
+     dialog, plus whatever uiModalOpen() names (the setup wizard, the
+     servo bench, the import wizard, Build your Maestro, the job chooser,
+     the track builder) — because two things answering the same Esc is
+     how containment bugs start. And when one is raised UNDER the card
+     anyway, Esc stops IMMEDIATELY here: see kbdHelpOpen().
 
    - While open, Esc and ? are CONTAINED: document capture +
      stopPropagation, the app-dialog pattern (core/dialog.js). Every
@@ -76,13 +78,22 @@ function kbdKeycaps(spec){
   return span;
 }
 
-/* a surface that owns the keyboard is up — '?' stays out of its way */
+/* a surface that owns the keyboard is up — '?' stays out of its way.
+
+   This hand-rolled four of the checks, and the copy drifted: it never
+   learned the servo bench (#setupWrap) or the job chooser (#jobWiz), both
+   of which uiModalOpen() (core/util.js) has enumerated since v1.45.0. The
+   bench is the one that hurt — #kbdHelp is z-index 250 against its 80, so
+   the card drew over a live channel table, and the Esc that dismissed it
+   also reached setupEsc and put the hardware down. Asking the one function
+   that owns the question is the only version that stays true: track-edit.js
+   even WRAPS uiModalOpen() to fold the track builder in, which a private
+   copy here could never see. `typeof` because a host may load this file
+   without core/util.js, and .dlgwrap stays because uiModalOpen() answers
+   for full-page surfaces and says nothing about the app dialog. */
 function kbdHelpBlocked(){
   if(document.querySelector('.dlgwrap')) return true;                        // confirm dialog
-  const st = $('startup'); if(st && st.classList.contains('on')) return true; // setup wizard
-  const iw = $('impWiz');  if(iw && !iw.hidden) return true;                 // import wizard
-  const bw = $('bldWiz');  if(bw && !bw.hidden) return true;                 // Build your Maestro
-  return false;
+  return typeof uiModalOpen === 'function' && uiModalOpen();
 }
 
 function kbdHelpOpen(){
@@ -111,7 +122,16 @@ function kbdHelpOpen(){
      else still reaches the page (the driving keys keep driving) */
   KBD.onKey = e=>{
     if(e.key !== 'Escape' && e.key !== '?') return;
-    e.preventDefault(); e.stopPropagation();
+    /* stopIMMEDIATEPropagation, not stopPropagation. The overlays that own
+       Esc — setupEsc on the servo bench above all — listen on this same
+       document node in this same capture phase, and stopPropagation only
+       keeps the event from the NEXT node: a listener co-registered here
+       still runs. That is how one Esc closed the card AND hung up on the
+       board. Blocking the card over those surfaces (kbdHelpBlocked) shuts
+       the ordinary door, but nothing traps focus while the card is up, so
+       a control underneath can still raise one UNDER it — and then the
+       card is the topmost thing, and the key is the card's alone. */
+    e.preventDefault(); e.stopImmediatePropagation();
     kbdHelpClose();
   };
   document.addEventListener('keydown', KBD.onKey, true);

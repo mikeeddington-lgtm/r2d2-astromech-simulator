@@ -251,11 +251,36 @@ function mstrParse(text, fileName){
     seqIndex:-1, frames:null
   }));
 
-  /* if the file carried no <Sequences>, rebuild them from the script subs */
+  /* if the file carried no <Sequences>, rebuild them from the script subs
+
+     — and "carried no <Sequences>" is the whole question, because the only
+     way to ask it is to match a sub back to a routine, and the symbol a sub
+     is written under STOPPED BEING niceName(name) in v1.68.1. The exporter
+     now settles uniqueness on the emitted symbol (export.js scriptSubNames
+     says why): a leading digit gets an `s_` in front, a clash gets `_2`,
+     `_3`. Asking niceName() about `s_2001_Salute` gets "no such routine",
+     the recovery path fires on a file that recovers nothing, and a phantom
+     copy of the routine is appended under its own sub symbol — with
+     identical frames, so nothing looks wrong until the library has grown
+     3 → 5 → 7 over three saves and the loadout with it.
+
+     So match on the symbols the exporter actually writes, by calling the
+     function that writes them rather than keeping a second copy of the rule
+     here — two copies of a naming rule is how this drifted in the first
+     place. The niceName() pass stays as a FALLBACK: every file this app
+     wrote before v1.68.1 carries the old symbols, and they must not start
+     fabricating duplicates now. Only a sub that answers to neither is
+     genuinely not in <Sequences> and is worth rebuilding. (v1.69.0) */
   let recovered = 0;
+  const subSyms = ((typeof scriptSubNames === 'function')
+                    ? scriptSubNames(sequences)
+                    : sequences.map(q=>niceName(q.name))).map(n=>n.toLowerCase());
+  const oldSyms = sequences.map(q=>niceName(q.name).toLowerCase());
   subs.forEach(s=>{
     if(s.kind!=='sequence') return;
-    const match = sequences.findIndex(q=>niceName(q.name).toLowerCase()===s.name.toLowerCase());
+    const sym = s.name.toLowerCase();
+    let match = subSyms.indexOf(sym);
+    if(match<0) match = oldSyms.indexOf(sym);
     if(match>=0){ s.seqIndex=match; return; }
     const fr = subToFrames(s, byName, servoCount);
     if(fr.length){
@@ -336,9 +361,33 @@ function mstrApply(P){
   if(typeof servoStoreSave === 'function') servoStoreSave();
   const {servoCount, channels, sequences, subs, board} = P;
   const fileName = P.fileName, recovered = P.report.seqRecovered;
-  /* the file's own sequence order already IS its subroutine order, so
-     everything it carries starts out loaded onto the board */
-  loadoutReset();
+  /* WHAT THE BOARD WAS ACTUALLY CARRYING (v1.69.0)
+
+     This used to be loadoutReset() with "the file's own sequence order
+     already IS its subroutine order" over it, which is true of exactly one
+     file: the one whose loadout was the whole library, in library order.
+     A curated loadout — a subset, in the order the builder chose on the
+     Maestro tab — is not that file. <Sequences> carries the whole library
+     because that is your Control Center sequence list; the <Script> carries
+     the loadout, and the script is what defines the subroutines, so the
+     script is what restartScript(n) is answered from. Resetting to the
+     library threw the second one away and silently renumbered the first:
+     a loadout of 0=Dome Flutter, 1=Whole Dome Open, 2=Dome Pies Close came
+     back as the eight-routine library in library order, and the d-pad on
+     the droid fired different routines than it had before the save.
+
+     The script's sequence subs, in declaration order, ARE the loadout —
+     pca-gen-sim.js pcaGenFromParsed has read them that way all along
+     ("the script is the board's truth"). Fall back to the library only
+     when there was no script to read, which is the one case the old
+     comment was describing. A name is taken once: a file that names the
+     same routine in two subs would otherwise compile it twice on the way
+     back out, growing the loadout on every save. */
+  const fromScript = subs
+    .filter(s=>s.kind==='sequence' && s.seqIndex>=0)
+    .map(s=>(sequences[s.seqIndex]||{}).name)
+    .filter((n,i,a)=>n && a.indexOf(n)===i);
+  if(fromScript.length) MSTR.loadout = fromScript; else loadoutReset();
   EDIT.live = channels.map(c=>chanRest(c));   // v1.45.0 — see chanRest() in maestro/boards.js
   EDIT.seq = 0; EDIT.frame = -1;
 
@@ -565,7 +614,15 @@ const PCA_ROW_RE = /\{\s*(\d+)\s*,\s*(\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?
    same shape (pca-gen.js and setup-hw.js setupServosH); setupServosH says
    "(not used)" where pca-gen.js says "— Input, unused". */
 function pcaRowMeta(comment, i){
-  const raw = String(comment || '').trim();
+  /* THE MIRROR OF pcaCommentSafe() (v1.69.1). The generator turns every
+     newline in a name into a space before the name reaches this comment, so
+     the reader has to agree: a hand-edited header is the one file that never
+     went through it, and without this a channel comes back with a newline
+     inside its name. It is done to the WHOLE comment rather than to the name
+     at the end, because the `ch N` prefix is stripped by a regexp whose `.`
+     stops at a newline — sanitising afterwards would leave the prefix on and
+     read back "ch 3 Dome Pie 3" where the writer wrote "Dome Pie 3". */
+  const raw = String(comment || '').replace(/[\r\n]+/g,' ').trim();
   const m = /^ch\s*(\d+)\s*(.*)$/i.exec(raw);
   let rest = m ? m[2].trim() : raw;
   let mode = '';
@@ -633,6 +690,17 @@ function pcaHeaderParse(text, fileName){
     if(/MPCA_SEQ_SPEEDS/.test(fp[2])) speedSeqs[+fp[1]] = true;
   const stride = servoCount + 1;
   const seqRe = /static\s+const\s+uint16_t\s+MPCA_SEQ(\d+)\s*\[\]\s*(?:PROGMEM\s*)?=\s*\{[ \t]*(?:\/\*([\s\S]*?)\*\/)?([\s\S]*?)\n\};/g;
+  /* THE SLOT NUMBER IS NOT THE ARRAY INDEX (v1.69.0). A generator table is
+     skipped below, so from the first one on, `MPCA_SEQ<k>` and
+     `sequences[k]` mean different routines — and MPCA_SEQ_TABLE addresses
+     its flags by k. Read at the array index, every loop and background flag
+     after a generator landed one routine early: a header whose slot 0 was
+     an oscillator gave "Beta Loop" no loop and looped "Gamma" instead, and
+     the droid repeats the wrong routine until something displaces it. The
+     speed flags above avoid this only because they are read into a map
+     keyed on k and never touch the array, which is the same shape this
+     needs. */
+  const slotToIndex = {};
   let sm;
   while((sm = seqRe.exec(t)) !== null){
     const label = String(sm[2] || '').trim();
@@ -660,6 +728,7 @@ function pcaHeaderParse(text, fileName){
     }
     /* the name lost its spaces on the way out (pcaCName), so the comment is
        the only place the routine's real name survives */
+    slotToIndex[+sm[1]] = sequences.length;
     sequences.push({name: label || ('Sequence '+sequences.length), frames});
   }
   /* MPCA_SEQ_TABLE carries the flags — loop and background are real
@@ -667,7 +736,7 @@ function pcaHeaderParse(text, fileName){
   const flagRe = /\{\s*MPCA_SEQ(\d+)\s*,\s*\d+\s*,\s*([^}]*?)\}/g;
   let fm;
   while((fm = flagRe.exec(t)) !== null){
-    const q = sequences[+fm[1]];
+    const q = sequences[slotToIndex[+fm[1]]];
     if(!q) continue;
     if(/MPCA_SEQ_LOOP/.test(fm[2]))       q.loop = true;
     if(/MPCA_SEQ_BACKGROUND/.test(fm[2])) q.background = true;

@@ -4,6 +4,82 @@
    sequencer that takes over the bottom strip.
    ===================================================================== */
 
+/* ============================== WHO ELSE IS PLAYING THIS ROUTINE (v1.69.1)
+
+   A whole-sequence brick names its target BY NAME and resolves it fresh on
+   every compile — `BLKH.sequences().find(x => x.name === b.ref)` in both
+   blockBoundaries() and blockSeqTargetsAt(). Neither of them complains when
+   the find comes back empty: the brick keeps its place on the timeline and
+   keeps its length, and the routine it sits in compiles to one held pose.
+   A "Show" carrying a 0.9 s brick that played "Wave" compiled to
+   `t0 300 [8000,4000] · t300 300 [4000,8000] · t600 300 [4000,4000]`;
+   renaming "Wave" turned that into `t0 900 [4000,4000]` — every move gone,
+   the brick still on the timeline, still saying 0.9 s, still looking wired.
+
+   So this pane's Rename and Delete have to ask the question the compiler
+   cannot: which OTHER routines name this one? It is deliberately a plain
+   scan rather than an index — the library is a handful of routines, the
+   answer has to be right at the instant it is asked, and an index would be
+   a second thing to keep in step with a rename. */
+function paneSeqRefs(name){
+  const out = [];
+  if(typeof blockList !== 'function' || !MSTR.sequences) return out;
+  MSTR.sequences.forEach(s=>{
+    blockList(s).forEach(b=>{ if(b.kind === 'seq' && b.ref === name) out.push({seq:s, b:b}); });
+  });
+  return out;
+}
+
+/* ============================== THE THREE BUTTONS THAT EMPTIED THE APP
+   (v1.69.1)
+
+   `makeStarter()` is not "add a starter layout". It does
+   `MSTR.channels = channels` and `MSTR.sequences = [...]` — every measured
+   endpoint and every routine in the library discarded — then loadoutReset()
+   and servoStoreSave(), so the browser's own backup is overwritten with the
+   new emptiness in the same click. There was no confirmation on any of the
+   three buttons that called it and there is no undo behind them.
+
+   The realistic way to lose an afternoon was not recklessness: it was
+   opening "all 9 file buttons, one by one" and clicking Dome starter to
+   find out what it does.
+
+   Every other destructive path in this project asks first — blkToolbar's
+   Clear all, mstrImportChoice's second confirm, buildAskBoardShrink — and
+   config/hardware.js's buildEnsureMaestro() exists precisely so that a
+   starter is never generated implicitly over a table somebody has worked
+   on. This is the same rule, said out loud on the button.
+
+   WHAT COUNTS AS "there is something to lose". Not MSTR.loaded on its own:
+   `loaded` is set by an import or by a starter, and a table built up
+   channel by channel in the bench never had it (the same trap
+   buildEnsureMaestro() answers with servoStoreWorth()). So the test is the
+   union of the three things this pane can actually lose — a channel table
+   of any size, a sequence library of any size, or travel that was measured
+   rather than defaulted (servoCfgConfigured(), which counts a calibrated
+   channel as well as a non-default endpoint). Any one of them makes it a
+   question; none of them — a genuinely fresh app — generates silently, so
+   the first starter of the day still costs one click. */
+async function paneStarterConfirm(what){
+  const chans = (MSTR.channels || []).length;
+  const seqs  = (MSTR.sequences || []).length;
+  const trav  = (typeof servoCfgConfigured === 'function') ? servoCfgConfigured() : 0;
+  if(!(MSTR.loaded || chans || seqs || trav)) return true;
+  if(typeof appConfirm !== 'function') return true;
+  return await appConfirm(
+    'The ' + what + ' starter builds a channel table from scratch. It replaces all '
+    + chans + ' channel(s) — '
+    + (trav ? trav + ' of them carrying travel you measured, plus every name and panel assignment'
+            : 'every name, endpoint, speed and panel assignment')
+    + ' — and discards all ' + seqs + ' sequence(s) in your library. The browser backup is '
+    + 'rewritten in the same click, so nothing is left to go back to.\n\n'
+    + 'Export servo config saves the travel and the choreography .json saves the routines; '
+    + 'either one keeps what this would take. Your build answers, the sound bank and the '
+    + 'model itself are untouched whichever way you answer.',
+    {title:'Replace everything with the ' + what + ' starter?',
+     yes:'Replace it all', no:'Keep what I have', danger:true});
+}
+
 /* ------------------------------------------------- sidebar Maestro pane */
 function buildMaestroPane(){
   const host=$('maeHost'); if(!host) return;
@@ -88,7 +164,18 @@ function buildMaestroPane(){
        rest pose (doors shut, gimbals centred), never from a home µs whose
        offset belongs to the real linkage. */
     MSTR.channels.forEach(c=>{ if(/^servo/i.test(c.mode)) base[c.i]=chanRest(c); });
-    MSTR.sequences.push({name:'Sequence '+MSTR.sequences.length, frames:[{name:'Frame 0',duration:500,targets:base}]});
+    /* v1.69.1 — 'Sequence ' + length is not a name, it is a guess. Everything
+       downstream resolves a board slot BY NAME (loadoutSeqs → find(s.name ===
+       n)), so a duplicate makes one routine unreachable from the board while
+       another slot silently fires the wrong one: pane +, library +, pane +
+       produced ['Sequence 0','Sequence 2','Sequence 2'], slot 2 compiling
+       library index 1 and index 2 invisible in the loadout editor. blocks.js
+       has seqUniqueName() for exactly this and the library's own + already
+       calls it; this door was the one still counting. Guarded with typeof
+       like every other cross-module call in this file. */
+    const mint = 'Sequence '+MSTR.sequences.length;
+    const name = (typeof seqUniqueName === 'function') ? seqUniqueName(mint) : mint;
+    MSTR.sequences.push({name:name, frames:[{name:'Frame 0',duration:500,targets:base}]});
     EDIT.seq=MSTR.sequences.length-1; EDIT.frame=0; reindexSubs(); rebuildMaestroUI();
   });
   const bRen=el('button','b','Rename');
@@ -99,13 +186,61 @@ function buildMaestroPane(){
     /* '' and cancel both keep the old name; spaces still become underscores
        in the generated sub name — that lives in niceName()/genScript, which
        read seq.name at build time, so the raw name passes through untouched */
-    if(v){ loadoutRename(seq.name, v); seq.name=v; reindexSubs(); rebuildMaestroUI(); }
+    if(!v) return;
+    /* A RENAME IS A RE-ADDRESSING (v1.69.1). loadoutRename() has always
+       followed the name onto the board; nothing followed it into the other
+       routines. A whole-sequence brick naming this one kept the old string,
+       found nothing on its next compile and quietly played silence — see
+       paneSeqRefs() above. So the bricks are re-pointed here, and the
+       routines holding them are recompiled straight away: their frames are
+       what the board and the preview read, and leaving them stale would only
+       move the moment the moves vanish to whenever something else touched
+       that routine. */
+    const was = seq.name;
+    loadoutRename(was, v); seq.name=v;
+    const hits = paneSeqRefs(was);
+    hits.forEach(h=>{ h.b.ref = v; });
+    const held = [];
+    hits.forEach(h=>{ if(held.indexOf(h.seq) < 0) held.push(h.seq); });
+    if(typeof blockSync === 'function') held.forEach(s=>blockSync(s));
+    if(hits.length) lg('mae','renamed “'+was+'” → “'+v+'” — '+hits.length+' brick(s) in '
+      + held.length + ' other routine(s) re-pointed and recompiled: '+held.map(s=>s.name).join(', '));
+    reindexSubs(); rebuildMaestroUI();
   });
   const bDelS=el('button','b','Delete');
-  bDelS.addEventListener('click',()=>{
+  bDelS.addEventListener('click',async ()=>{
     if(MSTR.sequences.length<=1) return;
     const gone = MSTR.sequences[EDIT.seq];
-    if(gone) loadoutDrop(gone.name);
+    if(!gone) return;
+    /* DELETING SOMETHING ANOTHER ROUTINE PLAYS (v1.69.1). A rename can be
+       followed through; a deletion cannot — there is no name left to point
+       at. The brick cannot be greyed the way an unmapped part's brick is
+       either: `.unwired` is decided by blockWired(), which answers TRUE for
+       every whole-sequence brick by construction (blocks.js: "a dropped-in
+       sequence carries its own targets"), and blocks.js is not this file's
+       to change. So the honest thing left is to ASK, before the fact, with
+       the count and the routines named — the same shape mstrImportChoice's
+       second confirm and the sequencer's CLEAR EVERY BRICK ask in — and to
+       say plainly in the log afterwards which routines are now holding a
+       brick that plays nothing. */
+    const hits = paneSeqRefs(gone.name);
+    const held = [];
+    hits.forEach(h=>{ if(held.indexOf(h.seq.name) < 0 && h.seq !== gone) held.push(h.seq.name); });
+    if(hits.length && held.length && typeof appConfirm === 'function'){
+      const ok = await appConfirm(
+        hits.length + ' brick' + (hits.length===1?'':'s') + ' in ' + held.length + ' other routine'
+        + (held.length===1?'':'s') + ' — ' + held.join(', ') + ' — play' + (hits.length===1?'s':'')
+        + ' “' + gone.name + '”. Deleting it '
+        + 'leaves those bricks on their timelines, keeping their length and their labels, compiling '
+        + 'to a held pose instead of the moves they play now.\n\n'
+        + 'Those routines survive and so do their other bricks — only what “' + gone.name + '” '
+        + 'contributed goes. Rename it instead and the bricks follow it.',
+        {title:'Delete “'+gone.name+'”?', yes:'Delete it anyway', no:'Keep it', danger:true});
+      if(!ok) return;
+      lg('warn','deleted “'+gone.name+'” — '+hits.length+' brick(s) in '+held.join(', ')
+        + ' now name a sequence that is not there and compile to a held pose');
+    }
+    loadoutDrop(gone.name);
     MSTR.sequences.splice(EDIT.seq,1); EDIT.seq=Math.max(0,EDIT.seq-1); EDIT.frame=-1;
     reindexSubs(); rebuildMaestroUI();
   });
@@ -198,7 +333,16 @@ function buildMaestroPane(){
   /* THE BUTTON MIKE COULD NOT FIND */
   const bCfg=el('button','b'+(isMaestroBuild?'':' prim'),'Import servo config…');
   bCfg.id='btnCfgImport';
-  bCfg.title='the travel this app exports — names, min, centre, max, speed. It replaces the endpoints and leaves your sequences and panel wiring alone';
+  /* WHAT EACH FILE IS (v1.69.1). This row is nine buttons with nothing but
+     their own labels to tell them apart, and three of the labels say "config"
+     about three different files. A walkthrough could not tell an
+     R2-servos-….json from an R2-setup-….json from a .mstr — so every button
+     in the row now carries one line naming the FILE it reads or writes and
+     who it is for. (Which three deserve promoting out of the disclosure, and
+     how the grid should be laid out, is deliberately not answered here.) */
+  bCfg.title='reads an R2-servos-….json — travel only: names, min, centre, max, speed — or the '
+           + 'travel half of a whole-setup R2-setup-….json. It replaces the endpoints and leaves '
+           + 'your sequences and panel wiring alone';
   bCfg.addEventListener('click',()=>{ if(typeof servoCfgPick==='function') servoCfgPick(()=>rebuildMaestroUI()); });
   /* the other question that had no answer on this screen (v1.39.2) —
      "where do I assign servos to panels?" The editor is the setup's Panels
@@ -215,26 +359,59 @@ function buildMaestroPane(){
     if(typeof wizOpen === 'function') wizOpen(0);
   });
   const bCfgX=el('button','b','Export servo config');
-  bCfgX.title='name and travel for every channel — the file to keep, and the one the setup wizard reads back';
+  bCfgX.title='writes R2-servos-….json — name and travel for every channel and nothing else, no '
+            + 'sequences in it. The calibration backup to keep, and the file the setup wizard reads back';
   bCfgX.addEventListener('click',()=>{ if(typeof servoCfgExport==='function') servoCfgExport(); });
-  const mkGen=(label, which, note)=>{
+  /* `what` is the starter's name in a sentence — it goes into the confirm's
+     title and body so the question names the button that was pressed, not
+     "this starter". `tip` is the hover line: see WHAT EACH FILE IS below. */
+  const mkGen=(label, which, what, tip, note)=>{
     const b=el('button','b',label);
-    b.addEventListener('click',()=>{
+    b.title=tip;
+    b.addEventListener('click',async ()=>{
+      /* the gate, not the generator — paneStarterConfirm() decides whether
+         there is anything to lose and asks only then (v1.69.1) */
+      if(!(await paneStarterConfirm(what))) return;
       makeStarter(which); CFG.maestroSource='imported';
       rebuildMaestroUI();
       const m=$('maeMsg'); if(m) m.textContent=note;
     });
     return b;
   };
-  const bGen  = mkGen('Body starter','body','Body layout built for the '+boardById(MSTR.board).label+' — doors on subroutines 0-3.');
-  const bGenD = mkGen('Dome starter','dome','Dome layout built for the '+boardById(MSTR.board).label+' — pies first, side panels fill the rest.');
-  const bGenA = mkGen('Frik head starter','anzellan','Anzellan face layout built for the '+boardById(MSTR.board).label+' — 11 channels, mouth first, resting mid-travel.');
+  const bGen  = mkGen('Body starter','body','Body',
+    'builds a body channel table from scratch — doors, arms and ports, named and mapped, '
+    + 'plus 8 routines on subroutines 0-7. It REPLACES the whole channel table and the whole '
+    + 'sequence library, and asks first if there is anything in either.',
+    'Body layout built for the '+boardById(MSTR.board).label+' — doors on subroutines 0-3.');
+  const bGenD = mkGen('Dome starter','dome','Dome',
+    'builds a dome channel table from scratch — six pies then fourteen side panels — plus 8 '
+    + 'routines on subroutines 0-7. It REPLACES the whole channel table and the whole sequence '
+    + 'library, and asks first if there is anything in either.',
+    'Dome layout built for the '+boardById(MSTR.board).label+' — pies first, side panels fill the rest.');
+  const bGenA = mkGen('Frik head starter','anzellan','Frik head',
+    'builds an Anzellan face table from scratch — 11 channels, mouth first, brows and gimbals '
+    + 'resting mid-travel — plus 8 routines. It REPLACES the whole channel table and the whole '
+    + 'sequence library, and asks first if there is anything in either.',
+    'Anzellan face layout built for the '+boardById(MSTR.board).label+' — 11 channels, mouth first, resting mid-travel.');
   const bExp=el('button','b','Export .mstr');
+  bExp.title='writes the whole Pololu settings file — channel table, endpoints, speeds and the '
+           + 'generated script — as one .mstr. This is the file that goes to a Windows box and '
+           + 'opens in Maestro Control Center; it is not readable by a PCA9685 sketch.';
   bExp.disabled=!MSTR.loaded;
   bExp.addEventListener('click',exportMstr);
-  const bExpH=el('button','b','Export PCA9685 header');
+  /* WHICH ROUTE IS THIS FILE FOR (v1.69.1). Nine buttons in one collapsed
+     row, and this was the one that quietly wrote a PCA9685 header on a
+     Maestro build: 'Export PCA9685 header' names a chip, which reads as a
+     feature rather than as a fork in the road. It is NOT disabled here —
+     a builder migrating a Maestro rig onto the PCA route needs exactly this
+     button on exactly that build — so it takes the other half of the offer
+     and says in its own label which route it belongs to and which file
+     comes out, with the Maestro builder's answer named in the tooltip. */
+  const bExpH=el('button','b','Export sequences.h (PCA9685)');
   bExpH.id='btnExpPca';
-  bExpH.title='sequences.h for the MaestroPCA Arduino library — the same loadout and slot numbers, played on a PCA9685 instead of a Maestro';
+  bExpH.title='sequences.h for the MaestroPCA Arduino library — the same loadout and slot numbers, '
+            + 'played on a PCA9685 instead of a Maestro. Not the file a Maestro build wants: that '
+            + 'one is Export .mstr.';
   bExpH.disabled=!MSTR.loaded;
   bExpH.addEventListener('click',exportPcaHeader);
 

@@ -218,11 +218,25 @@ const LIVE = fs.readFileSync(path.resolve(__dirname,'fixtures-live-dome.mstr'),'
     const twoAgain=pcaRunningCount(E)===2;
     pcaStop(E);
     const allStopped=!pcaRunning(E) && E.seq===-1;
-    return {mask0,mask1,stillLooping,stillMoving,both,panelsMoved,sweepKeptGoing,
+    /* try/catch for the same reason export-guards carries `thrown`: on a
+       build that predates the four-word mask this helper is simply absent,
+       and a bare throw here takes the whole evaluate with it — the runner
+       greps for a summary line and prints "(no summary)", which is what it
+       also prints for a suite that HUNG. A failure has to look like one. */
+    let overlap; try{ overlap = pcaMaskOverlaps(mask0, mask1); }catch(e){ overlap = e.message; }
+    return {mask0,mask1,overlap,
+            stillLooping,stillMoving,both,panelsMoved,sweepKeptGoing,
             panelsDone,sweepAlive,displaced,twoAgain,allStopped};
   });
-  ok('channel masks are disjoint for disjoint sequences', (conc.mask0 & conc.mask1)===0,
-     conc.mask0.toString(2)+' / '+conc.mask1.toString(2));
+  /* ASK THE PAGE, because the mask is not a number any more. v1.70.0
+     mirrored the firmware's 128-channel mask and pcaSeqMask() started
+     returning four words; `conc.mask0 & conc.mask1` then puts two ARRAYS
+     through ToInt32, which is 0 for both of them, so `=== 0` held just as
+     firmly for masks that DID overlap. pcaMaskOverlaps() is the reader the
+     runtime itself uses — pcaRestart and pcaSeqTick both go through it — so
+     use that, in there, and bring back the answer. */
+  ok('channel masks are disjoint for disjoint sequences', conc.overlap === false,
+     conc.overlap+' — '+conc.mask0+' / '+conc.mask1);
   ok('a loop:true sequence runs past its last frame', conc.stillLooping);
   ok('and is still driving servos after 4 s', conc.stillMoving);
   ok('a sequence on other channels starts alongside it', conc.both);
@@ -453,8 +467,9 @@ const LIVE = fs.readFileSync(path.resolve(__dirname,'fixtures-live-dome.mstr'),'
      inc.line === '#include "MaestroPCA.h"' && !inc.angled, JSON.stringify(inc));
 
 
+  ok('no page errors', errs.length === 0, errs.join(' | '));
+
   console.log('\n'+pass+' passed, '+(fail?fail+' FAILED':'0 failed'));
-  console.log('page errors: '+(errs.length?errs.join(' | '):'none'));
   await browser.close();
   process.exit(fail?1:0);
 })();

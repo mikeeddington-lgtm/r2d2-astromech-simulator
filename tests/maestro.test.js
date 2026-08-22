@@ -456,11 +456,221 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
      rst.bare === 0.5 && rst.compound === 0.5, rst.bare+' / '+rst.compound);
   ok('an off-model placeholder is a door, not a gimbal', rst.oth === 0, String(rst.oth));
 
+
+  /* =================================================================
+     2026-08-22 — THE FOUR DOORS IN THE MAESTRO PANE THAT LOSE WORK
+
+     Everything below is about maestro/ui-pane.js and nothing else. The
+     pane's own buttons — the three starter generators, Rename, Delete
+     and "+ Sequence" — were the last controls in the app that could
+     discard an afternoon with one click and no question, or leave a
+     name pointing at nothing. The sequencer suites cover the bricks
+     themselves; these cover the PANE, because that is where the
+     handlers live.
+     ================================================================= */
+
+  console.log('\n════ a starter button asks before it discards the library ════');
+  /* makeStarter() replaces MSTR.channels and MSTR.sequences wholesale and
+     then calls servoStoreSave(), so the browser backup goes in the same
+     click. Three buttons in this pane called it with no confirmation at
+     all — the "expand all N file buttons and see what Dome starter does"
+     click cost every measured endpoint and every routine. */
+  const starterGate = await ev(async ()=>{
+    const out = {};
+    const real = window.appConfirm;
+    let asked = [];
+    const click = async label=>{
+      const b = Array.from($('maeHost').querySelectorAll('button')).find(x=>x.textContent===label);
+      if(!b) return false;
+      b.click();
+      await new Promise(r=>setTimeout(r,80));
+      return true;
+    };
+    window.appConfirm = (msg,o)=>{ asked.push({msg:String(msg), o:o||{}}); return Promise.resolve(false); };
+
+    /* (1) a fresh app has nothing to lose, so the question is not asked */
+    MSTR.loaded=false; MSTR.channels=[]; MSTR.sequences=[]; MSTR.subs=[]; MSTR.loadout=null;
+    rebuildMaestroUI();
+    out.freshFound = await click('Body starter');
+    out.freshAsked = asked.length;
+    out.freshSeq   = MSTR.sequences.length;
+    out.freshCh    = MSTR.channels.length;
+
+    /* (2) an afternoon of work: measured travel on a channel and a routine
+           of your own on top of the starter's eight */
+    makeStarter('body');
+    MSTR.channels[0].min = 4321; MSTR.channels[0].calibrated = true;
+    MSTR.sequences.push({name:'My Show', frames:[{name:'F0',duration:500,targets:MSTR.channels.map(()=>6000)}]});
+    rebuildMaestroUI();
+    asked = [];
+    const before = {ch:MSTR.channels.length, seq:MSTR.sequences.length, file:MSTR.fileName, min0:MSTR.channels[0].min};
+    for(const l of ['Body starter','Dome starter','Frik head starter']) await click(l);
+    out.asked = asked.length;
+    out.qs = asked.map(a=>({msg:a.msg, title:a.o.title||'', yes:a.o.yes||'', no:a.o.no||'', danger:!!a.o.danger}));
+    out.kept = {ch:MSTR.channels.length, seq:MSTR.sequences.length, file:MSTR.fileName, min0:MSTR.channels[0].min};
+    out.before = before;
+
+    /* (3) …and the destructive answer still generates the starter */
+    window.appConfirm = ()=>Promise.resolve(true);
+    await click('Dome starter');
+    out.went = {seq:MSTR.sequences.length, file:MSTR.fileName, ch:MSTR.channels.length};
+    window.appConfirm = real;
+    return out;
+  });
+  ok('with nothing loaded there is nothing to lose, so a starter is generated without a question',
+     starterGate.freshFound && starterGate.freshAsked===0 && starterGate.freshSeq===8 && starterGate.freshCh>0,
+     starterGate.freshAsked+' question(s), '+starterGate.freshSeq+' sequences');
+  ok('over a table with measured travel and a routine of your own, all three starters ask first',
+     starterGate.asked===3, starterGate.asked+' of 3 asked');
+  ok('the question names the counts, names the starter, and answers with verbs rather than Yes/No',
+     starterGate.qs.length===3 && starterGate.qs.every(q=>
+       /24 channel/.test(q.msg) && /9 sequence/.test(q.msg) && q.danger
+       && !/^(yes|no|ok|cancel)$/i.test(q.yes) && !/^(yes|no|ok)$/i.test(q.no))
+     && /body/i.test((starterGate.qs[0]||{title:'',msg:''}).title+(starterGate.qs[0]||{msg:''}).msg)
+     && /dome/i.test((starterGate.qs[1]||{title:'',msg:''}).title+(starterGate.qs[1]||{msg:''}).msg)
+     && /frik|anzellan/i.test((starterGate.qs[2]||{title:'',msg:''}).title+(starterGate.qs[2]||{msg:''}).msg),
+     JSON.stringify(starterGate.qs[1]||null));
+  ok('...and it says what survives the answer either way',
+     starterGate.qs.length===3 && starterGate.qs.every(q=>/export|backup|keep/i.test(q.msg)),
+     JSON.stringify((starterGate.qs[0]||{}).msg));
+  ok('answering the keep verb leaves every routine, the measured endpoint and the file name alone',
+     starterGate.kept.seq===starterGate.before.seq && starterGate.kept.min0===4321
+     && starterGate.kept.file===starterGate.before.file,
+     JSON.stringify(starterGate.kept));
+  ok('answering the destructive verb still generates the starter it named',
+     /dome/i.test(starterGate.went.file) && starterGate.went.seq===8,
+     starterGate.went.file+' · '+starterGate.went.seq+' sequences');
+
+  console.log('\n════ rename and delete do not leave bricks pointing at nothing ════');
+  /* A whole-sequence brick resolves its target BY NAME every time it
+     compiles (blockBoundaries, blockSeqTargetsAt), and both of them fail
+     SILENTLY: the brick keeps its place and its length on the timeline and
+     compiles to a single held pose. Renaming the sequence it names was
+     enough to empty a Show and say nothing. */
+  const refs = await ev(async ()=>{
+    makeStarter('body'); CFG.maestroSource='imported';
+    const row = (a,b)=>{ const t=MSTR.channels.map(()=>4000); t[0]=a; t[1]=b; return t; };
+    const wave = {name:'Wave', frames:[
+      {name:'F0',duration:300,targets:row(8000,4000)},
+      {name:'F1',duration:300,targets:row(4000,8000)},
+      {name:'F2',duration:300,targets:row(4000,4000)}]};
+    MSTR.sequences.push(wave);
+    const show = {name:'Show', frames:[], blocks:[]};
+    MSTR.sequences.push(show);
+    blockAdd(show,'seq','Wave',0);
+    const sig = s => s.frames.map(f=>'t'+f.duration+'['+f.targets[0]+','+f.targets[1]+']').join(' · ');
+    const before = sig(show);
+
+    EDIT.seq = MSTR.sequences.indexOf(wave); EDIT.frame=-1;
+    rebuildMaestroUI();
+    const realPrompt = window.appPrompt;
+    window.appPrompt = ()=>Promise.resolve('Wave Two');
+    const bRen = Array.from($('maeHost').querySelectorAll('button')).find(x=>x.textContent==='Rename');
+    bRen.click();
+    await new Promise(r=>setTimeout(r,80));
+    window.appPrompt = realPrompt;
+    const sh = MSTR.sequences.find(s=>s.name==='Show');
+    const after = sig(sh);
+    blockSync(sh);                    // the next edit to Show, whenever it comes
+    const recompiled = sig(sh);
+    const brick = blockList(sh)[0];
+
+    /* now DELETE the routine that brick names */
+    const realConfirm = window.appConfirm;
+    const asked = [];
+    window.appConfirm = (msg,o)=>{ asked.push({msg:String(msg), o:o||{}}); return Promise.resolve(false); };
+    EDIT.seq = MSTR.sequences.findIndex(s=>s.name==='Wave Two'); EDIT.frame=-1;
+    rebuildMaestroUI();
+    const bDel = Array.from($('maeHost').querySelectorAll('button')).find(x=>x.textContent==='Delete');
+    bDel.click();
+    await new Promise(r=>setTimeout(r,80));
+    const survived = !!MSTR.sequences.find(s=>s.name==='Wave Two');
+    window.appConfirm = realConfirm;
+    return {before, after, recompiled, ref:brick?brick.ref:'(no brick)',
+            asked:asked.length, q:asked[0]||null, survived,
+            names:MSTR.sequences.map(s=>s.name)};
+  });
+  ok('renaming a sequence re-points every whole-sequence brick that named it',
+     refs.ref==='Wave Two', refs.ref);
+  ok('...so the routine containing it still holds the moves it held before',
+     refs.after===refs.before, refs.before+'   →   '+refs.after);
+  ok('...and still compiles to them the next time anything edits it',
+     refs.recompiled===refs.before, refs.recompiled);
+  ok('deleting a sequence a brick names asks first, and names the count and the routine',
+     refs.asked===1 && refs.q && /1 brick/.test(refs.q.msg) && /Show/.test(refs.q.msg),
+     refs.asked+' asked · '+(refs.q?JSON.stringify(refs.q.msg):'—'));
+  ok('...and answering keep leaves the sequence and its bricks where they were',
+     refs.survived, JSON.stringify(refs.names));
+
+  console.log('\n════ the pane\'s + Sequence cannot mint a name the library already holds ════');
+  /* A NAME IS AN ADDRESS (blocks.js): loadoutSeqs() resolves a board slot
+     by name, so two routines sharing one makes the second unreachable
+     while a slot silently fires the first. blocks.js has seqUniqueName()
+     for exactly this; the pane's + was counting instead. */
+  const mint = await ev(()=>{
+    makeStarter('body');
+    MSTR.sequences = []; MSTR.loadout = null; EDIT.seq = 0; EDIT.frame = -1;
+    rebuildMaestroUI();
+    const paneAdd = ()=>{
+      const b = Array.from($('maeHost').querySelectorAll('button')).find(x=>x.textContent==='+ Sequence');
+      if(b) b.click();
+    };
+    paneAdd();                       // the pane's door
+    blockNewRoutine();               // the library's door
+    paneAdd();                       // the pane's door again
+    const names = MSTR.sequences.map(s=>s.name);
+    return {names, unique:names.length === new Set(names).size,
+            reachable:names.filter((n,i)=>names.indexOf(n)===i).length};
+  });
+  ok('three "new sequence" doors in a row mint three names the board can tell apart',
+     mint.unique && mint.names.length===3, JSON.stringify(mint.names));
+
+  console.log('\n════ every file button says what its file is ════');
+  const fileBtns = await ev(()=>{
+    loadProfile('maestro25'); buildFwSelector();
+    makeStarter('body'); CFG.maestroSource='imported'; rebuildMaestroUI();
+    const d = $('maeAdvIO');
+    if(!d) return {missing:true};
+    const btns = Array.from(d.querySelectorAll('button'));
+    const t = label => { const b = btns.find(x=>x.textContent===label); return b ? b.title : null; };
+    const pca = $('btnExpPca');
+    return {n:btns.length,
+            untitled: btns.filter(b=>!(b.title||'').trim()).map(b=>b.textContent),
+            cfgIn: t('Import servo config…'), cfgOut: t('Export servo config'),
+            mstr: t('Export .mstr'),
+            starter: t('Dome starter'),
+            pca: pca ? {label:pca.textContent, title:pca.title} : null};
+  });
+  ok('every one of the nine buttons in the collapsed row carries a line of its own',
+     !fileBtns.missing && fileBtns.untitled.length===0,
+     fileBtns.untitled ? JSON.stringify(fileBtns.untitled) : 'no #maeAdvIO');
+  ok('the servo-config pair names R2-servos-*.json and says it is travel only',
+     /R2-servos/.test(fileBtns.cfgIn||'') && /R2-servos/.test(fileBtns.cfgOut||'')
+     && /travel/i.test(fileBtns.cfgIn||'') && /travel/i.test(fileBtns.cfgOut||''),
+     JSON.stringify([fileBtns.cfgIn, fileBtns.cfgOut]));
+  ok('...and tells it apart from the whole-setup R2-setup-*.json',
+     /R2-setup/.test(fileBtns.cfgIn||''), String(fileBtns.cfgIn));
+  ok('the .mstr button says it is the file that goes on a Maestro',
+     /\.mstr/.test(fileBtns.mstr||'') && /Control Center|Maestro/.test(fileBtns.mstr||''),
+     String(fileBtns.mstr));
+  ok('a starter button warns, on hover, that it replaces the table it lands on',
+     /replace/i.test(fileBtns.starter||''), String(fileBtns.starter));
+  /* This one is not disabled on a Maestro build — a builder migrating the
+     other way needs it, and tests/pcaseq.test.js pins it as enabled with a
+     config loaded. So it takes the other half of the offer: the LABEL says
+     which route it is for, and names the file it writes, so it cannot be
+     mistaken for the export a Maestro builder wants. */
+  ok('the PCA9685 header button names its route AND its file in its own label',
+     fileBtns.pca && /PCA/i.test(fileBtns.pca.label) && /sequences\.h/i.test(fileBtns.pca.label)
+     && /not (the|a) .*maestro|instead of a Maestro/i.test(fileBtns.pca.title||''),
+     fileBtns.pca ? fileBtns.pca.label+' — '+fileBtns.pca.title : 'missing');
+
   // leave it in a sane state
   await ev(()=>{ makeStarter(); CFG.maestroSource='imported'; rebuildMaestroUI(); });
 
+  ok('no page errors', errs.length===0, errs.join(' | '));
+
   console.log(`\n${pass} passed, ${fail} failed`);
-  console.log('page errors:', errs.length?errs:'none');
   await browser.close();
   process.exit(fail?1:0);
 })();

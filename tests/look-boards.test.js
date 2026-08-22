@@ -282,8 +282,9 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
   ok('Auto-map recovers the mapping from the channel names', await ev(()=>
     MSTR.channels.filter(c=>c.act).length===20));
 
+  ok('no page errors', errs.length===0, errs.join(' | '));
+
   console.log(`\n${pass} passed, ${fail} failed`);
-  console.log('page errors:', errs.length?errs:'none');
   await browser.close();
   process.exit(fail?1:0);
 })();

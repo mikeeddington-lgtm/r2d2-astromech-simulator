@@ -32,7 +32,20 @@
 
 /* the fields a servo config is made of. Anything else in the file is
    ignored on the way in and absent on the way out. */
-const SERVO_CFG_FIELDS = ['name','min','max','home','homemode','neutral','range','speed','acceleration','mode'];
+/* v1.69.1 — `releaseMs` and `ease` belong in that list and were missing from
+   it. They are per-channel BENCH settings, exactly like speed and
+   acceleration: how long a channel keeps pulsing after it has arrived, and
+   the shape of the move. Both C headers carry them in the MpcaChannelDef row
+   (pca-gen.js, setup-hw.js setupServosH) and both firmware doors consume
+   them, and the whole-setup .json keeps them because it is a deep copy — so
+   the ONLY two files that lost them were the two built on servoCfgFrom():
+   R2-servos-*.json and R2-choreography-*.json. The second of those is the
+   copy impChooseSave('servo') writes as the "save a copy first, then import"
+   safety gate, which means the safety net was dropping the settings it exists
+   to preserve, and saying nothing. Reading them back is free: servoCfgApply()
+   copies only the keys a row actually defines, so a config written before
+   this line still means "keep what is there" for both of them. */
+const SERVO_CFG_FIELDS = ['name','min','max','home','homemode','neutral','range','speed','acceleration','releaseMs','ease','mode'];
 /* v1.46.0 — `invert` is retired (chanEnds/chanAdoptInvert, playback.js): min
    is the shut end and max the open one, directed rather than sorted. It is
    still READ, because every servo config this app wrote before v1.46.0 has
@@ -194,7 +207,25 @@ function servoCfgApply(rows, opts){
   if(typeof prefsSave === 'function') prefsSave();
   /* imported travel is now this browser's config — keep it across a refresh */
   if(typeof servoStoreSave === 'function') servoStoreSave();
-  if(typeof rebuildMaestroUI === 'function') rebuildMaestroUI();
+  /* v1.69.1 — AND THE ENGINE, not only the three renders. The running engine
+     is a COPY of this table, not a view of it: pcaCreate reads speed,
+     acceleration, ease and `servo` (from mode) once, when it is built, and
+     only min/max are read live off the shared array. Ending here at
+     rebuildMaestroUI() therefore drew the imported numbers and ran the old
+     ones — an imported speed limit was a number in a table while the board
+     still slammed the panel across at full rate, and a channel this file had
+     just turned INTO a servo could not be driven at all. No caller made up
+     for it: every door here (ui-files.js, wizard.js, wizard-import.js,
+     ui-pane.js) also ends at rebuildMaestroUI, and setup-hw-channels.js ends
+     at setupRender().
+     HW.changed() is rebuild(true) + the same redraw, so it replaces that call
+     rather than joining it, and both hosts have one (PCA Studio's rebuilds
+     its own engine and has no rebuildMaestroUI at all). It is safe to do here
+     only since v1.69.0 taught rebuild(true) to carry `aim` across with the
+     other four — before that this line would have flung every driven channel
+     to its home position. */
+  if(typeof HW !== 'undefined' && typeof HW.changed === 'function') HW.changed();
+  else if(typeof rebuildMaestroUI === 'function') rebuildMaestroUI();
   return {n:n, skipped:skipped, board:o.board || ''};
 }
 

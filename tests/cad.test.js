@@ -386,8 +386,9 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
   ok('the bundled MK4 reloads cleanly after all of that',
      await ev(()=>CAD.loaded && CAD.stats.parts===175 && CAD.active), await ev(()=>CAD.fileName));
 
+  ok('no page errors', errs.length===0, errs.join(' | '));
+
   console.log(`\n${pass} passed, ${fail} failed`);
-  console.log('page errors:', errs.length?errs:'none');
   await browser.close();
   process.exit(fail?1:0);
 })();

@@ -19,12 +19,38 @@ function genFrameSub(chs){
   s+='  delay\n  return\n';
   return s;
 }
+/* THE HOLE GUARD BELONGS TO BOTH HALVES OF THE FILE (v1.69.1)
+
+   A compiled frame is SPARSE: blockCompile() writes the channels the bricks
+   drive and leaves the rest of the array untouched, so `fr.targets[c]` is
+   `undefined` for every channel that frame does not command — which is what
+   applyFrameTargets() has always read as "0, this channel is not commanded".
+   genFrameRow() was taught that in v1.39.5. This function, which produces
+   the half of the file the BOARD actually runs, was not, and the two
+   consequences were both silent:
+
+     · `s += t + ' '` on a hole put the literal token `undefined` into the
+       script — `4000 4000 undefined undefined` — which Control Center
+       refuses to compile, so restartScript(n) had nothing to run. A Mini 24
+       whose table the bench had grown to 32 rows with HW.ensure() wrote 16
+       such lines; a single short frame on a stock 24 is enough. Nothing said
+       so: lintMaestro() reads the sequences, not the emitted script.
+
+     · the CHANGE test compared raw, so a hole in one frame and an explicit
+       0 in the next were "different" and the channel was re-commanded to 0
+       for nothing — extra targets, an extra frame_ sub, and a longer script
+       than the routine needs.
+
+   Both go away by normalising once, on the way in, with the same guard
+   genFrameRow() uses, and comparing the normalised values. */
 function genSeqBody(seq, enabled, neededLists){
+  const t0 = (x)=> (x==null) ? 0 : x;
   let s='', last=null;
   for(const fr of seq.frames){
     const chs=[], tg=[];
     for(const c of enabled){
-      if(last===null || fr.targets[c]!==last.targets[c]){ chs.push(c); tg.push(fr.targets[c]); }
+      const now = t0(fr.targets[c]);
+      if(last===null || now!==t0(last.targets[c])){ chs.push(c); tg.push(now); }
     }
     last=fr;
     if(tg.length){
@@ -129,7 +155,27 @@ function genFrameRow(fr, n){
 }
 function genSequencesXml(sequences, indent){
   const p=indent||'  ';
-  const n=MSTR.servoCount||MSTR.channels.length;
+  /* THE ROW IS AS WIDE AS THE TABLE, NOT AS WIDE AS servoCount (v1.69.1)
+
+     A <Frame> row is positional — column k is channel k — so its width is
+     only meaningful against the <Channels> block written beside it, and
+     that block is genChannelsXml() walking MSTR.channels. This half used to
+     ask MSTR.servoCount instead, and the two answers are not the same
+     number: HW.ensure() appends rows to MSTR.channels (that is how the
+     bench grows a 24-row table to 32 when a third expander is wired) and
+     deliberately never touches servoCount, which stays what the FILE or the
+     board said. 32 <Channel> rows and 24-wide frames is not a file anybody
+     can read back: the reader takes the row count from the channels it
+     found (import.js, `const servoCount = channels.length`), pads the short
+     row with zeros, and every channel above 23 comes home undriven.
+
+     MSTR.channels is the one both halves can agree on because it is the one
+     the <Channel> rows are written from. It is also the only reader of
+     servoCount left in this file — everywhere else that reads it (puppet,
+     cues, music, cad/parts, ui-pane, hw-host's count(), servo-store) is
+     sizing a live target array or printing a count, not describing bytes
+     already on disk. */
+  const n=MSTR.channels.length;
   let s=p+'<Sequences>\n';
   for(const seq of sequences){
     s+=p+'  <Sequence name="'+xmlEsc(seq.name)+'" useSpeedAndAcceleration="'+(seq.useSA?'true':'false')+'">\n';
@@ -320,7 +366,9 @@ function buildMstrText(){
      sequence list — but only the LOADOUT is compiled into the script, which
      is what actually runs on the board */
   const seqXml = genSequencesXml(MSTR.sequences, '  ');
-  const script = genScript(loadoutSeqs(), enabled);
+  const load   = loadoutSeqs();
+  const script = genScript(load, enabled);
+  MSTR_EXPORT_DROPS = mstrExportDrops(load);   // what THIS file leaves behind — exportLintNote() prints it
   // NOTE: the closing tag is written as '<\/Script>' so the HTML parser does not
   // mistake it for the end of this <script> block.
   const scriptXml = '  <Script ScriptDone="true">'+xmlEsc(script)+'<\/Script>';
@@ -382,7 +430,7 @@ function actsPack(channels){
   return btoa(unescape(encodeURIComponent(JSON.stringify({v:1, acts:acts}))));
 }
 function mstrActsComment(t){
-  t = t.replace(/[ \t]*<!--r2sim:acts [A-Za-z0-9+/=]+-->\n?/g, '');
+  t = t.replace(/[ \t]*<!--r2sim:acts [A-Za-z0-9+/=]+-->\r?\n?/g, '');   // \r? — the text being stripped is CRLF; see mstrBlocksComment
   const packed = actsPack(MSTR.channels);
   if(!packed) return t;
   return t.replace('</UscSettings>', ()=>'  <!--r2sim:acts '+packed+'-->\n</UscSettings>');
@@ -391,9 +439,17 @@ function mstrActsComment(t){
    ignores comments), so a round trip through our own file can come back
    EDITABLE. Any older copy of the comment is stripped first. base64, so
    neither `--` (illegal inside an XML comment) nor a user's name can break
-   the file. blocksPack()/blocksTryAttach() in maestro/blocks.js. */
+   the file. blocksPack()/blocksTryAttach() in maestro/blocks.js.
+
+   v1.69.1 — \r? IN BOTH STRIPPERS. What they are stripping is MSTR.xmlText,
+   and MSTR.xmlText is a file as mstrBytes() wrote it: CRLF everywhere
+   outside the <Script> body. `-->\n?` never matched the \r, so the comment
+   went and its line ending stayed — one blank line per export→import cycle,
+   and it accumulates forever because the next export strips the new comment
+   and leaves ANOTHER one. Measured before the fix: four cycles, blank lines
+   1 → 2 → 3 → 4 and 45936 → 45942 bytes, with every other byte identical. */
 function mstrBlocksComment(t){
-  t = t.replace(/[ \t]*<!--r2sim:blocks [A-Za-z0-9+/=]+-->\n?/g, '');
+  t = t.replace(/[ \t]*<!--r2sim:blocks [A-Za-z0-9+/=]+-->\r?\n?/g, '');
   const packed = (typeof blocksPack === 'function') ? blocksPack(MSTR.sequences) : '';
   if(!packed) return t;
   return t.replace('</UscSettings>', ()=>'  <!--r2sim:blocks '+packed+'-->\n</UscSettings>');
@@ -437,16 +493,78 @@ const EXPORT_PORTABILITY_NOTE =
   + '\u2014 that re-expresses every target through their endpoints and says out '
   + 'loud what it could not match.';
 
+/* =============================== WHAT A .mstr LEAVES BEHIND (v1.69.1)
+
+   THE LOSS. A brick-compiled ramp carries `fr.speeds`, and genFrameRow()
+   writes them into the <Frame> row, so they survive the file and come back
+   through parseFrameRow(). They do NOT reach the board: genSeqBody() emits
+   `<duration> <targets\u2026> frame_\u2026`, and a Maestro script has no speed opcode
+   at all — the channel table's Speed column is what shapes the move once
+   restartScript(n) is running. Every .mstr export has always lost them and
+   has never said so, while the PCA door names every field it drops by hand
+   (pcaExportDrops, import.js) — and that door, since v1.66.0, actually
+   WRITES the speeds it used to apologise for.
+
+   WHY NOT JUST SET useSpeedAndAcceleration="true". Because the flag is not
+   ours to set and would be a claim about a script we did not write:
+
+     · it is AUTHORED DATA. mstrParse() reads the attribute into `seq.useSA`
+       and this file writes it back out; nothing else in the app reads it.
+       Deriving it from the frames instead would silently rewrite the value
+       in a builder's own imported file — a sequence they saved with the box
+       un-ticked would come back ticked — and a round trip would stop being
+       byte-identical to itself.
+
+     · it describes Control Center's SEQUENCE PLAYER and its own script
+       generator, not our script. What Control Center does with a sequence
+       flagged true whose script (ours) carries no speed commands is exactly
+       the behaviour we cannot verify from here: at best nothing, at worst it
+       is an invitation to "Copy Sequence to Script" and overwrite the
+       subroutine numbering restartScript(n) depends on. A flag that changes
+       what somebody else's program does on somebody else's bench is not a
+       thing to flip on a guess.
+
+   So: the receipt, in the shape pcaExportDrops() already uses — the field
+   named first, then the sentence that says what it means — and carried by
+   exportLintNote(), which is the note BOTH export receipts already print,
+   rather than a third mechanism. The list is counted at build time (that is
+   the only moment that knows which routines went into the script) and taken
+   once, so the PCA door's receipt cannot inherit a .mstr's losses. */
+let MSTR_EXPORT_DROPS = null;
+function mstrExportDrops(sequences){
+  const seqs = Array.isArray(sequences) ? sequences : [];
+  let saFrames = 0;
+  seqs.forEach(q=>(q.frames || []).forEach(f=>{ if(f.speeds || f.accels) saFrames++; }));
+  return [
+    {field:'per-frame speed', n:saFrames,
+     why:'the Maestro script has no speed opcode, so the channel table\'s speed governs the '
+       + 'motion on the board. ' + saFrames + ' frame(s) carry their own speed or acceleration '
+       + 'row; the rows are written into the sequence itself, so Control Center still shows '   // no angle brackets: this note is set as innerHTML
+       + 'them and a re-import still reads them.'}
+  ];
+}
+/* one sentence, names first — the shape Mike reads (pcaExportDropNote) */
+function mstrExportDropNote(list){
+  const l = (list || []).filter(d=>d && d.n);
+  if(!l.length) return '';
+  return ' <b>Not carried onto the board:</b> '
+       + l.map(d=>d.field + ' \u2014 ' + d.why).join(' ');
+}
 function exportLintNote(){
-  if(typeof lintMaestro !== 'function') return '';
+  /* taken, not read: the losses belong to the file just built, and the next
+     door to ask is asking about its own file */
+  const drops = MSTR_EXPORT_DROPS; MSTR_EXPORT_DROPS = null;
+  const note = mstrExportDropNote(drops);
+  if(typeof lintMaestro !== 'function') return note;
   let rep;
-  try{ rep = lintMaestro(); }catch(e){ return ''; }
+  try{ rep = lintMaestro(); }catch(e){ return note; }
   const n = (rep && rep.counts && rep.counts.err) || 0;
-  if(!n) return '';
+  if(!n) return note;
   const first = (rep.items || []).find(i=>i.level === 'err');
   return ' <b style="color:var(--rd,#c33)">Written with '+n+' validation error'
        + (n===1?'':'s')+' outstanding'+(first ? ': '+first.msg : '')+'</b>'
-       + ' \u2014 it is your file, but check the Validate panel before you flash it.';
+       + ' \u2014 it is your file, but check the Validate panel before you flash it.'
+       + note;
 }
 
 /* the <Channels> block, regenerated from live channel state */

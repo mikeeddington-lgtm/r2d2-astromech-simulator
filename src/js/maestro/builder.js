@@ -178,6 +178,71 @@ function bldLoadoutCol(){
   return col;
 }
 
+/* AN ERROR HAS TO LOOK LIKE ONE (v1.69.0). `.note` is the amber wash and
+   `.note.cy` recolours it cyan, but there has never been a `.note.rd` — so
+   step 3 asked for one, got the plain amber, and rendered 129 errors in the
+   exact colour of the 9 warnings underneath them. The two piles were
+   indistinguishable at a glance, which is the one job a colour has here.
+
+   The colour comes from --rd, the app's fault token (css/01-tokens.css:
+   "--rd faults · --am warnings · --gn good"), and the light theme already
+   overrides it — so this follows the theme rather than pinning a hex. It is
+   applied INLINE rather than as a class because the stylesheet is not this
+   file's to edit; export.js's exportLintNote() reaches for the same token
+   the same way, in the same situation. The wash is mixed from the token so
+   there is still exactly one red in the app; a browser that cannot mix
+   simply keeps the old background and the text and rule are still red. */
+function bldPaintError(node){
+  node.style.color           = 'var(--rd)';
+  node.style.borderLeftColor = 'var(--rd)';
+  node.style.background      = 'color-mix(in srgb, var(--rd) 9%, transparent)';
+  /* .note b is --amHi, which would leave the headline sentence amber inside
+     an otherwise red note — the loudest word on the line, in the wrong ink */
+  const b = node.querySelector('b');
+  if(b) b.style.color = 'var(--rd)';
+}
+
+/* AND IT HAS TO OFFER SOMETHING TO DO (v1.69.0). The report could say a
+   channel is wrong 129 times without once saying where to go and change it.
+   The Channels step of the servo bench is the one table with the endpoints,
+   the part column and a Test button on every row, and SETUP.sel is what
+   decides which channel it opens on — so that is the door, the same one
+   blocks-ui.js's blkMapPanelsOpen() uses for the same reason.
+
+   This is deliberately NOT a "fix it for me" button. The linter cannot know
+   whether a target of 8000 on a 10400-10800 channel means the endpoints were
+   never calibrated or the routine was written against a different droid, and
+   silently widening somebody's calibrated limits is how a panel goes through
+   the shell. It takes you to the channel; the judgement stays yours.
+
+   The bench is another full-screen overlay, so the builder closes first —
+   two of them stacked would leave Esc ambiguous. Nothing is lost by that:
+   the loadout is already saved in MSTR, and the button that reopens this is
+   where it always was. */
+function bldFixChannelStep(){
+  if(typeof SETUP_STEPS === 'undefined') return 4;
+  const i = SETUP_STEPS.findIndex(s=>s.key === 'channels');
+  return i >= 0 ? i : 4;
+}
+function bldAddFixChannel(node, item){
+  if(typeof item.ch !== 'number') return;
+  /* PCA Studio builds from this file and has the same bench; a host that
+     does not is simply left with the sentence, which is what it had. */
+  if(typeof setupOpen !== 'function' || typeof SETUP === 'undefined') return;
+  const bar = el('div','conbar');
+  const b = el('button','b','Fix channel '+item.ch+' →');
+  b.title = 'open the servo bench on channel '+item.ch+' — its endpoints, its part and its Test button';
+  b.dataset.fixch = String(item.ch);
+  b.addEventListener('click',()=>{
+    const ch = item.ch;
+    bldClose();
+    SETUP.sel = ch;
+    setupOpen(bldFixChannelStep(), {from:'builder'});
+  });
+  bar.appendChild(b);
+  node.appendChild(bar);
+}
+
 /* ---- column 3: validate & generate ---- */
 function bldCheckCol(){
   const col = el('div','bldcol');
@@ -207,6 +272,8 @@ function bldCheckCol(){
     rep.items.filter(i=>i.level===level).forEach(i=>{
       const n = el('div','note '+cls[level]);
       n.innerHTML = '<b>'+xmlEsc(i.msg)+'</b>'+(i.fix?'<br><span class="iwdim">'+xmlEsc(i.fix)+'</span>':'');
+      if(level === 'err') bldPaintError(n);
+      bldAddFixChannel(n, i);
       col.appendChild(n);
     });
   });

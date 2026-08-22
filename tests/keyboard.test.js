@@ -293,8 +293,76 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
   }));
   await ev(()=>{ closeStartup(); PREFS.seenStartup = true; });
 
+  console.log('\n════ M7e · "?" over the servo bench, and the Esc that hung up (2026-08-22) ════');
+  /* Two halves of one containment bug, both about a real board.
+
+     kbdHelpBlocked() hand-rolled four of the checks uiModalOpen() already
+     makes and missed the servo bench (#setupWrap) — and #kbdHelp is
+     z-index 250 against the bench's 80, so the card really did draw over
+     it. Worse than the picture: KBD.onKey and setup-hw.js's setupEsc are
+     both keydown listeners on the SAME document node, and
+     stopPropagation() does not stop a co-registered listener on the same
+     node. One Esc ran both — the card closed AND setupClose() ran, which
+     is setupExitHardware(): the port is closed and live drive disarmed.
+
+     A board is faked in rather than opened: there is no serial port in a
+     headless browser, and everything setupExitHardware() looks at is
+     SER.port / LIVE.on. serialDisconnect() nulls SER.port synchronously
+     before it awaits anything, so `!!SER.port` is a safe read straight
+     after the keypress. */
+  const plugIn = () => ev(()=>{
+    SER.port = {close(){}}; SER.kind = 'maestro'; SER.blocked = false;
+    SER.writer = null; SER.reader = null; MST.on = true;
+  });
+  await plugIn();
+  await ev(()=>setupOpen(4));
+  ok('the servo bench is open with a board on the wire', await ev(()=>
+    SETUP.open && !$('setupWrap').classList.contains('hide') && !!SER.port));
+  await page.keyboard.press('?');
+  ok('? does not open over the servo bench', await ev(()=>!$('kbdHelp')));
+  ok('…and the bench still has its board', await ev(()=>SETUP.open && !!SER.port));
+  await ev(()=>{ kbdHelpClose(); setupClose(); });
+
+  /* The other half, which the block above does NOT reach. The card traps
+     neither Tab nor Enter — that is deliberate, the driving keys keep
+     driving — so a control underneath is still focusable and still fires
+     while the card is up. Header Setup → the wizard's "Servo hardware"
+     rail is exactly that route to the bench, and it lands the bench UNDER
+     the card, where the '?' guard has already had its say. */
+  await plugIn();
+  await page.keyboard.press('?');
+  ok('with nothing modal up, ? opens the card', await ev(()=>!!$('kbdHelp')));
+  ok('nothing under the card is inert — a button still takes focus and fires on Enter', await ev(()=>{
+    const b = $('btnGrid'), was = b.classList.contains('act');
+    b.focus();
+    const got = document.activeElement === b;
+    b.dispatchEvent(new KeyboardEvent('keydown', {key:'Enter', bubbles:true, cancelable:true}));
+    b.click();                                   /* what Enter on a button does */
+    const fired = b.classList.contains('act') !== was;
+    b.click(); b.blur();                         /* put the grid back */
+    return got && fired;
+  }));
+  await ev(()=>setupOpen(4));                    /* the bench, opened under the card */
+  ok('so the bench can be standing under the card, board and all', await ev(()=>
+    !!$('kbdHelp') && SETUP.open && !!SER.port));
+  await page.keyboard.press('Escape');
+  ok('one Escape closes the card and nothing else', await ev(()=>!$('kbdHelp') && SETUP.open));
+  ok('the board connected before ? and Escape is still connected', await ev(()=>
+    !!SER.port && MST.on === true));
+  await page.keyboard.press('Escape');
+  ok('the next Escape is the bench\'s, and THAT is what hangs up', await ev(()=>
+    !SETUP.open && !SER.port));
+  await ev(()=>{ kbdHelpClose(); if(SETUP.open) setupClose();
+                 SER.port = null; SER.kind = ''; MST.on = false; });
+
+  /* The suite has collected pageerror all along and only PRINTED it: `pass`
+     and `fail` never saw it, and the printed line matches neither the runner's
+     grep nor a reader skimming for FAIL — so a ReferenceError in a path this
+     suite exercises scrolled past invisibly. The other 23 suites close with
+     this assertion; now so does this one. */
+  ok('no page errors', errs.length === 0, errs.join(' | '));
+
   console.log(`\n${pass} passed, ${fail} failed`);
-  console.log('page errors:', errs.length?errs:'none');
   await browser.close();
   process.exit(fail?1:0);
 })();

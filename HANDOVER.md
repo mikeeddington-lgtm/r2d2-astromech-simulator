@@ -41,7 +41,7 @@ Fusion OBJ exports have never been in the repository and stay out of it.
 | | |
 |---|---|
 | Modules | 104 JS, 15 CSS, 1 markup fragment (+ the MaestroPCA Arduino library under `arduino/`) |
-| Tests | **5309 passing** across 36 suites, both builds, zero failures — plus PCA Studio's 86-assertion smoke test (in `./test.sh`) and 169 host-compiled C++ assertions plus **four** sketch-compile checks in `arduino/MaestroPCA/test` (`./run.sh`). v1.45.0 added 227 of them and v1.60.0 carries the gauges' 45, every one written red first |
+| Tests | **5524 passing** across 36 suites, both builds, zero failures — plus PCA Studio's 86-assertion smoke test (in `./test.sh`) and 169 host-compiled C++ assertions plus **four** sketch-compile checks in `arduino/MaestroPCA/test` (`./run.sh`). v1.45.0 added 227 of them and v1.60.0 carries the gauges' 45, every one written red first |
 | Dist size | ≈8.21 MB single self-contained HTML (0.75 MB of it the twenty-one board photos, inlined) |
 | PCA Studio | 0.12.2 — built from `pca-studio/manifest.json` — 20 modules, 12 of them the sim's own |
 | Firmware profiles | 3 hand ports (mod2026, Maestro 2025 PWM, Maestro 2022 BETA) + one per imported `.ino`, side by side |
@@ -1212,6 +1212,131 @@ not missing, it was folded in here (noted 2026-08-17).
   touched it since.
 
 ## 10. Change log
+
+### 2026-08-22 - v1.70.0: the handed-off half, and a test runner that can fail
+
+**Why.** v1.69.0 shipped 61 fixes and handed 31 off, because another session
+had nine files uncommitted. Mike: *"For B can you sort it out"*. Those files
+had not been touched since 23:09 the night before and were already inside
+v1.69.0's green run, so **their work was committed first and unchanged as
+`304ad97`** - nine files of finished work in a dirty tree is the one case git
+cannot help with - and this release is built on top of it.
+
+**Their v1.68.1 made one of the handed-off findings worse, which is why it went
+first.** `scriptSubNames()` now deliberately emits `s_2001_Salute` and
+`Dome_Wave_2` where two routine names collapse onto one `niceName()` symbol -
+correct, and the reason two `sub Dome_Wave` blocks stopped both resolving to the
+first routine. But `import.js` still matched subs on `niceName`, so every such
+name now failed to match on re-import and fell into the "this file carried no
+`<Sequences>`" recovery, which appends a phantom copy: 8 -> 10 -> 12 routines
+over two round trips, each with frames identical to the original. Matching on
+the exporter's own symbols closes it, with the old symbols kept as a fallback so
+every file written before v1.68.1 still resolves.
+
+**The export door was writing `undefined` into the script.** `genFrameRow` got
+the v1.39.5 hole fix; `genSeqBody` - the half `restartScript(n)` actually runs -
+did not, so a table the bench had grown past `servoCount` produced 19 script
+lines reading `500 6000 undefined undefined undefined`. The same normalisation
+now decides both the emitted value and the has-it-changed test, so a hole and an
+explicit 0 stop re-commanding channels for nothing. Alongside it, frame rows
+were written at `MSTR.servoCount` columns while `<Channels>` declared
+`MSTR.channels.length`, so a channel added on the bench was declared and then
+silently dropped from every frame.
+
+**And re-importing your own `.mstr` renumbered the d-pad.** `mstrApply` called
+`loadoutReset()`, which is the whole library in library order - but the script's
+subroutine order, which is what slot numbers mean, is the **loadout** order: a
+subset, in a chosen order. A curated `0=Dome Flutter, 1=Whole Dome Open` came
+back as `0=Dome Pies Open … 7=Dome Flutter`. The loadout now comes from the
+file's own subs, positionally, and falls back to a reset only when the file
+carried no script - the one case the old comment actually described.
+
+**Three buttons that wiped everything, and the two edits that left bricks
+pointing at nothing.** Body / Dome / Frik head starter each replaced the channel
+table and the sequence library and rewrote the browser backup in the same click,
+with no question - the only destructive path in the app that did not ask. And
+renaming a sequence left every whole-sequence brick in other routines naming a
+sequence that no longer existed: the brick stays on the timeline, keeps its
+length, and compiles to a held pose. Rename now re-points and recompiles them;
+delete names the count and the routines and asks.
+
+**The firmware and the sim had drifted apart in a day.** v1.69.0 widened the
+track mask to four words in `MaestroPCA.h` and left `pcaSeqMask` folding at 31,
+so the sim said two sequences above channel 31 collided and the board said they
+did not. `pcaseq.js` now mirrors `struct Mask` method for method, including the
+corrected `c < 32` boundary - and `pca-gen.js`'s `#warning` about slots above
+127, which after v1.69.0 was true against a fixed library and false against the
+copy anyone already has, now says which, and emits a hard `#error` keyed on
+`MPCA_MASK_WORDS` rather than a `#warning` nobody sees on a droid with no serial
+monitor.
+
+**Two more in the generators.** A `*/` or a newline in a routine or channel name
+went raw into the `/* … */` comments that `pcaHeaderParse` reads names back out
+of - so the generated C++ broke and the name came back truncated, taking the
+bricks that match on it. And a frame longer than 65535 ms was silently clamped;
+it is now split into repeated rows, which is exact rather than merely reported,
+because a target already given persists and a target of 0 means "not driven".
+
+**Importing a servo config never reached the engine.** Speed, acceleration, ease
+and mode are copied once, at `pcaCreate`, so an imported speed limit did not
+apply - the servo still slammed - and a channel the file turned into a Servo
+could not be driven at all. One 10 ms tick crossed the whole throw where the
+file asked for 1.1 seconds. This one had to wait for v1.69.0's `aim` fix, or the
+rebuild it adds would have flung every driven channel home. `ease` and
+`releaseMs` were also missing from `SERVO_CFG_FIELDS`, so both `.json` exports
+dropped them - including the copy the "save first, then import" gate writes.
+
+**## The safety net was not one**
+
+`./test.sh` **could not fail.** Every suite ran as
+`node "$s" | grep … || echo '(no summary)'`, and a pipeline reports grep's
+status, not node's - so 37 suites' `process.exit(fail ? 1 : 0)` was discarded at
+the pipe, the `||` made the compound succeed unconditionally so `set -e` had
+nothing to fire on, and that same construct was the last statement in the file.
+`./test.sh` returned 0 with FAIL lines scrolling past it. So did `npm test` and
+anything keying off it. It now captures each status before anything pipes it,
+accumulates across suites and targets, prints a plain PASS/FAIL verdict, and
+distinguishes a suite that printed nothing from one whose summary line simply
+did not match. Proven three ways: green run exits 0; a deliberately failed
+assertion exits 1 and names the suite; a suite that dies on `require` exits 1
+and echoes the error.
+
+**And nothing checked the tracked PCA Studio build.** The standing note says it
+is tracked "so `./test.sh` fails loudly on a stale one" - that check had never
+existed, and `smoke.test.js` asserts against the checked-in artefact, so a stale
+file passes its own smoke test by definition. `tools/check-studio.js` runs the
+real generator with its write intercepted, compares in memory, and names the
+first differing byte and which module it lands in. It cannot repair what it is
+meant to report, which a rebuild-and-diff would. `npm run build` now runs
+`./build.sh` rather than half of it.
+
+**Fourteen suites collected page errors and never asserted on them** - a
+`ReferenceError` from an unloaded module scrolled past invisibly, and the
+`PAGE ERRORS:` line did not even match the runner's grep. All fourteen now
+assert, and the assertion was proved live by removing `esc-guard.js` from
+`dev.html` and watching five suites go red on `escGuard is not defined`. Four
+assertions that could not fail were rewritten to assert their mechanism -
+including one where the `|| true` was hiding a wrong operator, not just a
+constant, and one where a four-word mask array was being `&`-ed into `NaN` so
+the test would have passed for two *identical* masks.
+
+**Also:** `?` opened over the servo bench and one Escape then closed the card
+*and* the bench, which disconnects the board and disarms live drive - the
+blocker now asks `uiModalOpen()` rather than hand-rolling four of its six
+checks, and the handler uses `stopImmediatePropagation`. The Maestro watcher
+polled every 200 ms while each ask could take 400 ms to time out, all serialised
+on one chain, so a board that accepts bytes and never replies built an unbounded
+backlog that kept writing for seconds after the watch was stopped; it now
+re-arms itself after each pass. The validate panel collapsed 129 identical lines
+into one that names the channel and the frame count, painted errors in the
+fault token instead of the warnings' amber, and grew a "Fix channel N" that
+lands on that channel in the bench. And the nine unlabelled file buttons each
+say what their file is and who it is for - **which three get promoted out of the
+collapsed row is still Mike's call and was deliberately not taken.**
+
+**Suite: 5309 -> 5524 assertions**, 36 suites x 2 builds plus PCA Studio, green,
+and for the first time the runner would have told us if it were not.
+
 
 ### 2026-08-22 - v1.69.0: the review release - 61 bugs, and the ones that move a real servo
 

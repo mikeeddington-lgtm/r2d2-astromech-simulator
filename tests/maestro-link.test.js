@@ -184,7 +184,7 @@ const ok = (n,c,x='') => { c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+' 
     const past = window.__tx.length === before;
     serialConfig();                              /* a PCA9685 idea */
     const cfg = window.__tx.length === before;
-    return {first, dedup:same === 1 || window.__tx.length >= 1, sameLen:same, off, past, cfg};
+    return {first, sameLen:same, off, past, cfg};
   });
   ok('a target is 0x84, channel, then the 7-bit halves',
      JSON.stringify(routed.first) === '[132,2,112,46]', JSON.stringify(routed.first));
@@ -379,6 +379,67 @@ const ok = (n,c,x='') => { c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+' 
   ok('it re-derives the build rather than finishing the wizard',
      JSON.stringify(adoptCalls.log) === '["buildApply","buildApply"]',
      JSON.stringify(adoptCalls.log));
+
+  /* ════ A QUIET-BUT-OPEN PORT MUST NOT BUILD A BACKLOG (2026-08-22)
+     The watcher was a setInterval that did not wait for its own fire. Every
+     ask chains on MST.busy behind a 400 ms timeout, so a board that never
+     answers services 2.5 asks a second while the timer queues 6.25: the
+     chain grows without bound, the readout goes staler the longer you stand
+     there, and bytes keep going at the board. It self-healed only when a
+     WRITE failed — and quiet-but-open is exactly the port where writes
+     always succeed: a Maestro in the wrong serial mode, or the TTL half of
+     a Dual Port pair.
+
+     THE PROOF IS WHAT HAPPENS AFTER THE STOP. What is already queued on
+     MST.busy is beyond clearInterval's reach, so on the old poller the wire
+     kept talking for seconds after mstrUnwatch() — one write per backlogged
+     ask, at a board nobody is watching any more. A poller that re-arms
+     itself has nothing queued: at most one ask is ever outstanding, and
+     stopping mid-flight is the only case there is. */
+  console.log('\n════ a silent board must not build a backlog of asks ════');
+  const quiet = await ev(async ()=>{
+    const sleep = ms => new Promise(r=>setTimeout(r, ms));
+    SER.port = {}; SER.blocked = false; SER.kind = 'maestro';
+    MST.on = true; window.__reply = null;        /* writes land, nothing answers */
+    window.__tx.length = 0;
+    mstrWatch(2);
+    await sleep(2000);                           /* long enough for a backlog to build */
+    const during = window.__tx.length;
+    mstrUnwatch();                               /* and it is mid-ask, by construction */
+    const atStop = window.__tx.length;
+    await sleep(2000);
+    const out = {during, after: window.__tx.length - atStop,
+                 timer: MST.watchTimer, ch: MST.watchCh};
+    MST.on = false; window.__tx.length = 0;
+    return out;
+  });
+  ok('stopping the poll stops the traffic — nothing queued outlives it',
+     quiet.after === 0, quiet.after + ' more write(s) after mstrUnwatch(), '
+     + quiet.during + ' during');
+  ok('…and nothing is left armed, mid-flight or not',
+     quiet.timer === null && quiet.ch === null, 'timer=' + quiet.timer + ' ch=' + quiet.ch);
+
+  /* the other half of the same change: a board that DOES answer is still
+     polled, and the poller still re-arms itself after each reply */
+  const lively = await ev(async ()=>{
+    const sleep = ms => new Promise(r=>setTimeout(r, ms));
+    const real = window.serialRaw;
+    let asks = 0;
+    window.serialRaw = function(){               /* every ask answered, always */
+      asks++;
+      setTimeout(()=>mstrRx(new Uint8Array([0x70, 0x17])), 0);   /* 6000 */
+    };
+    SER.port = {}; SER.kind = 'maestro'; MST.on = true; MST.pos = {};
+    mstrWatch(7);
+    await sleep(900);
+    const out = {asks, pos:MST.pos[7], ch:MST.watchCh, armed:MST.watchTimer !== null};
+    mstrUnwatch(); window.serialRaw = real; MST.on = false;
+    return out;
+  });
+  ok('a board that answers is polled every cycle, and the readback lands',
+     lively.asks >= 3 && lively.pos === 6000, JSON.stringify(lively));
+  ok('…and the poller re-arms for the next one', lively.armed === true && lively.ch === 7,
+     JSON.stringify(lively));
 
   await ev(()=>{ SER.port = null; SER.kind = ''; mstrReset(); });
   ok('no page errors', errs.length === 0, errs.join(' | '));

@@ -457,6 +457,119 @@ const ok = (n,c,x='') => { c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+' 
      never.short === null && never.can === false && never.adopt === false
      && never.after === never.before && never.after === 48, JSON.stringify(never));
 
+  /* ═══════════════════════════════════════════════════════════════════
+     AN IMPORT THAT NEVER REACHED THE HARDWARE  (v1.69.1)
+
+     The engine is a COPY of the channel table, not a view of it: pcaCreate
+     reads speed, acceleration, ease and `servo` (from mode) once, at build
+     time, and only min/max are read live off the shared array. Every door
+     into servoCfgApply() ended at rebuildMaestroUI(), which is three render
+     calls — so an imported speed limit stayed a number in a table while the
+     board still slammed the panel across at full rate, and a channel the
+     file turned INTO a servo could not be driven at all.
+
+     Both halves are asserted on the engine rather than the table, because
+     the table was always right; it was the thing that moves that was
+     wrong. */
+  console.log('\n════ an imported servo config reaches the ENGINE, not just the table ════');
+  const impEng = await ev(()=>{
+    const c3 = HW.ensure(3), c7 = HW.ensure(7);
+    c3.mode = 'Servo'; c3.min = 4800; c3.max = 6400; c3.home = 4800; c3.homemode = 'Goto';
+    c3.speed = 0; c3.acceleration = 0; c3.ease = 'none'; c3.releaseMs = 0;
+    c7.mode = 'Input'; c7.speed = 0; c7.acceleration = 0;
+    HW.save(); HW.rebuild(false);                 // an engine built from THIS table
+    const file = JSON.stringify({kind:'r2sim.servo-config', version:1, channels:[
+      {i:3, speed:80},
+      {i:7, mode:'Servo', min:4800, max:6400, home:4800, homemode:'Goto'}]});
+    servoCfgImportText(file, 'R2-servos-bench.json');
+    const E = HW.engine();
+    HW.drive(3, 6400);                            // 4800 → 6400 qus, one full throw
+    HW.tick(10);                                  // exactly one 10 ms engine tick
+    const moved = HW.pos(3) - 4800;
+    HW.drive(7, 6400); HW.tick(10);
+    return {tableSpeed: HW.channels()[3].speed, engineSpeed: E.st[3].speed,
+            tableMode: HW.channels()[7].mode, engineServo: E.st[7].servo,
+            moved, ch7pos: HW.pos(7)};
+  });
+  console.log('  ' + JSON.stringify(impEng));
+  ok('the speed in the file is the speed the engine runs at',
+     impEng.tableSpeed === 80 && impEng.engineSpeed === 80, JSON.stringify(impEng));
+  ok('…so one 10 ms tick cannot cross the whole throw any more',
+     impEng.moved > 0 && impEng.moved < 1600, String(impEng.moved));
+  ok('a channel the file turns into a Servo can actually be driven',
+     impEng.engineServo === true && impEng.ch7pos === 6400, JSON.stringify(impEng));
+
+  /* ═══════════════════════════════════════════════════════════════════
+     THE TWO FIELDS THE SERVO CONFIG DROPPED  (v1.69.1)
+
+     `releaseMs` and `ease` are per-channel bench settings; both C headers
+     carry them and both firmware doors consume them. They were missing
+     from SERVO_CFG_FIELDS, so the two .jsons built on servoCfgFrom() — the
+     bench's own R2-servos-*.json and the choreography file that
+     impChooseSave('servo') writes as the "save a copy first" safety gate —
+     left them behind without saying so. The safety net dropped the
+     settings it exists to preserve. */
+  console.log('\n════ the servo config carries release and ease ════');
+  const relOut = await ev(()=>{
+    const c = HW.ensure(3);
+    c.releaseMs = 1500; c.ease = 'overshoot';
+    const row = servoCfgExportObj().channels[3];
+    const cho = (typeof seqLibExportObj === 'function') ? seqLibExportObj().maestro.channels[3] : {};
+    return {rel: row.releaseMs, ease: row.ease, choRel: cho.releaseMs, choEase: cho.ease};
+  });
+  console.log('  ' + JSON.stringify(relOut));
+  ok('the exported servo config has the release time in it', relOut.rel === 1500, String(relOut.rel));
+  ok('…and the ease', relOut.ease === 'overshoot', String(relOut.ease));
+  ok('…and so does the copy the "save first" gate writes',
+     relOut.choRel === 1500 && relOut.choEase === 'overshoot', JSON.stringify(relOut));
+  const relBack = await ev(()=>{
+    const file = JSON.stringify(servoCfgExportObj());   // written with 1500 / overshoot
+    const c = HW.ensure(3);
+    c.releaseMs = 0; c.ease = 'none';                   // as if on somebody else's bench
+    servoCfgImportText(file, 'R2-servos-new.json');
+    const now = HW.channels()[3];
+    return {rel: now.releaseMs, ease: now.ease, engRel: HW.engine().st[3].releaseMs};
+  });
+  ok('reading that file back puts both of them on the channel',
+     relBack.rel === 1500 && relBack.ease === 'overshoot', JSON.stringify(relBack));
+  ok('…and on the engine, which is what stops pulsing', relBack.engRel === 1500, String(relBack.engRel));
+  /* an absent key has always meant "keep what is there" (servoCfgApply only
+     copies fields the row actually defines), and a config somebody kept for
+     a year must not start clearing a setting it has never heard of */
+  const relOld = await ev(()=>{
+    const c = HW.ensure(3);
+    c.releaseMs = 1500; c.ease = 'overshoot';
+    const o = servoCfgExportObj();
+    o.channels.forEach(r=>{ delete r.releaseMs; delete r.ease; });   // a pre-v1.69.1 file
+    servoCfgImportText(JSON.stringify(o), 'R2-servos-2026-01-01.json');
+    const now = HW.channels()[3];
+    return {rel: now.releaseMs, ease: now.ease};
+  });
+  ok('an older file without them leaves what is already set alone',
+     relOld.rel === 1500 && relOld.ease === 'overshoot', JSON.stringify(relOld));
+
+  /* ═══════════════════════════════════════════════════════════════════
+     THE READER AGREES WITH THE WRITER ABOUT NAMES  (v1.69.1)
+
+     pcaCommentSafe() (pca-gen.js) turns `* /` into `* /` and every newline
+     into a space before a name reaches a C comment, because those comments
+     are where pcaHeaderParse reads the name back OUT. A hand-edited header
+     is the one that never went through it, so the reader has to hold the
+     same line — otherwise a channel comes back carrying a newline in its
+     name, and the round trip stops being a round trip. */
+  console.log('\n════ a name read out of a row comment cannot carry a newline ════');
+  const meta = await ev(()=>{
+    const clean = pcaRowMeta('ch 3 Dome Pie 3', 3);
+    const dirty = pcaRowMeta('ch 3 Dome\nPie 3', 3);
+    return {clean: clean.name, dirty: dirty.name,
+            written: (typeof pcaCommentSafe === 'function') ? pcaCommentSafe('Dome\nPie 3') : ''};
+  });
+  console.log('  ' + JSON.stringify(meta));
+  ok('a newline in a hand-edited row comment never becomes part of a name',
+     !/[\r\n]/.test(meta.dirty), JSON.stringify(meta.dirty));
+  ok('…and the name it reads is the one pcaCommentSafe would have written',
+     meta.dirty === meta.clean && meta.dirty === meta.written, JSON.stringify(meta));
+
   console.log('\n════ no page errors ════');
   ok('nothing threw', errs.length === 0, errs.slice(0,3).join(' | '));
 
