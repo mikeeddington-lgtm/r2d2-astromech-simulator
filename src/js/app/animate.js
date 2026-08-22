@@ -218,6 +218,12 @@ function applyToModel(dt){
     if(FW.isHPOn){ h.material.emissive.setHex(0x9fe4ff); h.material.emissiveIntensity = 1.5+0.5*Math.sin(blinkT*5); }
     else { h.material.emissive.setHex(0x000000); h.material.emissiveIntensity = 0; }
   }
+  /* AstroPixels, LAST — everything above is the stand-in that runs when a
+     build has no simulated dome lighting, and the layer that does simulate
+     it must have the final say on the same meshes rather than fighting a
+     sine wave for them. apxTick() counts its own 10 ms frames, so the dt
+     handed in only decides how many of them happen. (lights/) */
+  if(typeof apxTick === 'function'){ apxTick(dt*1000); apxSync(); }
 }
 
 /* =====================================================================

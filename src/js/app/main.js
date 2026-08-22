@@ -352,6 +352,12 @@ window.addEventListener('load',()=>{
   if(typeof linkChipInit==='function') linkChipInit();
   if($('verTag')) $('verTag').textContent = 'v'+APP_VERSION;
   sbankBindUI(); sbankInit();
+  /* the AstroPixels layer, before the first frame: apxInit() reads the
+     build's dome-lighting answer and the remembered sketch, sizes every
+     pixel grid and runs the boot banner. The 3D rig itself is built lazily
+     on the first sync, because it needs the dome that initScene() is about
+     to make. (lights/commands.js) */
+  if(typeof apxInit === 'function') apxInit();
   initScene();
   applyTheme(PREFS.theme);
   /* the build config decides which sketch runs — a returning user gets the

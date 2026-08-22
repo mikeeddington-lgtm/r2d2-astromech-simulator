@@ -471,9 +471,20 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
     firmwareRecommend({domeServo:'mini24',bodyServo:'mini12',bodyDrive:'sabertooth',sound:'dysv5w'}).id==='maestro25'));
 
   console.log('\n════ parked options are recorded, not pretended ════');
+  /* v1.74.0 — this used to be AstroPixels, which is now SIMULATED: the
+     logics, PSIs and holoprojectors run the real LogicEngine effects on the
+     boards' own pixel grids (src/js/lights/). Teeces is the parked answer
+     that is left, and the assertion is about the machinery, not the board:
+     a builder can still choose hardware the sim does not model, and the
+     review has to say so out loud rather than quietly pretending. */
+  await ev(()=>buildSet('domeLights','teeces'));
   ok('an unsimulated option is selectable and says so', await ev(()=>
-    buildOpt('domeLights','astropixels').sim==='park' &&
-    buildConflicts().some(c=>c.kind==='park' && /AstroPixels/.test(c.text))));
+    buildOpt('domeLights','teeces').sim==='park' &&
+    buildConflicts().some(c=>c.kind==='park' && /Teeces/.test(c.text))));
+  await ev(()=>buildSet('domeLights','astropixels'));
+  ok('...and AstroPixels is no longer one of them', await ev(()=>
+    buildOpt('domeLights','astropixels').sim==='full' &&
+    !buildConflicts().some(c=>c.kind==='park' && /AstroPixels/.test(c.text))));
   /* v1.32.0 — the RC answer moved park → sub: the SIM reads a transmitter
      now (input/rc.js), but no sketch has an RC input layer, so a calibrated
      channel STANDS IN for the Xbox map rather than arriving the way it

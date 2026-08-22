@@ -61,6 +61,12 @@ const R2 = {
   body:new THREE.Group(),
   dome:new THREE.Group(),
   pies:[], hp:[], psi:[], logic:[],
+  /* the GROUPS the stand-in's logic and PSI lights live in, so the
+     AstroPixels layer can hide the whole fitting — bezel included — and
+     put its own pixel panels on the dome instead. Hiding only the glowing
+     face leaves the black surround behind, floating where the real board
+     is not. (lights/render3d.js) */
+  logicG:[], psiG:[],
   doorL:null, doorR:null,
   gripArm:null, gripFingerA:null, gripFingerB:null,
   interArm:null, interTool:null,
@@ -156,7 +162,7 @@ function buildDome(){
     faceOut(g, theta, phi, DOME_R*0.985);
     g.add(box(w+0.012,h+0.012,0.006,MAT.black,0,0,0));
     const lite = box(w,h,0.004,MAT.glowB.clone(),0,0,-0.004);
-    g.add(lite); R2.logic.push(lite);
+    g.add(lite); R2.logic.push(lite); R2.logicG.push(g);
     d.add(g);
   };
   mkLogic(0.86, 0,       0.098, 0.020);
@@ -168,7 +174,7 @@ function buildDome(){
     faceOut(g, 1.04, phi, DOME_R*0.985);
     const p=cyl(0.019,0.019,0.008,MAT.black,16); p.rotation.x=Math.PI/2; g.add(p);
     const l=cyl(0.015,0.015,0.006,mat.clone(),16); l.rotation.x=Math.PI/2; l.position.z=-0.005; g.add(l);
-    d.add(g); R2.psi.push(l);
+    d.add(g); R2.psi.push(l); R2.psiG.push(g);
   };
   mkPSI(-0.68, MAT.glowB);
   mkPSI( 0.68, MAT.glowR);

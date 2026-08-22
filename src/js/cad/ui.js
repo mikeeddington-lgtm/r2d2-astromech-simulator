@@ -655,6 +655,11 @@ function buildCadPane(){
     'and four of the inner pies are all called <b>Pie5</b> in the CAD, so their names carry no order at all. Print the <b>Wiring sheet</b> to get both columns side by side.';
   s3.appendChild(hName);
 
+  /* v1.74.0 — the dome's lights, on the pane that is already about what the
+     droid looks like. It sits after the moving parts because it is the same
+     kind of answer: what is fitted to this dome, and what it is doing. */
+  if(typeof buildDomeLightsSect === 'function') buildDomeLightsSect(host);
+
   const h3 = el('div','hint prose');
   h3.innerHTML = 'The dome has <b>12</b> pie panels: six MainPies printed as one piece with the dome (static), and six inner pies; the real build moves only <b>five</b> inner pies (Pie 1–4 pivot, Pie 5 lifts) against <b>11</b> firmware channels, leaving Pie 6 fixed — reassign as you like. '+
     'Likewise the MK4 body has <b>four</b> doors against two firmware channels: the front pair follows ch0/ch1 and the rear pair is free for a Maestro slot. '+

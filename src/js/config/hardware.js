@@ -67,7 +67,7 @@ const BUILD_STEPS = [
   {key:'domeMotor',  title:'Dome motor',      q:'What spins the dome?',
    why:'All three sketches drive the dome from Serial2 with the Syren/Sabertooth packetised protocol at address 128.'},
   {key:'domeLights', title:'Dome lighting',   q:'What lights the dome?',
-   why:'Logics, PSIs and holoprojectors. Only the wiring is recorded for now — no lighting firmware is simulated yet.'},
+   why:'Logics, PSIs and holoprojectors. Answer AstroPixels and the dome lights for real — the LogicEngine effects run on the model, on the actual board geometry. Which sketch is flashed and which door it listens on are set beside the droid, on the Model pane, because those are the sketch\'s own constants rather than a fact about your hardware.'},
   {key:'bodyDrive',  title:'Foot drive',      q:'What drives the feet?',
    why:'This is the open decision on your build, and it is the one thing that changes which sketch you can run.'},
   {key:'sound',      title:'Sound',           q:'Which sound board?',
@@ -224,8 +224,13 @@ const BUILD_OPTIONS = {
      note:'The dome half of the mod2026 arrangement: 16 channels, 11 of them wired to pie panels by the sketch.'}
   ],
   domeLights:[
-    {id:'astropixels', label:'AstroPixels', sim:'park',
-     note:'NeoPixel logics, PSIs and HPs on a single data line. Wiring recorded; no lighting sequences are simulated yet.'},
+    /* v1.74.0 — promoted out of `park`. The logics, the PSIs and the
+       holoprojectors are simulated at the pixel: 9x10 and 27x4 matrices,
+       the six palettes, the ninety-state colour walk and the LE/HP command
+       grammar. What is NOT simulated is the ESP32 itself — see the note in
+       lights/pcb.js on why none of the firmware is ported. */
+    {id:'astropixels', label:'AstroPixels', sim:'full',
+     note:'NeoPixel logics, PSIs and HPs on a single data line off an ESP32. The dome lights for real: every LogicEngine effect on the boards\' own pixel grids, driven by LE/HP commands.'},
     {id:'teeces',      label:'Teeces',      sim:'park',
      note:'The classic MAX7219 chain. Recorded for the wiring sheet.'},
     {id:'none',        label:'None yet',    sim:'park',

@@ -17,7 +17,13 @@ const STORE_KEY = 'r2sim.prefs.v1';
    separation, look/theme.js). Holding the stage dark by default under a light
    frame would be a deliberate two-tone look, which is exactly what the BG
    picker is for — not something to hand somebody who has chosen nothing. */
+/* `lights` is the AstroPixels sketch and the door it listens on — which
+   sketch is flashed is not a fact about the hardware, so it is not one of
+   the build questions; it lives beside the droid on the Model pane and is
+   remembered here. Null means "never chosen": apxInit() then takes the
+   stock standard firmware over Serial2. (lights/commands.js) */
 const PREFS = { theme:'light', stageTheme:'follow', uiScale:1.0, paint:null, seenStartup:false,
+  lights:null,
   favColors:['#d4af37','#c9ced6','#b87333','#dfe6ee','#2b5fb0','#c0392b'] };
 
 function prefsLoad(){
