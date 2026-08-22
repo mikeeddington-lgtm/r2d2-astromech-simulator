@@ -367,8 +367,25 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
   if(cad.skip) console.log('  (the CAD payload did not load — skipping the MK4 anchors)');
   else {
     ok('the MK4 gets its own rig', cad.host==='cad');
-    ok('five panels, each inside the CAD part it is fitted to', cad.panels===5 && cad.inside.length===0,
+    ok('five panels, each on the bearing of the CAD part it is fitted to', cad.panels===5 && cad.inside.length===0,
       cad.inside.join(' | '));
+    /* v1.74.1 — the placement RULE, not just the neighbourhood. Every panel
+       sits on the fitted shell at its part's bearing, offset by that
+       fitting's own `out`: negative for a logic display recessed into the
+       dome, positive for a PSI standing on its lens. Anchored to the part's
+       centroid instead, the PSIs rendered perfectly and were never seen —
+       the model's own 38 mm PSI can was drawn over the top of them. */
+    ok('...and at the fitted shell radius, not at the part centroid',
+      await ev(()=>{
+        const fit=LR.cadFit, bad=[];
+        for(const key of Object.keys(LR_CAD_ANCHOR)) for(const a of LR_CAD_ANCHOR[key]){
+          const g=LR.rigs.cad.children.find(c=>!c.userData.holo &&
+            Math.abs(Math.hypot(c.position.x, c.position.y-fit.y, c.position.z)
+                     - (fit.r + a.out)) < 0.0005);
+          if(!g) bad.push(a.part);
+        }
+        return bad.length===0;
+      }));
     ok('the dome sphere is fitted to the shell to within a few millimetres',
       cad.fit && cad.fit.rms < 0.012 && cad.fit.r > 0.15 && cad.fit.r < 0.30,
       cad.fit ? ('r='+cad.fit.r.toFixed(4)+' rms='+(cad.fit.rms*1000).toFixed(1)+' mm from '+cad.fit.n+' points') : 'no fit');

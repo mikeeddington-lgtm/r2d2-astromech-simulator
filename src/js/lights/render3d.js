@@ -74,11 +74,19 @@ const LR_PLACE = {
    each one shows. `inset` trims the surround off the bounding box: these
    parts are the FRAME, and the lit area is smaller than the casting. */
 const LR_CAD_ANCHOR = {
-  fld:  [{part:'SmallLogicLightUp',  rows:[0, 0.5], inset:0.0015},
-         {part:'SmallLogicLightLow', rows:[0.5, 1], inset:0.0015}],
-  rld:  [{part:'LargeLogicInner',    rows:[0, 1],   inset:0.0035}],
-  fpsi: [{part:'FrontPSIRing',       rows:[0, 1],   inset:0.0075}],
-  rpsi: [{part:'RearPSIRing',        rows:[0, 1],   inset:0.0075}]
+  fld:  [{part:'SmallLogicLightUp',  rows:[0, 0.5], inset:0.0015, out:-0.004},
+         {part:'SmallLogicLightLow', rows:[0.5, 1], inset:0.0015, out:-0.004}],
+  rld:  [{part:'LargeLogicInner',    rows:[0, 1],   inset:0.0035, out:-0.004}],
+  /* the PSI LENS, not the ring around it, and `out` is why. Anchored to
+     FrontPSIRing at the shell the panel rendered perfectly and was never
+     seen: the model's PSI is a 38 mm can whose lens tips 8 mm proud of the dome,
+     and it was drawn over the top. `out` is the only hand-set number in
+     this file — the four boards sit on the fitted shell (`out` negative =
+     recessed into it, which is what a logic display looks like), and the
+     two PSIs stand out on their lenses. It is measured off the CAD's own
+     bounding boxes and it is stated here rather than buried. */
+  fpsi: [{part:'FrontPSI',           rows:[0, 1],   inset:0.0075, out:0.009}],
+  rpsi: [{part:'RearPSI',            rows:[0, 1],   inset:0.0075, out:0.009}]
 };
 /* Holoprojectors on the CAD dome. The MK4 export does not model them at all
    — there is a RadarEye and there are pie panels, and no holoprojector
@@ -294,7 +302,7 @@ function lrCadPhi(name){
 /* A part's lit face: where it is, how big it is across the dome, and which
    way it looks. The outward direction is radial from the fitted centre,
    which for a board sunk into a spherical shell is exactly right. */
-function lrCadFace(name, inset, fit){
+function lrCadFace(name, inset, out, fit){
   const p = lrCadPart(name);
   if(!p || !p.bbox) return null;
   const b = p.bbox;
@@ -310,8 +318,18 @@ function lrCadFace(name, inset, fit){
   const dx = b[3] - b[0], dy = b[4] - b[1], dz = b[5] - b[2];
   const horiz = Math.hypot(dx, dz);
   const tilt = Math.max(0.2, Math.hypot(n[0], n[2]));
+  /* THE CENTROID IS NOT THE FACE. These parts are blocks — the front logic's
+     is 36 mm deep and the PSI's 38 — so a panel put at the middle of one
+     ends up halfway inside the dome. Nor is the bbox's outer corner the
+     answer: for a plate tilted off the world axes the axis-aligned box is
+     fat in all three directions and its support point along the normal
+     overshoots by an inch, which stands the board proud of its own bezel.
+     So the position comes from the FITTED SHELL — the one surface here that
+     is measured rather than inferred — and `out` says how far off it this
+     particular fitting sits. */
+  const rad = fit.r + (out || 0);
   return {
-    pos:[cx, cy, cz], n:n,
+    pos:[n[0] * rad, fit.y + n[1] * rad, n[2] * rad], n:n,
     w:Math.max(0.004, horiz - inset * 2),
     h:Math.max(0.004, dy / tilt - inset * 2)
   };
@@ -326,15 +344,10 @@ function lrBuildCad(){
     const d = APX.disp[key], anchors = LR_CAD_ANCHOR[key];
     if(!d || !anchors) continue;
     for(const a of anchors){
-      const f = lrCadFace(a.part, a.inset, fit);
+      const f = lrCadFace(a.part, a.inset, a.out, fit);
       if(!f) continue;
       const g = new THREE.Group();
-      /* Stand the panel a hair proud of the casting, or it z-fights with
-         the recess it sits in — which on a NEAREST-sampled texture looks
-         exactly like dead pixels. */
-      g.position.set(f.pos[0] + f.n[0] * 0.0016,
-                     f.pos[1] + f.n[1] * 0.0016,
-                     f.pos[2] + f.n[2] * 0.0016);
+      g.position.set(f.pos[0], f.pos[1], f.pos[2]);
       g.lookAt(g.position.x + f.n[0], g.position.y + f.n[1], g.position.z + f.n[2]);
       g.rotateY(Math.PI);        // the same -Z convention faceOut leaves
       g.add(lrPanel(d, f.w, f.h, a.rows));
