@@ -396,15 +396,10 @@ function makeStarter(which, boardId){
   if(CFG.maestroScript) CFG.maestroScript = slots.slice();
   // a generated starter IS the board: its 8 sequences are subroutines 0-7
   loadoutReset();
-  // rebuild the sub index table the same way an import would
-  const script = genScript(loadoutSeqs(), enabledChannels());
-  MSTR.scriptText = script;
-  const raw = parseScriptSubs(script);
-  MSTR.subs = raw.map(s=>({index:s.index,name:s.name,body:s.body,
-    kind:/^frame_/i.test(s.name)?'frame':'sequence', seqIndex:-1}));
-  MSTR.subs.forEach(s=>{ if(s.kind==='sequence'){
-    s.seqIndex = MSTR.sequences.findIndex(q=>niceName(q.name).toLowerCase()===s.name.toLowerCase());
-  }});
+  // rebuild the sub index table the same way an import would — ONE copy of
+  // that code now, in export.js, because this one and reindexSubs() had
+  // drifted into two name-matched lookups of the same thing (v1.68.1)
+  rebuildSubIndex();
   MSTR.loaded = true;
   MSTR.fileName = (board==='dome') ? 'R2-dome-maestro-starter.mstr'
                 : (board==='anzellan') ? 'R2-anzellan-maestro-starter.mstr'
@@ -422,7 +417,7 @@ function makeStarter(which, boardId){
      (maestro/servo-store.js). */
   if(typeof servoStoreSave === 'function') servoStoreSave();
   lg('mae',`generated a ${board} starter for the ${bd.product}: ${names.length} named servo channels, 8 sequences → subroutines 0-7`);
-  const est = scriptBytesEstimate(script);
+  const est = scriptBytesEstimate(MSTR.scriptText);
   if(bd.script > 0 && est > bd.script) // v1.39.5: a board with no script store gets no script-size warning
     lg('warn',`  that script is roughly ${est} bytes and the ${bd.label} holds ${bd.script} — trim sequences or move to a bigger board`);
   return MSTR;

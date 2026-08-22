@@ -690,7 +690,17 @@ function pcaHeaderParse(text, fileName){
     {field:'serial settings', n:0,
      why:'baud rate, device number, CRC and timeout are Maestro board settings. A .mstr exported from this config gets this app\'s defaults, not the original board\'s.'},
     {field:'per-frame acceleration', n:0,
-     why:'since v1.66.0 a frame can carry a SPEED per channel and that survives the round trip both ways. Acceleration still cannot — it stays the channel table\'s, which is what shapes the ends of every move.'}
+     why:'since v1.66.0 a frame can carry a SPEED per channel, and reading this file recovers it. Acceleration never can — it stays the channel table\'s, which is what shapes the ends of every move.'},
+    /* v1.68.1 — the old wording here said the speeds "survive the round trip
+       both ways", and mstrAdoptSequences() has never carried them: they are
+       computed from the SENDER's acceleration and travel, so on anyone
+       else's droid they are the wrong numbers. Dropping them is right. Not
+       saying so was not, because the consequence is invisible and lands two
+       steps later — adopt, re-export, and the new header has no
+       MPCA_SEQ_SPEEDS and no #error guard, so the ramp pacing is gone and
+       the droid is jerky again with nothing to point at. */
+    {field:'per-frame speed, if you ADOPT rather than replace', n:0,
+     why:'taking this file wholesale keeps its frame speeds. Adopting the routines into a droid you have already configured does not: a frame speed is derived from the endpoints and acceleration it was authored against, so it is only true on the machine it came from. Re-export after an adopt and the header will pace those routines from the channel table instead.'}
   ];
   if(/#define\s+(?:SERVO_HZ|OSC_HZ|PCA_BOARDS)/.test(t))
     dropped.push({field:'oscillator and PWM frequency', n:0,
@@ -764,8 +774,13 @@ function pcaExportDrops(channels, sequences){
      why:nonServo + ' channel(s) are Input or Output. A PCA9685 pin cannot read anything, so they keep their row (frame targets index by channel number) with pin 255 = unused, and their travel is written as zero.'},
     {field:'invert', n:inverted,
      why:'inverted travel is retired in v1.46.0. ' + inverted + ' channel(s) carry the old flag; it is adopted into their min/max pair on load and dropped here, which is the same movement.'},
-    {field:'frame speed/acceleration', n:saFrames,
-     why:saFrames + ' frame(s) carry their own speed/acceleration rows. A MaestroPCA frame is a duration and a target per channel, so the channel table\'s speed and acceleration govern the motion instead.'},
+    /* v1.68.1 — this said the whole row was dropped, and it had been false
+       since v1.66.0: pca-gen.js writes the speeds, doubles the stride and
+       flags the sequence MPCA_SEQ_SPEEDS, and pcaseq.js sets the speed
+       BEFORE the target. It was printed on every single header export,
+       including the ones that were writing the speeds it claimed to lose. */
+    {field:'frame acceleration', n:saFrames,
+     why:saFrames + ' frame(s) carry their own speed/acceleration rows. The SPEEDS are written (the stride doubles and the sequence is flagged MPCA_SEQ_SPEEDS, which needs MaestroPCA v1.66.0 or later); the accelerations are not, so the channel table\'s acceleration still shapes the ends of every move.'},
     {field:'the Maestro script', n:0,
      why:'a Maestro answers restartScript(n) by running a subroutine; the co-processor answers the same call by slot number. The script is not written, and does not need to be.'}
   ];

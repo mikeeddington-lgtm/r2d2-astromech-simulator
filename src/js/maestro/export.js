@@ -60,14 +60,60 @@ const SCRIPT_PREAMBLE =
   '# with an empty call stack, which is error 0x0080.\n' +
   'quit\n\n';
 
+/* ------------------------------------------------- UNIQUE SUB SYMBOLS
+   niceName() strips every character that is not a letter, a digit or an
+   underscore — which is the right rule for a Maestro identifier and the
+   wrong one to leave unguarded, because it makes DIFFERENT routine names
+   collapse onto the SAME symbol:
+
+     "Dome Wave"  and  "Dome_Wave"   — both typed by hand
+     "Wave"       and  "Wave·"       — the suffix mstrAdoptSequences adds
+                                       so an import renames rather than
+                                       overwrites (import.js)
+
+   Two `sub Dome_Wave` blocks is a compile error in Control Center, and in
+   here it was worse than an error: the sub index resolved both by name, so
+   both pointed at the FIRST routine and restartScript(1) played routine 0.
+
+   Uniqueness is settled HERE, on the emitted symbol, and never on the
+   library name — the name in the sequencer is the user's and is not ours
+   to rewrite. A clash appends _2, _3 … in loadout order, so the routine
+   that was already on the board keeps the symbol it had. A symbol that
+   would start with a digit gets an s_ in front for the same reason a bare
+   `2` cannot be a subroutine name: the compiler reads it as a literal.
+   (v1.68.1) */
+function scriptSubNames(sequences){
+  const used = Object.create(null), out = [];
+  for(const seq of (sequences || [])){
+    let base = niceName((seq && seq.name) || '') || 'sequence';
+    if(/^[0-9]/.test(base)) base = 's_' + base;
+    let name = base, n = 2;
+    while(used[name.toLowerCase()]) name = base + '_' + (n++);
+    used[name.toLowerCase()] = true;
+    out.push(name);
+  }
+  return out;
+}
+/* the symbol a routine will actually be exported under, for the three places
+   that SHOW it — the pane, the loadout builder and the sequencer header. A
+   routine that is not on the board has no subroutine yet, so it shows the
+   name it would get if it were added last. */
+function scriptSubNameFor(seq){
+  const load = (typeof loadoutSeqs === 'function') ? loadoutSeqs() : [];
+  const k = load.indexOf(seq);
+  if(k >= 0) return scriptSubNames(load)[k];
+  return scriptSubNames(load.concat([seq]))[load.length];
+}
+
 /* matches Sequence.generateSubroutineList() in the SDK, plus the preamble */
 function genScript(sequences, enabled){
   const needed=[]; let s=SCRIPT_PREAMBLE;
-  for(const seq of sequences){
-    s += '# '+seq.name+'\nsub '+niceName(seq.name)+'\n';
+  const names = scriptSubNames(sequences);
+  (sequences || []).forEach((seq,k)=>{
+    s += '# '+seq.name+'\nsub '+names[k]+'\n';
     s += genSeqBody(seq, enabled, needed);
     s += '  return\n';
-  }
+  });
   for(const cl of needed) s += '\n'+genFrameSub(cl);
   return s;
 }
@@ -143,6 +189,24 @@ function loadoutSeqs(){
   return loadoutNames().map(n=>MSTR.sequences.find(s=>s.name === n)).filter(Boolean);
 }
 function loadoutReset(){ MSTR.loadout = MSTR.sequences.map(s=>s.name); }
+/* THE sub index — the table restartScript(n) is answered from. It was
+   written out twice, here and in starters.js, and both copies resolved a
+   sub back to its routine by NAME, which is precisely the lookup that
+   scriptSubNames() exists to stop trusting. The k-th sequence subroutine is
+   the k-th routine in the LOADOUT, because that is the order genScript()
+   emits them in — no searching required. (v1.68.1) */
+function rebuildSubIndex(){
+  const load = loadoutSeqs();
+  const script = genScript(load, enabledChannels());
+  MSTR.scriptText = script;
+  const raw = (typeof parseScriptSubs === 'function') ? parseScriptSubs(script) : [];
+  let k = 0;
+  MSTR.subs = raw.map(s=>{
+    const kind = /^frame_/i.test(s.name) ? 'frame' : 'sequence';
+    const seqIndex = (kind === 'sequence') ? MSTR.sequences.indexOf(load[k++]) : -1;
+    return {index:s.index, name:s.name, body:s.body, kind:kind, seqIndex:seqIndex};
+  });
+}
 function loadoutIndex(name){ return loadoutNames().indexOf(name); }
 function loadoutAdd(name){
   if(!MSTR.loadout) loadoutReset();
@@ -306,7 +370,14 @@ function mstrSidecar(t){ return mstrActsComment(mstrBlocksComment(t)); }
    deliberately mapped to nothing.
    ===================================================================== */
 function actsPack(channels){
-  const acts = (channels || []).map(c=>(c && c.act) || '');
+  /* v1.68.1 — a channel that is not a Servo emits no pulses, so claiming a
+     droid part on it is a claim the file cannot keep. It happens routinely:
+     un-ticking a channel on the bench sets mode Input and clears the name
+     but deliberately KEEPS the act, so re-ticking it gets the part back.
+     That is right for the table and wrong for the file, so the filter lives
+     here rather than in setupUse(). Mike's 2026-08-21 header claimed nine
+     panels on nine pin-255 rows. */
+  const acts = (channels || []).map(c=>(c && /^servo/i.test(c.mode || '') && c.act) || '');
   if(!acts.some(a=>a)) return '';
   return btoa(unescape(encodeURIComponent(JSON.stringify({v:1, acts:acts}))));
 }
@@ -327,6 +398,57 @@ function mstrBlocksComment(t){
   if(!packed) return t;
   return t.replace('</UscSettings>', ()=>'  <!--r2sim:blocks '+packed+'-->\n</UscSettings>');
 }
+/* Pololu's ChannelMode enum is Servo | ServoMultiplied | Output | Input, and
+   nothing else deserializes. `Off` is a HOMEMODE value, and it reaches the
+   channel table legitimately — HW.ensure() marks a padding row `Off` because
+   "not configured yet" is exactly what it means, and /^servo/i says no to it
+   everywhere the app asks. It is only a lie in the FILE. Normalising here,
+   at the boundary, rather than in hw-host.js keeps the in-app meaning and
+   catches every other source of a mode we did not think of. (v1.68.1 —
+   Control Center refuses the whole file over one of these.) */
+const POLOLU_MODES = ['Servo','ServoMultiplied','Output','Input'];
+function pololuMode(m){
+  const v = String(m || '');
+  return POLOLU_MODES.find(k=>k.toLowerCase() === v.toLowerCase()) || 'Input';
+}
+/* ================================================ THE TWO EXPORT NOTES
+   Both written once, here, because there are two export doors and the
+   2026-08-21 audit found them saying different things about the same file.
+
+   THE PORTABILITY NOTE. Mike, 2026-08-21: "people can't just send an export
+   to someone, it will have to be passed through the receiver's Sim to do the
+   reconfiguring." He is right, and until now the app only said so on IMPORT
+   — inside a dialog the person mailing the file never sees. The machinery to
+   do it properly already exists (mstrMatchChannels + mstrRetargetFrame,
+   import.js): the receiver picks "choreography only" and every target is
+   normalised through the sender's travel and back out through theirs. This
+   is the sentence that tells them to.
+
+   THE LINT NOTE. Nothing refuses an export — "it is your file" — but a file
+   written over an outstanding error should say so on the way out. The PCA
+   door did not lint at all, which is how seven of nine routines in a real
+   header came to drive nine channels that had been un-ticked. */
+const EXPORT_PORTABILITY_NOTE =
+  ' <b>This file describes your droid, not the routine.</b> The targets are '
+  + 'quarter-microsecond pulse widths against YOUR endpoints, the channel numbers '
+  + 'are YOUR wiring, and the speed, acceleration, home and release columns are '
+  + 'YOUR servos. Only the timing travels unchanged. To share the moves, have the '
+  + 'other builder drop this into their own copy and pick <b>choreography only</b> '
+  + '\u2014 that re-expresses every target through their endpoints and says out '
+  + 'loud what it could not match.';
+
+function exportLintNote(){
+  if(typeof lintMaestro !== 'function') return '';
+  let rep;
+  try{ rep = lintMaestro(); }catch(e){ return ''; }
+  const n = (rep && rep.counts && rep.counts.err) || 0;
+  if(!n) return '';
+  const first = (rep.items || []).find(i=>i.level === 'err');
+  return ' <b style="color:var(--rd,#c33)">Written with '+n+' validation error'
+       + (n===1?'':'s')+' outstanding'+(first ? ': '+first.msg : '')+'</b>'
+       + ' \u2014 it is your file, but check the Validate panel before you flash it.';
+}
+
 /* the <Channels> block, regenerated from live channel state */
 function genChannelsXml(ind){
   const h = MSTR.header;
@@ -339,7 +461,7 @@ function genChannelsXml(ind){
   s += ind+'  <!--Period = 20.00 ms-->\n';
   for(const c of MSTR.channels){
     s += ind+'  <!--Channel '+c.i+'-->\n';
-    s += ind+'  <Channel name="'+xmlEsc(c.name)+'" mode="'+c.mode+'" min="'+c.min+'" max="'+c.max+
+    s += ind+'  <Channel name="'+xmlEsc(c.name)+'" mode="'+pololuMode(c.mode)+'" min="'+c.min+'" max="'+c.max+
          '" homemode="'+c.homemode+'" home="'+c.home+'" speed="'+c.speed+'" acceleration="'+c.acceleration+
          '" neutral="'+c.neutral+'" range="'+c.range+'" />\n';
   }

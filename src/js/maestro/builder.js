@@ -158,7 +158,7 @@ function bldLoadoutCol(){
                        : 'subroutine '+i+' — past 7, no stock button reaches it';
     row.appendChild(slot);
     const lab = el('span','nm', nm);
-    lab.title = seq ? seq.frames.length+' frames · '+seqTotal(seq)+' ms · sub '+niceName(nm) : '';
+    lab.title = seq ? seq.frames.length+' frames · '+seqTotal(seq)+' ms · sub '+scriptSubNameFor(seq) : '';
     row.appendChild(lab);
     row.appendChild(el('span','mt', seq ? (seqTotal(seq)/1000).toFixed(1)+'s' : '—'));
     const mk = (t, fn, tip, dis)=>{

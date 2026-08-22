@@ -55,7 +55,7 @@ function buildMaestroPane(){
       : 'in your library but not on the board — add it with the ⚙ builder below';
     d.appendChild(badge);
     d.appendChild(el('span','nm',seq.name));
-    const sub=el('span','sub','sub '+niceName(seq.name)); sub.title='the generated subroutine name';
+    const sub=el('span','sub','sub '+scriptSubNameFor(seq)); sub.title='the generated subroutine name';
     d.appendChild(sub);
     d.appendChild(el('span','mt',seq.frames.length+'f · '+seqTotal(seq)+'ms'));
     const bPrev=el('button','b','▶'); bPrev.title='preview it on the model';
@@ -576,16 +576,7 @@ function buildChannelMap(host){
 /* the subroutine table is generated from the LOADOUT, not the library — a
    routine you are still building in the sequencer has no subroutine number
    until you put it on the board (Mike, 2026-07-27) */
-function reindexSubs(){
-  const script = genScript(loadoutSeqs(), enabledChannels());
-  MSTR.scriptText = script;
-  const raw = parseScriptSubs(script);
-  MSTR.subs = raw.map(s=>({index:s.index,name:s.name,body:s.body,
-    kind:/^frame_/i.test(s.name)?'frame':'sequence', seqIndex:-1}));
-  MSTR.subs.forEach(s=>{ if(s.kind==='sequence'){
-    s.seqIndex = MSTR.sequences.findIndex(q=>niceName(q.name).toLowerCase()===s.name.toLowerCase());
-  }});
-}
+function reindexSubs(){ rebuildSubIndex(); }
 
 /* The import door. With no config loaded the file IS your config and goes
    in whole. With one loaded, the choice is the user's (Mike, 2026-08-08):
@@ -653,7 +644,10 @@ function exportMstr(){
   setTimeout(()=>URL.revokeObjectURL(a.href), 4000);
   lg('mae','exported '+a.download+' — '+MSTR.sequences.length+' sequences, '+MSTR.subs.length+' subroutines');
   toast('Exported '+a.download+' — verify endpoints on YOUR hardware before running at speed', 'warn');
+  const lintNote = (typeof exportLintNote === 'function') ? exportLintNote() : '';
+  if(lintNote) lg('warn','  '+lintNote.replace(/<[^>]+>/g,''));
   const m=$('maeMsg'); if(m){ m.innerHTML='Exported <b>'+a.download+'</b> — open it in Control Center, then Apply Settings. '+
     '<b style="color:var(--am)">Before running at speed: verify every servo\'s endpoints and direction on YOUR hardware.</b> '+
-    'The travel values in this file are simulator placeholders, and a wrong endpoint can stall a servo against the shell.'; }
+    'The travel values in this file are simulator placeholders, and a wrong endpoint can stall a servo against the shell.'+
+    lintNote + EXPORT_PORTABILITY_NOTE; }
 }

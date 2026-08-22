@@ -352,6 +352,7 @@ const LIVE = fs.readFileSync(path.resolve(__dirname,'fixtures-live-dome.mstr'),'
   ok('live file: channel count carried through', genLive.h.indexOf('#define MPCA_CHANNELS  '+genLive.count)>=0);
   ok('live file: ch0 endpoints appear verbatim', genLive.hasC0);
   ok('live file: an 18-channel table spans two PCA9685 boards', genLive.boards===2, genLive.boards+' boards');
+
   ok('live file: and the header says the addresses come from the boot scan, not 0x40+n',
      genLive.saysScanned && genLive.namesNoAddr, JSON.stringify({s:genLive.saysScanned, n:genLive.namesNoAddr}));
   ok('live file: every script sequence became a PROGMEM table', genLive.seqCount>0, genLive.seqCount+' sequences');
@@ -398,8 +399,15 @@ const LIVE = fs.readFileSync(path.resolve(__dirname,'fixtures-live-dome.mstr'),'
             note:(typeof pcaExportDropNote==='function') ? pcaExportDropNote(d) : ''};
   });
   ok('the Maestro-only fields are named, not silently discarded',
-     !drops.missing && ['homemode','neutral','range','mode','invert','frame speed/acceleration']
+     !drops.missing && ['homemode','neutral','range','mode','invert','frame acceleration']
        .every(f=>(drops.fields||[]).indexOf(f)>=0), (drops.fields||[]).join(', '));
+  /* v1.68.1 — this list used to name 'frame speed/acceleration', and had done
+     since before v1.66.0 gave the header a speed column. The entry outlived
+     the loss it described: the speeds ARE written now, so naming them as
+     dropped was the receipt telling the user the opposite of what the file
+     contains. Acceleration is still genuinely lost. */
+  ok('...and the speeds are NOT among them, because v1.66.0 writes them',
+     !(drops.fields||[]).some(f=>/frame speed/.test(f)), (drops.fields||[]).join(', '));
   ok('...each with a reason a builder can act on', !!drops.reasons && !!drops.counted);
   ok('...and one sentence that lists them by name for the user',
      /homemode/.test(drops.note||'') && /neutral/.test(drops.note||''), (drops.note||'').slice(0,120));
@@ -418,6 +426,7 @@ const LIVE = fs.readFileSync(path.resolve(__dirname,'fixtures-live-dome.mstr'),'
   ok('endpoints cross unchanged — both formats already speak quarter-µs',
      !units.missing && units.same && units.declaredQus,
      JSON.stringify(units.mine)+' → '+JSON.stringify(units.got));
+
   /* ================================================================
      THE GENERATED HEADERS INCLUDE THEIR LIBRARY IN QUOTES (v1.66.4)
 

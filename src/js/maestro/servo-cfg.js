@@ -340,7 +340,25 @@ function servoCfgImportText(text, fileName){
     if(typeof mstrParse !== 'function') throw new Error('the Maestro reader is not loaded');
     const doc = mstrParse(t, fileName || 'settings.mstr');
     const rows = (doc.channels || []).map((c,i)=>Object.assign({i:i}, servoCfgFrom(c)));
-    return Object.assign(servoCfgApply(rows, {board:doc.board, name:fileName || 'a .mstr'}), {from:'mstr'});
+    /* v1.68.1 — the .h branch below has always named the choreography it
+       leaves behind; this branch dropped exactly the same thing in silence.
+       Same door, same user, same loss, one receipt. */
+    const dropped = [];
+    if((doc.sequences || []).length)
+      dropped.push({field:'sequences', n:doc.sequences.length,
+        why:doc.sequences.length + ' sequence(s) in that .mstr were not taken — this door imports servo TRAVEL only. '
+          + 'Use the guided import to bring the choreography in as well.'});
+    if((doc.scriptText || '').trim())
+      dropped.push({field:'the Maestro script', n:0,
+        why:'the compiled script is regenerated from your own loadout when you export, so the original board\'s subroutine numbering is not carried across.'});
+    const r = Object.assign(servoCfgApply(rows, {board:doc.board, name:fileName || 'a .mstr'}),
+                            {from:'mstr', dropped:dropped});
+    if(typeof lg === 'function' && dropped.length){
+      lg('sys','.mstr read: '+r.n+' channel(s) of travel from '+(fileName || 'a settings file'));
+      lg('warn','  not carried across: '+dropped.map(d=>d.field).join(', '));
+      dropped.forEach(d=>lg('sys','  '+d.field+' — '+d.why));
+    }
+    return r;
   }
   /* v1.45.0 — the third family. A MaestroPCA header is C, not JSON, so it
      has to be sniffed before JSON.parse gets a chance to fail on it. Travel

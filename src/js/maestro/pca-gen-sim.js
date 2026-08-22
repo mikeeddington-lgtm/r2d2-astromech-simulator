@@ -46,8 +46,15 @@ function exportPcaHeader(){
     lost.forEach(d=>lg('mae','  '+d.field+' — '+d.why));
   }
   toast('Exported '+a.download+' — pair it with the MaestroPCA library. Calibrate the PCA9685 oscillator before trusting endpoints.', 'warn');
+  /* v1.68.1 — this door never linted. The .mstr door does it through the
+     loadout builder's button label, but the pane button and the job wizard
+     reach exportPcaHeader() directly, so the check has to live in the
+     function rather than next to one of its callers. */
+  const lintNote = (typeof exportLintNote === 'function') ? exportLintNote() : '';
+  if(lintNote) lg('warn','  '+lintNote.replace(/<[^>]+>/g,''));
   const m=$('maeMsg'); if(m){ m.innerHTML='Exported <b>'+a.download+'</b> for the <b>MaestroPCA</b> library (the cheap PCA9685 route). '
     +'Slot numbers match this loadout, so the sketch\'s restartScript(n) calls are identical to the Maestro build. '
-    +'<b style="color:var(--am)">Verify endpoints and oscillator calibration on YOUR hardware at low speed first.</b>'; }
+    +'<b style="color:var(--am)">Verify endpoints and oscillator calibration on YOUR hardware at low speed first.</b>'
+    +lintNote + EXPORT_PORTABILITY_NOTE; }
   return text;
 }
