@@ -7,8 +7,18 @@
 /* ============================================== the calibration dial ====
    One channel at a time, driving the real servo through the same engine the
    sequencer uses — so what you see here is what a sequence will do. */
-const CAL_SAFE = {lo:4000, hi:8000};      /* 1000–2000 µs, the cautious sweep */
-const CAL_FULL = {lo:2000, hi:10000};     /* 500–2500 µs, everything a servo takes */
+/* THE TWO BANDS ARE NOT THIS FILE'S TO DECIDE (v1.70.1).
+   These were a second copy of PW_STD/PW_ABS — the same four numbers,
+   written out again, a hundred lines from a set of number boxes that
+   accepted 300–2700 and a chip that counted against 500–2500. Two copies
+   that agree today are one release away from disagreeing, and the way you
+   find out is a stripped gear. They ARE the shared pair now, by identity:
+   the cautious sweep is the standard band, the full sweep is the absolute
+   one, and there is nowhere left for a third opinion to live.
+   servo-units.js is listed before this file in both manifests, which is
+   what makes a plain reference safe here. */
+const CAL_SAFE = PW_STD;      /* 1000–2000 µs, the cautious sweep */
+const CAL_FULL = PW_ABS;      /* 500–2500 µs, everything a servo takes */
 
 /* ================================================ THE DIAL IS THE VIEW
    v1.51.0. Mike sent a screenshot of the Channels step with the list, the
@@ -96,8 +106,14 @@ function setupCalLeave(){
   if(!SETUP.cal) return;
   /* no dial, nobody looking at a position — stop asking for one */
   if(typeof mstrUnwatch === 'function') mstrUnwatch();
+  /* v1.70.1 — leaving means keeping, but it does not mean keeping
+     ANYTHING: a trio the gate refuses is dropped rather than written, and
+     setupCalCommit has already said why. The only way to stage one is to
+     reverse or reset a channel that arrived out of band in the first
+     place, so what is dropped is a change that could not have been saved
+     from the button either. */
   if(setupCalDirty()) setupCalCommit();
-  else SETUP.cal = null;
+  SETUP.cal = null;
 }
 function setupCalCancel(){
   const cal = SETUP.cal; if(!cal) return;
@@ -107,8 +123,27 @@ function setupCalCancel(){
   SETUP.cal = null;
   HW.rebuild(true);
 }
+/* ============================================ THE GATE, NOT THE BUTTON
+   v1.70.1. Every road onto a channel's three ends ends here — the save
+   button, leaving the channel, closing the bench — so this is where the
+   owner's ruling is actually kept: nothing outside 500–2500 µs, and no
+   centre outside its own min–max, is ever written to hardware, however it
+   got as far as the staged trio. The controls refuse these numbers as they
+   are typed, which is where a person is told; this refuses them as they
+   are WRITTEN, which is what covers a value that arrived some other way —
+   an imported .mstr, a profile, a calibration older than this release.
+
+   It returns whether it wrote, because two of its three callers need to
+   know: the button must not report a save it did not make, and
+   setupCalLeave must not silently drop what it could not keep. */
 function setupCalCommit(){
-  const cal = SETUP.cal; if(!cal) return;
+  const cal = SETUP.cal; if(!cal) return false;
+  const stop = pwEndsRefusal(cal);
+  if(stop){
+    setupEndsSay(cal);
+    HW.say('channel '+cal.ch+' not saved — '+stop.text, 'warn');
+    return false;
+  }
   const c = HW.channels()[cal.ch];
   c.min = cal.min; c.max = cal.max;
   c.home = cal.home;
@@ -129,6 +164,7 @@ function setupCalCommit(){
     + (c.home/4).toFixed(0)+' µs');
   /* the dial does not go away — it is the view now, so it comes straight
      back seeded from what was just saved (setupRender's setupCalEnsure) */
+  return true;
 }
 
 /* The stock ends. "Reset" means these: 1000 / 1500 / 2000 µs is what every
@@ -140,9 +176,15 @@ const CAL_STOCK = {min:4000, home:6000, max:8000};
    type the pulse width in if you already know it */
 function calEndCell(cap, label, id){
   const cls = cap === 'home' ? 'ctr' : cap;
+  /* the box stops where the policy stops. It used to say min="300"
+     max="2700" — numbers that matched nothing else on the screen and that
+     the browser only ever treated as a hint anyway, which is why 2700 went
+     in without an argument. The attributes are the spinner's manners; the
+     refusal in calBind is the rule (v1.70.1). */
   return '<div class="calb '+cls+'">'
     + '<button class="calcap" data-cap="'+cap+'" title="record where the dial is now as '+label+'">'+label+'</button>'
-    + '<div class="calnum"><input type="number" data-set="'+cap+'" id="'+id+'" step="1" min="300" max="2700"'
+    + '<div class="calnum"><input type="number" data-set="'+cap+'" id="'+id+'" step="1"'
+    + ' min="'+(PW_ABS.lo/4)+'" max="'+(PW_ABS.hi/4)+'"'
     + ' title="type the pulse width for this end"><span>µs</span></div>'
     + '</div>';
 }
@@ -175,7 +217,23 @@ function calRange(){ return SETUP.cal && SETUP.cal.wide ? CAL_FULL : CAL_SAFE; }
    `HW.drive` also normalises the target onto the 3D model through
    `chanNorm(c, …)`, which reads the real ends — so a dial past the travel
    pins the model at its own limit and the DROID does not pretend to have
-   travel it has not got. That is the right way round. */
+   travel it has not got. That is the right way round.
+
+   AND THE SAFE-RANGE GATE DOES NOT LIVE HERE (v1.70.1). It is worth saying
+   out loud, because the two look superficially alike and one of them
+   exists to do what the other forbids. This function writes c.min/c.max
+   for the duration of ONE synchronous HW.drive call, to a band the policy
+   itself defines (calRange is CAL_SAFE or CAL_FULL, which are PW_STD and
+   PW_ABS), and puts them back in a `finally`. It is a WINDOW, not a
+   setting: no calibration is being recorded, nothing is saved, and the
+   channel is byte-for-byte what it was on the way out.
+
+   The gate judges the three numbers being WRITTEN — the dial's staged
+   trio when a value is typed, the trio again when it is committed. It
+   never runs inside this window and has nothing to read here, which is why
+   the dial can still reach past the stored stops while you are measuring
+   them, and why 2400 µs on a channel that stops at 1823 is a measurement
+   rather than a violation. */
 function calDrive(ch, qus){
   const c = HW.channels()[ch]; if(!c){ HW.drive(ch, qus); return; }
   const r = calRange();
@@ -201,9 +259,14 @@ function setupCalRender(){
     + '<div class="calhead"><b>'+(c.name||('Channel '+cal.ch))+'</b>'
     + '<span class="stat">channel '+cal.ch+' · board '+(cal.ch>>4)+' pin '+(cal.ch&15)+'</span>'
     + '<span class="sp" style="flex:1"></span>'
+    /* v1.70.1 — this line used to read `safe range · 1000–2000 µs` beside a
+       set of boxes that would take 2700, which is the sentence that started
+       all this: it named a rule the screen did not keep. It now says what
+       the screen ACTUALLY does, in both halves of the policy, and quotes
+       the bands rather than spelling them out again. */
     + (setupAdv()
-        ? '<label class="tiny" title="Only after you know the linkage will not bind. A horn driven into a hard stop at full travel strips gears."><input type="checkbox" id="calWide"'+(cal.wide?' checked':'')+'> unlock full 500–2500 µs</label>'
-        : '<span class="tiny" title="1000–2000 µs covers almost every linkage, and stops a horn reaching a hard stop. Tick Advanced in the header if you genuinely need the full sweep.">safe range · 1000–2000 µs</span>')
+        ? '<label class="tiny" title="Only after you know the linkage will not bind. A horn driven into a hard stop at full travel strips gears. Typed ends are warned past '+pwBandUs(PW_STD)+' either way, and refused past '+pwBandUs(PW_ABS)+'."><input type="checkbox" id="calWide"'+(cal.wide?' checked':'')+'> unlock full '+pwBandUs(PW_ABS)+' sweep</label>'
+        : '<span class="tiny" title="The dial itself turns within '+pwBandUs(PW_STD)+', which covers almost every linkage and keeps a horn off its hard stop — tick Advanced in the header to sweep wider. A width you TYPE is taken up to '+pwBandUs(PW_ABS)+' with a warning, and refused past it.">safe sweep · '+pwBandUs(PW_STD)+' · warned to '+(PW_ABS.hi/4)+'</span>')
     + '</div>'
     + '<div class="calbody">'
     + '<svg class="caldial" viewBox="0 0 240 240" id="calDial" tabindex="0">'
@@ -236,6 +299,12 @@ function setupCalRender(){
     + calEndCell('home', 'Set CENTER', 'calLctr')
     + calEndCell('max',  'Set MAX',    'calLmax')
     + '</div>'
+    /* WHY, WHERE THEY ARE LOOKING (v1.70.1). Directly under the three
+       boxes, because a beginner who has just typed 2700 is looking at the
+       box they typed it into and not at a chip above a table they have
+       scrolled past. Filled by calPaint (setupEndsSay), never rebuilt, so
+       being told you are wrong cannot take the caret out of the field. */
+    + '<div class="pwsay off" id="calSay"></div>'
     + '<div class="calhint">Turn the dial until the part is exactly where you want that limit, then press the button — '
     + 'or type the pulse width straight into the box under it, which is quicker when you already know the number. '
     + 'If the part goes the wrong way, tick <b>reverse</b> — it swaps the two ends, which is all a reversed linkage ever means.</div>'
@@ -290,16 +359,69 @@ function calPaint(){
   };
   $('calTicks').innerHTML = tick(cal.min,'var(--setAcc)','min') + tick(cal.max,'var(--setBad)','max') + tick(cal.home,'var(--setGood)','ctr');
   /* the three end boxes are typed as well as captured, so they follow the
-     same rule as calNum: never write to the one under the caret */
-  const endBox = (id, q)=>{
+     same rule as calNum: never write to the one under the caret.
+     v1.70.1 — the class comes from pwEndClass rather than pwClass, which
+     is the same answer for the two ends and a different one for the
+     centre: a centre inside 500–2500 but outside its own min–max is red,
+     because it is invalid on any servo. */
+  /* A REFUSED NUMBER IS STILL ON SCREEN (v1.70.1). It was not staged — that
+     is what refusing it means — so it cannot be found by reading the three
+     ends, and yet it is sitting in the box in front of somebody in red.
+     `cal.refuse` remembers it for exactly as long as it is visible: the
+     moment this repaint is allowed to overwrite that box (which it does for
+     any box the caret is not in), the number is gone from the screen and
+     the refusal goes with it. That is also what keeps `save servo setting`
+     honest — see the button below. */
+  const endBox = (id, k)=>{
     const b = $(id); if(!b) return;
-    if(document.activeElement !== b) b.value = q ? (q/4).toFixed(0) : '';
-    b.className = pwClass(q);
-    b.title = q ? pwTitle(q) : 'type the pulse width for this end';
+    const q = cal[k];
+    if(document.activeElement !== b){
+      b.value = q ? (q/4).toFixed(0) : '';
+      if(cal.refuse && cal.refuse.end === k) cal.refuse = null;
+    }
+    const held = cal.refuse && cal.refuse.end === k;
+    b.className = held ? 'bad' : pwEndClass(cal, k);
+    b.title = held ? cal.refuse.text : pwEndTitle(cal, k);
   };
-  endBox('calLmin', cal.min);
-  endBox('calLmax', cal.max);
-  endBox('calLctr', cal.home);
+  endBox('calLmin', 'min');
+  endBox('calLmax', 'max');
+  endBox('calLctr', 'home');
+  /* ONE POLICY, BOTH SURFACES. The Configure panel above shows these same
+     three numbers (setupChPanel says why), so it is banded from the same
+     trio in the same pass — otherwise the panel would sit there in its
+     render-time colours saying a number is fine while the box under it
+     said it was refused, which is exactly the disagreement this release
+     exists to end. The caret rule applies to those boxes too. */
+  const panelBox = (k, q)=>{
+    const b = document.querySelector('#chCfg [data-k="'+k+'"][data-ch="'+cal.ch+'"]'); if(!b) return;
+    const end = {minUs:'min', maxUs:'max', ctrUs:'home'}[k];
+    const held = cal.refuse && cal.refuse.end === end && document.activeElement === b;
+    if(document.activeElement !== b) b.value = q ? (q/4).toFixed(0) : '';
+    b.className = held ? 'bad' : pwEndClass(cal, end);
+    b.title = held ? cal.refuse.text : pwEndTitle(cal, end);
+  };
+  panelBox('minUs', cal.min);
+  panelBox('maxUs', cal.max);
+  panelBox('ctrUs', cal.home);
+  setupEndsSay(cal, cal.refuse ? cal.refuse.text : '');
+  /* `save servo setting` is not offered while these three cannot be
+     written. The REAL gate is in setupCalCommit — the standing rule is to
+     guard the function, never the button — but a button that looks
+     pressable and then refuses is its own small lie, so it says so first
+     and carries the reason as its tooltip. */
+  const okBtn = document.querySelector('#calWrap [data-cal=ok]');
+  if(okBtn){
+    /* blocked for either reason: a staged trio that cannot be written, OR a
+       refused number still standing in a box. The second matters as much as
+       the first — a save that succeeded while 2700 sat there in red would
+       report "channel 5 saved: 1000–2000 µs" and be believed to have taken
+       the 2700. Nothing is saved until the number on screen is one that
+       could be. */
+    const stop = pwEndsRefusal(cal) || cal.refuse;
+    okBtn.disabled = !!stop;
+    okBtn.title = stop ? stop.text
+      : 'write these three pulse widths onto this channel and save';
+  }
   /* the reverse tick is drawn from the numbers, so typing MIN above MAX
      ticks it and "reset to default" unticks it, with no extra bookkeeping */
   const rv = $('calRev'); if(rv) rv.checked = cal.min > cal.max;
@@ -346,12 +468,59 @@ function calBind(){
   host.querySelectorAll('[data-set]').forEach(inp=>{
     inp.onchange = e=>{
       const cal = SETUP.cal; if(!cal) return;
+      const k = e.target.dataset.set;
       const q = Math.round((+e.target.value || 0) * 4);
       if(!q){ calPaint(); return; }
-      cal[e.target.dataset.set] = q;
+      /* ============================ REFUSED AT THE POINT OF ENTRY (v1.70.1)
+         Outside 500–2500 µs the number does not go in. Not staged, not
+         driven, not saved-and-flagged-afterwards: the box keeps what you
+         typed so you can see the number you meant, goes red, and the strip
+         under the three boxes says what is wrong and what the limits are.
+         The first repaint that is allowed to touch that box — any repaint,
+         once the caret has left it — puts the staged value back, because
+         the number never took.
+
+         This is the one control where the difference between refusing and
+         recording matters most: `calSet` DRIVES the servo at the number,
+         so accepting 2700 here would not have been a bad row in a table,
+         it would have been a horn against a hard stop while you watched. */
+      const no = pwEndFault(q, k)
+        /* and a CENTRE has one more way to be impossible: not between its
+           own two ends. Refused here rather than at the save button,
+           because this is a number somebody has just asserted and the app
+           must not overrule it silently — see setup-hw.js §policy. An END
+           typed past the centre is the other case entirely, and is handled
+           three lines down. */
+        || (k === 'home' ? pwEndsRefusal(Object.assign({}, cal, {home:q})) : null);
+      if(no){
+        /* remembered, so `save servo setting` goes dead while the number
+           is on screen (calPaint says how long that is). Deliberately NOT
+           repainted here: a repaint would put the staged value back in the
+           box, and a refusal that erases the number it refused leaves
+           somebody staring at a value they did not type. */
+        cal.refuse = {end:k, text:no.text};
+        e.target.className = 'bad';
+        e.target.title = no.text;
+        setupEndsSay(cal, no.text);
+        const okNow = document.querySelector('#calWrap [data-cal=ok]');
+        if(okNow){ okNow.disabled = true; okNow.title = no.text; }
+        HW.say(no.text, 'warn');
+        return;
+      }
+      cal.refuse = null;
+      cal[k] = q;
+      /* the end you typed wins, and the centre comes with it rather than
+         being left outside the travel it no longer belongs to */
+      const follow = (k === 'home') ? 0 : pwCentreFollow(cal);
+      if(follow){
+        cal.home = follow;
+        HW.say('centre moved to '+(follow/4).toFixed(0)+' µs — it was outside the travel you just set', 'warn');
+      }
       /* a typed end outside the working range would be clamped away by
          calSet and the dial would show a number nobody typed — unlock the
-         full sweep instead, which is what the value is asking for */
+         full sweep instead, which is what the value is asking for. It can
+         only ever ask as far as CAL_FULL now: anything past it was refused
+         above. */
       const r = calRange();
       if(q < r.lo || q > r.hi){ cal.wide = true; setupCalRender(); }
       calSet(q);
@@ -391,7 +560,26 @@ function calBind(){
     const b = e.target.closest('button'); if(!b) return;
     const cal2 = SETUP.cal; if(!cal2) return;
     if(b.dataset.nudge){ calSet(cal2.pos + (+b.dataset.nudge)); return; }
-    if(b.dataset.cap){ cal2[b.dataset.cap] = cal2.pos; calPaint(); return; }
+    /* Set MIN / Set CENTER / Set MAX. The position is already inside the
+       policy — calSet clamps to calRange, which IS the pair of bands — so
+       a capture can never be out of band. It can still swallow the centre,
+       and it is the commonest way to: you turn to the shut end and press
+       Set MIN on a channel whose centre is still where it arrived. Same
+       rule as a typed end (v1.70.1) — the end you pressed for wins, and
+       the centre comes inside the travel rather than being stranded
+       outside it. */
+    if(b.dataset.cap){
+      cal2.refuse = null;                 /* a capture answers the box it lands in */
+      cal2[b.dataset.cap] = cal2.pos;
+      if(b.dataset.cap !== 'home'){
+        const f = pwCentreFollow(cal2);
+        if(f){
+          cal2.home = f;
+          HW.say('centre moved to '+(f/4).toFixed(0)+' µs — it was outside the travel you just captured', 'warn');
+        }
+      }
+      calPaint(); return;
+    }
     if(b.dataset.ask){
       const a = SETUP.ask;
       setupAskClear();
@@ -402,6 +590,7 @@ function calBind(){
       setupAsk('Reset this channel’s ends to the stock 1000 / 1500 / 2000 µs? '
              + 'Whatever you calibrated against the linkage is lost.', 'reset', ()=>{
         const cal3 = SETUP.cal; if(!cal3) return;
+        cal3.refuse = null;               /* the stock ends answer every box */
         cal3.min = CAL_STOCK.min; cal3.home = CAL_STOCK.home; cal3.max = CAL_STOCK.max;
         calSet(cal3.home);
         HW.say('ends reset to 1000 / 1500 / 2000 µs — nothing is saved until you press "save servo setting"');
@@ -414,7 +603,12 @@ function calBind(){
     if(b.dataset.cal === 'cancel'){ setupCalCancel(); setupRender(); return; }
     if(b.dataset.cal === 'ok'){
       if(cal2.min === cal2.max){ HW.say('capture a min and a max that differ first','warn'); return; }
-      setupCalCommit(); setupRender();
+      /* refused: the dial stays exactly as it is, with the reason under the
+         three boxes and the button still saying no. A full setupRender()
+         here would be a re-render in answer to a press that changed
+         nothing, and it would take the caret with it. */
+      if(!setupCalCommit()){ setupCalRender(); return; }
+      setupRender();
     }
   };
 }

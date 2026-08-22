@@ -70,13 +70,26 @@ body.kiosk #selcard{display:none}        /* rename, colour, Port, pivot/travel, 
 body.kiosk #splitH{visibility:hidden;pointer-events:none}
 body.kiosk #left{grid-template-rows:minmax(0,1fr) 0 var(--padH,258px)}
 
-/* the exit reads as an action, not as another status chip — it is the
-   only button on the bar and the only way back */
+/* the bar's two controls share one plate — same size, same type, so the
+   bar reads as a row of controls rather than one button and one oddity.
+   Kept as a shared selector rather than a class, because the ids ARE the
+   contract: nothing else goes on this bar (app/kiosk.js). */
+#btnKioskRecentre,
 #btnKioskExit{
-  background:var(--cta,var(--cy));color:var(--onCta,var(--onAcc));
   border:1px solid transparent;border-radius:6px;cursor:pointer;
   font-family:var(--mono);font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;
   font-weight:700;padding:5px 12px;white-space:nowrap;
 }
+/* the exit reads as an action, not as another status chip — it is the
+   way back, and the only one */
+#btnKioskExit{background:var(--cta,var(--cy));color:var(--onCta,var(--onAcc))}
+/* Re-centre is the one a visitor is meant to reach for, so it is legible
+   and next to the exit — but quiet, because it is not the way out and
+   must not be mistaken for it (v1.70.0) */
+#btnKioskRecentre{
+  background:transparent;color:var(--txt);border-color:var(--line2);
+}
+#btnKioskRecentre:hover{background:var(--surf);border-color:var(--ctaHi,var(--cta))}
 #btnKioskExit:hover{filter:brightness(1.08)}
+#btnKioskRecentre:focus-visible,
 #btnKioskExit:focus-visible{outline:2px solid var(--focus,var(--cta));outline-offset:2px}

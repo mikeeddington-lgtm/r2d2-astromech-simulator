@@ -93,9 +93,20 @@ body.model-servos #stageTools #btnModel{display:inline-block}
 .svhub{fill:var(--dim)}
 .svtile.moving .svneedle line{stroke:var(--cta)}
 
-.svn{font-family:var(--mono);font-size:9px;color:var(--dimmer);letter-spacing:.06em}
+/* ONE NUMBERING (v1.70.0). The tile used to print `ch 0` in 9 px dim mono and
+   `Servo 1` under it in 10.5 px bold — so the LOUDER of the two lines was the
+   1-based restatement of the quieter one. app/servos.js now suppresses that
+   name, and the two type sizes swap with it: the channel number is the tile's
+   title, and the name line under it is the caption it always should have been.
+   .svname keeps its box when it is empty, so a grid of named and unnamed
+   tiles stays square. */
+.svn{
+  font-family:var(--mono);font-size:11px;font-weight:600;color:var(--txt);
+  letter-spacing:.06em;
+}
 .svname{
-  font-family:var(--sans);font-size:10.5px;font-weight:600;color:var(--txt);
+  font-family:var(--sans);font-size:10px;font-weight:500;color:var(--dim);
+  min-height:1.35em;
   max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
 }
 .svdrives{
@@ -129,6 +140,8 @@ body.model-servos #svCard.on{display:block}
 @media (max-width:560px){
   #svGrid{grid-template-columns:repeat(auto-fill,minmax(78px,1fr));gap:6px;padding:8px}
   .svface{max-width:64px}
-  .svdrives,.svn{font-size:8.5px}
+  .svdrives{font-size:8.5px}
+  .svn{font-size:10px}
+  .svname{font-size:9px}
   #svCard{right:6px;top:6px;width:186px;padding:8px 10px}
 }

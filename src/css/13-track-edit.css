@@ -26,6 +26,10 @@
 .tehead{padding:14px 18px 10px; border-bottom:1px solid var(--line)}
 .tehead h2{font-size:16px; font-weight:650; letter-spacing:-.01em}
 .tesub{color:var(--dim); font-size:var(--fs-data); margin-top:3px; font-family:var(--mono)}
+/* the instruction line is per MODE now (TE_MODE_HINT, js/app/track-edit.js)
+   and the three are different lengths — hold two lines' worth so clicking a
+   tab does not shuffle the toolbar up and down under the pointer */
+#teHint{min-height:2.6em}
 
 .tetools{
   display:flex; align-items:center; gap:6px; flex-wrap:wrap;

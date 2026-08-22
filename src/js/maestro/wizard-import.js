@@ -575,7 +575,11 @@ function jobwizRender(){
     foot.appendChild(b);
   }
   foot.appendChild(el('div','iwgap'));
-  const done = el('button','b','close');
+  /* "close" is what you press when nothing happened. Once an import has
+     landed the same button is the end of the job, and says so (v1.70.1). */
+  const landed = !!(job && job.id === 'import' && IMPCH.done);
+  const done = el('button','b' + (landed ? ' prim' : ''), landed ? 'done' : 'close');
+  if(landed) done.title = 'the import is finished — this only puts the pane away';
   done.addEventListener('click', ()=>jobwizClose());
   foot.appendChild(done);
   card.appendChild(foot);
@@ -699,7 +703,11 @@ function jobwizStepBuild(host){
    library. This module asks questions and then calls them.
    ===================================================================== */
 
-const IMPCH = { kind:'', from:'', name:'', text:'', shape:null, err:'', busy:false };
+/* `done` is the receipt for an import that landed — see impChooseRun(). It
+   is state rather than a toast because the toast was the ONLY evidence:
+   the pane closed itself, and what changed was a new group at the bottom
+   of a list this overlay had been covering. */
+const IMPCH = { kind:'', from:'', name:'', text:'', shape:null, err:'', busy:false, done:null };
 
 const IMP_CHOICES = [
   {id:'servo', glyph:'⊟', label:'import servo config only',
@@ -955,6 +963,37 @@ function impChooseSave(which){
   }
 }
 
+/* --------------------------------------------- the loadout a file was built from
+   THE SAME RENUMBERING, THROUGH THE OTHER DOOR (v1.70.1)
+
+   v1.70.0 taught mstrApply() that the <Script>'s sequence subs, in
+   declaration order, ARE the loadout — <Sequences> is the whole Control
+   Center library, and resetting to it renumbers a curated board so the
+   d-pad fires different routines (import.js says it at length). "Import
+   choreography only, replace" landed the same routines by a different
+   route — mstrAdoptSequences() appends in LIBRARY order — and then called
+   loadoutReset(), which is exactly the line that was removed there.
+
+   So this is mstrApply()'s rule, applied to the names that actually
+   arrived: read the file's own subs, and take a routine's ADOPTED name,
+   since adoption renames a clash rather than overwriting it. A file with
+   no script to read (a servo config, a PCA header, a choreography backup)
+   has no subs, answers null, and the caller falls back to loadoutReset()
+   as before — which is right, because there the file's order is all
+   there is. */
+function impChoreoLoadout(P, r){
+  if(!P || !Array.isArray(P.subs) || !P.subs.length) return null;
+  const ren = {};
+  (r.renamed || []).forEach(x=>{ ren[x.from] = x.to; });
+  const added = r.added || [];
+  const names = P.subs
+    .filter(s=>s.kind === 'sequence' && s.seqIndex >= 0)
+    .map(s=>{ const q = (P.sequences || [])[s.seqIndex]; return q ? (ren[q.name] || q.name) : ''; })
+    .filter(n=>n && added.indexOf(n) >= 0)
+    .filter((n,i,a)=>a.indexOf(n) === i);      // a name is taken once
+  return names.length ? names : null;
+}
+
 /* ------------------------------------------------------------- doing it */
 async function impChooseRun(){
   const sh = IMPCH.shape, kind = IMPCH.kind;
@@ -1020,26 +1059,40 @@ async function impChooseRun(){
       }
       if(doChoreo){
         if(choreoWay !== 'merge'){
-          /* replace: the library goes, and the file's own order IS its
-             subroutine order, so the loadout is rebuilt from what arrived —
-             the same rule mstrApply() follows for a whole file */
+          /* replace: the library goes, and the loadout is rebuilt from what
+             arrived — by the same rule mstrApply() follows for a whole file */
           MSTR.sequences = [];
         }
         const r = mstrAdoptSequences(sh.P);
-        if(choreoWay !== 'merge'){ loadoutReset(); if(typeof reindexSubs === 'function') reindexSubs(); }
+        if(choreoWay !== 'merge'){
+          const fromFile = impChoreoLoadout(sh.P, r);
+          if(fromFile) MSTR.loadout = fromFile; else loadoutReset();
+          if(typeof reindexSubs === 'function') reindexSubs();
+        }
         const ren = r.renamed || [];
         said.push(r.added.length + ' routine' + (r.added.length === 1 ? '' : 's')
           + (choreoWay === 'merge'
               ? ' added to the ' + haveSeq + ' you had'
                 + (ren.length ? ' — ' + ren.length + ' name clash(es) renamed, ' + ren.map(x=>'“'+x.from+'” → “'+x.to+'”').join(', ')
                               : ' — no name clashes')
-              : ' — your ' + haveSeq + ' previous routine(s) replaced'));
+              : haveSeq ? ' — your ' + haveSeq + ' previous routine(s) replaced'
+                        : ' added to your library'));
       }
     }
     if(typeof rebuildMaestroUI === 'function') rebuildMaestroUI();
     if(typeof lg === 'function') lg('mae','imported from '+IMPCH.name+': '+said.join('; '));
     if(typeof toast === 'function') toast('Imported ' + said.join(' · ') + ' from ' + IMPCH.name);
-    jobwizClose();
+    /* SAY IT WHERE THE QUESTION WAS ASKED (v1.70.1). This used to close the
+       pane and leave a toast, and with a choice already picked — the
+       sequencer's ⤓ button preselects "choreography only" — choosing the
+       file IS the second answer, so the import ran, the overlay vanished,
+       and the only thing that had visibly changed was a group at the
+       bottom of a list this overlay had been sitting on top of. It read
+       as nothing having happened. The receipt goes in the pane, in the
+       same words as the toast and the log, and the footer stops offering
+       to "close" something and says the job is done. */
+    IMPCH.done = {name:IMPCH.name, said:said.slice()};
+    jobwizRender();
     return 'done';
   }catch(e){
     if(typeof lg === 'function') lg('warn','import failed: '+e.message);
@@ -1063,6 +1116,7 @@ function impChooseLoad(text, name){
   IMPCH.text  = String(text || '');
   IMPCH.shape = impShape(IMPCH.text, IMPCH.name);
   IMPCH.err   = IMPCH.shape.err || '';
+  IMPCH.done  = null;              // a new file: the last receipt is not about it
   if(typeof lg === 'function')
     lg('sys','import chooser: '+IMPCH.name+' is '+(IMPCH.err ? 'unreadable — '+IMPCH.err : impShapeSentence(IMPCH.shape)));
   return IMPCH.shape;
@@ -1079,10 +1133,23 @@ function impChooseFile(file){
   fr.onerror = ()=>{ IMPCH.shape = null; IMPCH.err = 'could not read that file'; jobwizRender(); };
   fr.readAsText(file);
 }
+/* WHAT THE PICKER OFFERS IS WHAT THE READER TAKES (v1.70.1)
+   This pane names all five formats in prose — impShape() classifies every
+   one of them and the reader opens every one of them — so the picker has
+   no business narrowing to a build family and then apologising for it
+   underneath ("if the file you were sent is greyed out, choose 'all
+   files'"). servoCfgReadable() is the reader's own list, which is the only
+   honest answer to "what may I pick"; servoCfgAccept()'s family ordering
+   stays exactly where it belongs, on the servo-config door. */
+function impChooseAccept(){
+  const r = (typeof servoCfgReadable === 'function') ? servoCfgReadable() : [];
+  if(r.length) return r.join(',');
+  return (typeof servoCfgAccept === 'function') ? servoCfgAccept() : '';
+}
 function impChoosePick(){
   const fi = document.createElement('input');
   fi.type = 'file';
-  fi.accept = (typeof servoCfgAccept === 'function') ? servoCfgAccept() : '';
+  fi.accept = impChooseAccept();
   fi.style.display = 'none';
   fi.addEventListener('change', ()=>{
     const f = fi.files && fi.files[0];
@@ -1116,6 +1183,7 @@ function impChooseOpen(opts){
   IMPCH.kind  = (o.kind === 'servo' || o.kind === 'both' || o.kind === 'choreography') ? o.kind : '';
   IMPCH.from  = o.from || '';
   IMPCH.name  = ''; IMPCH.text = ''; IMPCH.shape = null; IMPCH.err = ''; IMPCH.busy = false;
+  IMPCH.done  = null;
   if(o.text !== undefined && o.text !== null) impChooseLoad(o.text, o.name);
   jobwizOpen('import');
   if(o.file) impChooseFile(o.file);
@@ -1126,6 +1194,17 @@ function impChooseOpen(opts){
 
 /* --------------------------------------------------------- import */
 function jobwizStepImport(host){
+  /* WHAT JUST HAPPENED, FIRST (v1.70.1) — impChooseRun() leaves the receipt
+     here rather than closing the pane out from under it. Same words as the
+     toast and the log; nothing is derived a second time. */
+  if(IMPCH.done){
+    const d = el('div','note gn prose');
+    d.innerHTML = '<b>Read ' + xmlEsc(IMPCH.done.name) + ':</b> ' + xmlEsc(IMPCH.done.said.join(' · '))
+      + '. <span class="iwdim">Nothing else here was touched. Choose another file if there is more to '
+      + 'bring in, or press <b>done</b>.</span>';
+    host.appendChild(d);
+  }
+
   const n = el('div','note cy prose');
   n.innerHTML = '<b>What this app reads and writes.</b> ' + xmlEsc(IO_FORMATS_SENTENCE);
   host.appendChild(n);
@@ -1192,10 +1271,6 @@ function jobwizStepImport(host){
     grid.appendChild(card);
   });
   host.appendChild(grid);
-
-  const g = el('div','hint prose');
-  g.innerHTML = xmlEsc(SERVO_CFG_ACCEPT_NOTE);
-  host.appendChild(g);
 
   const story = (typeof servoCfgStory === 'function') ? servoCfgStory() : '';
   if(story){

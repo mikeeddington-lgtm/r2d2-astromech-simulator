@@ -166,7 +166,14 @@ a refresh.
 Three things in this repository are not the simulator and are not libraries
 either. They are what you reach for once there is hardware on the bench.
 
-### PCA Studio
+### PCA Studio — parked
+
+**It is not being updated.** Everything it did now has a home in the simulator
+itself — the same channel table, the same calibration dial and the same
+`sequences.h` generator, on the **Maestro** tab and its **⚙ Setup** bench — so
+this is the tool you reach for when one file on a bench is what you want, not
+the one to build in. It still builds with `./build.sh` and its staleness check
+still runs in `./test.sh`, because parked should not mean rotting quietly.
 
 [**⬇ Download `PCA-Studio.html`**](https://github.com/mikeeddington-lgtm/r2d2-astromech-simulator/releases/latest/download/PCA-Studio.html)
 — the servo bench on its own, without the droid, the models or the firmware

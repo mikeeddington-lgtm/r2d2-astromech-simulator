@@ -38,8 +38,22 @@
    scrolling #seqbody they always had. */
 body.seqmode.seqv-blocks #seqblocks{display:flex;flex-direction:column;height:100%}
 body.seqmode #seqblocks .blktools{flex:0 0 auto}
-body.seqmode #seqblocks .tlouter{flex:1 1 auto;min-height:140px;max-height:none}
+/* --tlmin (2026-08-22) is the routine's OWN size — one row per lane plus the
+   ruler, capped, written on the element by blkTimeline(). The flat 140px was
+   fine at two lanes and wrong at seven: a Mexican Wave showed 4 of its 6
+   parts and the rest sat behind a scroll nobody had been told about. The
+   fallback stays here so the floor is still a layout decision. */
+body.seqmode #seqblocks .tlouter{flex:1 1 auto;min-height:var(--tlmin,140px);max-height:none}
 body.seqmode #seqblocks .blklib{flex:0 0 auto;max-height:200px;overflow:auto}
+/* BOTH SCROLLERS SAY THEY ARE SCROLLERS (2026-08-22). Chrome's overlay
+   scrollbars are invisible until the pointer is already moving inside the
+   box, so a clipped panel and a finished one look identical — which is how
+   the READY-MADE row and the right-hand end of a 3.95s brick both went
+   unfound. scrollbar-color forces the classic, always-drawn gutter; the
+   standard properties are used ALONE, because Chrome ignores ::-webkit-
+   scrollbar rules on an element that also sets these. */
+body.seqmode #seqblocks .tlouter,
+body.seqmode #seqblocks .blklib{scrollbar-width:thin;scrollbar-color:var(--line2) transparent}
 /* min-height:100%: with the scroller grown (F8) the grid can be shorter
    than its viewport — stretching it keeps the playhead and the snap line
    running the full height instead of stopping at the last lane.
@@ -81,6 +95,48 @@ body.seqmode #seqblocks .blklib{flex:0 0 auto;max-height:200px;overflow:auto}
   border-radius:2px;padding:1px 4px;
 }
 
+/* ------------------------------------------- THE CLIPPED EDGE (2026-08-22)
+   The parts panel is 200px tall against 325px of content at 1440×900, and it
+   clipped mid-sentence — the top halves of the letters of one line — which
+   reads as the bottom of the panel rather than as "there is more below". The
+   whole READY-MADE row was under it, unfound for twenty-five minutes.
+
+   .blkmore is the sticky bar that says otherwise: a fade up out of the panel's
+   own background so the last line dissolves instead of being cut, and a label
+   naming what is down there. It is toggled by OPACITY, never display —
+   blkLibMoreSync() measures scrollHeight, and a footer that leaves and rejoins
+   the flow changes the number it is being measured by, which oscillates.
+
+   IT COSTS NO HEIGHT. The sticky box itself is height:0 and the bar hangs off
+   it, drawn upward by an absolutely-positioned child — a footer that took a
+   row of its own would come out of .tlouter's flex share, which is the height
+   fix 4 is about, and it would also change the very scrollHeight
+   blkLibMoreSync() measures. */
+.blkmore{
+  position:sticky;bottom:0;height:0;z-index:3;
+  opacity:0;pointer-events:none;transition:opacity .12s linear;
+}
+.blkmore.on{opacity:1;pointer-events:auto}
+.blkmore i{
+  position:absolute;left:-8px;right:-8px;bottom:0;
+  display:flex;justify-content:center;padding:16px 8px 5px;
+  background:linear-gradient(to top,var(--surf2) 66%,transparent);
+}
+.blkmore button{font-size:10px}
+/* a blinking-in affordance is a distraction to anyone who did not ask */
+@media (prefers-reduced-motion:reduce){ .blkmore{transition:none} }
+
+/* ------------------------------------- CLICK ADDS, DRAG PLACES (2026-08-22)
+   The two gestures a part chip answers to do different things, and only one
+   of them was ever mentioned. The tail names the cheaper one on hover, where
+   somebody about to click can still read it — and scoped to .blklib, because
+   .blkchip is also the sequence library's chip and the inspector's part
+   swatch, neither of which appends anything. */
+.blklib .blkchip:hover::after{
+  content:'  ＋ at the end';
+  font-size:9px;color:var(--dimmer);letter-spacing:.04em;
+}
+
 /* --- the sequence library (lower-left) --- */
 #seqlib{background:var(--surf)}
 .libtop{display:flex;align-items:center;gap:8px;padding:5px 8px 3px;position:sticky;top:0;background:var(--surf);z-index:2}
@@ -90,6 +146,8 @@ body.seqmode #seqblocks .blklib{flex:0 0 auto;max-height:200px;overflow:auto}
   border:1px solid var(--line2);border-radius:3px;padding:3px 7px;width:150px;
 }
 .libsearch:focus{outline:none;border-color:var(--cta)}
+/* the way out of a filter, beside the box that set it (2026-08-22) */
+.libclear{font-size:9.5px;padding:2px 6px}
 .libgrp{padding:0 8px 4px}
 .libgrph{
   font-family:var(--mono);font-size:9px;letter-spacing:.12em;text-transform:uppercase;

@@ -108,10 +108,20 @@ function lintMaestro(opts){
   /* `ch` is optional and is the channel the item is ABOUT, when it is about
      exactly one. It is not decoration: the builder's validate panel hangs
      its "Fix channel N" button off it, and a report line that names a
-     channel in prose but not in a field is a line nothing can act on. */
-  const add = (level, code, msg, fix, ch)=>{
+     channel in prose but not in a field is a line nothing can act on.
+
+     `slot` is the same idea for the OTHER thing a line can be about
+     (v1.70.1): the loadout position restartScript(n) hits. It is worth
+     having for exactly the reason `ch` was — the panel that shows this
+     report is one door away from the list you would go and reorder, and a
+     line that names slot 8 in prose only is a line nothing can hang a
+     "show me slot 8" button off. It is data here and nothing consumes it
+     yet: builder.js's bldAddFixChannel() is the shape a bldAddFixSlot()
+     would take, and that file is not this change's to touch. */
+  const add = (level, code, msg, fix, ch, slot)=>{
     const it = {level, code, msg, fix:fix||''};
     if(typeof ch === 'number') it.ch = ch;
+    if(typeof slot === 'number') it.slot = slot;
     out.push(it);
   };
   if(!MSTR.loaded){ return { items:out, stats:{}, counts:{err:0,warn:0,note:0} }; }
@@ -321,9 +331,35 @@ function lintMaestro(opts){
 
   /* ------------------------------------------------------- the loadout */
   const load = (typeof loadoutNames==='function') ? loadoutNames() : [];
-  if(load.length > 8)
-    add('warn','slots','The loadout has '+load.length+' sequences, but the stock sketches only call restartScript(0) through (7).',
-        'Sequences past slot 7 are on the board and reachable over serial, but no button fires them. Reorder so the eight you want are first.');
+  /* ============ A SLOT NO BUTTON REACHES (v1.70.1)
+     Eight stock routines fill 0-7 and the first routine a builder writes
+     lands at 8. The panel said SLOTS USED 9 / ERRORS 0, the sketch page
+     said the d-pad fires restartScript(0)-(7), and nothing joined them up:
+     you flash the droid and the one routine you wrote is the one nothing
+     plays.
+
+     There WAS a rule here and it counted instead of naming — "the loadout
+     has 9 sequences" is a size, not an address, and the reader's next
+     question ("which one, and where did it go?") had no answer on the
+     line. One item per slot past the d-pad's reach now, each naming its
+     routine and carrying the slot as a field.
+
+     WARNING, NOT ERROR, and that is the whole point of the rule rather
+     than an apology for it: slot 8 is perfectly valid for anything that
+     calls restartScript(n) directly — a whole-sequence brick, the serial
+     console, a sketch of your own — so refusing the export would be
+     wrong. It is advice, in the app's standing posture. The count stays
+     available as stats.loadout for anything that wants the number. */
+  const DPAD_SLOTS = 8;
+  load.forEach((name, slot)=>{
+    if(slot < DPAD_SLOTS) return;
+    add('warn','slot-nodpad','"'+name+'" is on slot '+slot+', past the '+DPAD_SLOTS+
+        ' the stock sketches fire: the d-pad only calls restartScript(0) through ('+(DPAD_SLOTS-1)+').',
+        'It is on the board and restartScript('+slot+') still plays it — over serial, from a whole-sequence '
+        + 'brick, or from a sketch of your own. If it is meant to be a d-pad show, move it into the first '
+        + DPAD_SLOTS + ' in the Sequences list; something already there has to come off the board to make room.',
+        undefined, slot);
+  });
   if(!load.length && (MSTR.sequences||[]).length)
     add('warn','slots-empty','Nothing is in the script loadout, so the exported file would carry no sequence subroutines at all.','Add sequences to the board in the Sequences list.');
 

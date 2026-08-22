@@ -51,6 +51,17 @@ function frame(now){
      channel is bound. */
   if(typeof rcDirectApply === 'function') rcDirectApply();
   motorWatchdog();
+  /* THE FEET, WHEN NOTHING HAS BEEN CHOSEN TO DRIVE THEM (v1.70.0).
+     Q7 has a third answer now — "Not decided yet" — and this is the seam
+     where it costs something: the sketch, an RC channel bound straight to an
+     output and the Polar Mouse have all had their say by this line, so one
+     call here covers every source instead of one per source. It clamps the
+     foot commands to nothing and puts the reason on screen with a door back
+     to the question; see buildFootGate() in config/hardware.js for why it
+     belongs here and not inside the profiles. On any build that HAS chosen a
+     foot controller — which is every build by default — it is one string
+     compare and returns. */
+  if(typeof buildFootGate === 'function') buildFootGate();
   /* the bench engine — the sim's model of what the PCA9685s are doing.
      Only steps when the Bench is open or a board is connected, so a
      session that never goes near it pays nothing (hwWanted()). */
@@ -426,7 +437,21 @@ window.addEventListener('load',()=>{
     if(buildConfigured()) buildApply();      // re-assert foot mode / board size
     /* first run means "no droid configured yet", not "never seen a screen" —
        the wizard is the thing that gets you a working config */
-    if(!buildConfigured()) wizOpen(0);
+    /* ...but "no droid configured yet" is not the same as "has never been
+       asked" (v1.70.0). `done` is set by the Finish job and by nothing else,
+       and answering all nine questions then pressing "Skip the rest" is a
+       complete, deliberate pass through the setup that never reaches it. So
+       this line reopened the wizard at Question 1 on EVERY load, forever, with
+       a ✓ beside every answer — five reloads, five wizards, in a cold-start
+       walkthrough. closeStartup() already records the dismissal in
+       PREFS.seenStartup (look/startup.js); it was read for the Escape key and
+       nowhere else. Read it here too, and the boot trigger becomes what it
+       always meant: nobody has been through this yet.
+       A genuinely fresh profile still gets it — seenStartup defaults to false
+       (look/prefs.js) and only closeStartup() ever sets it — and every other
+       door in (Setup in the header, Config's own link) is untouched, because
+       they call wizOpen()/openStartup() directly rather than through here. */
+    if(!buildConfigured() && !PREFS.seenStartup) wizOpen(0);
     /* re-apply, do NOT re-frame: the camera is where the user left it */
     mouseReady.then(()=>modelApply({frame:false}));
   });

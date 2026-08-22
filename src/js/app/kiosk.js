@@ -30,7 +30,9 @@
      · what is on the stage is FROZEN, not reset. Whatever model, backdrop,
        environment and track state were live when you enabled it are what
        they get. Entering changes nothing about the scene, so leaving has
-       nothing to put back.
+       nothing to put back. The CAMERA is the one exception, since v1.70.0
+       — see kioskRecentre() below. It is a viewpoint, not the scene, and
+       an inherited one can be pointing at an empty corner of the deck.
 
    The guards are the interesting part. Hiding a control is cosmetic — a
    determined visitor with a keyboard and a mouse still has the window. The
@@ -51,6 +53,12 @@
    bar shown and the header display:none, #app's `38px 1fr` grid is
    unchanged and the bar simply takes the header's track. No grid maths,
    no absolute positioning over the stage's pointer handling.
+
+   THE BAR IS THE ONE SURFACE SIM ONLY ADDS, so anything put on it is the
+   shortest road back into the app. Both of its controls are held to the
+   same rule as the guards above: Exit is the door and asks for the
+   password; Re-centre touches CAM and nothing else. Nothing else goes on
+   this bar without the same test.
    ===================================================================== */
 
 /* Session-only, on purpose. `pass` is the plain string as typed: this
@@ -88,7 +96,20 @@ function kioskEnter(pass){
   if(typeof saveLoadClose === 'function') saveLoadClose();
   if(typeof stagePickerClose === 'function') stagePickerClose();
   if(typeof kbdHelpClose === 'function') kbdHelpClose();
-  if(typeof closeStartup === 'function' && $('startup') && $('startup').classList.contains('on')) closeStartup();
+  /* v1.71.0 — the wizard is shut, but NOT at the cost of the user's consent.
+     closeStartup() sets PREFS.seenStartup, and since v1.71.0 that flag is what
+     stops the wizard reopening at question 1 on every boot. Here it is the APP
+     force-closing an overlay to hand the laptop over — nobody dismissed
+     anything — so spending it would mean a fresh install that once entered sim
+     only never sees setup again. Put it back exactly as it was found. */
+  if(typeof closeStartup === 'function' && $('startup') && $('startup').classList.contains('on')){
+    const wasSeen = (typeof PREFS !== 'undefined') ? PREFS.seenStartup : undefined;
+    closeStartup();
+    if(typeof PREFS !== 'undefined' && !wasSeen){
+      PREFS.seenStartup = wasSeen;
+      if(typeof prefsSave === 'function') prefsSave();
+    }
+  }
   const iw = $('impWiz'); if(iw) iw.hidden = true;
   const bw = $('bldWiz'); if(bw) bw.hidden = true;
 
@@ -96,6 +117,13 @@ function kioskEnter(pass){
   KIOSK.pass = (pass === undefined || pass === null) ? null : (String(pass) || null);
   document.body.classList.add('kiosk');
   kioskSyncBar();
+  /* compose the opening frame rather than inherit the operator's (v1.70.0).
+     One walkthrough's public view had no droid in it at all, because the
+     camera was wherever the last piece of workshop business left it. This
+     is the only thing entering changes about the stage, it is one call, and
+     leaving needs no restoration pass for it — Follow, Reset pose and Front
+     are all back in #stageTools the moment the header is. */
+  kioskRecentre();
   lg('sys','sim only ON — public driving'+(KIOSK.pass ? ', the way out is locked' : ', no password set'));
   if(typeof toast === 'function'){
     toast(KIOSK.pass
@@ -182,6 +210,33 @@ async function kioskAsk(){
   return kioskEnter(p.trim());
 }
 
+/* --------------------------------------------------------- the way back */
+/* RE-CENTRE (v1.70.0). Sim only hides #stageTools whole, and Follow, Reset
+   pose and Front are all in it — so the first visitor to spin the mouse
+   wheel could put the droid off screen and end the exhibit until an
+   operator typed the password. The camera is deliberately NOT locked;
+   orbit and zoom are the point of handing the laptop over. What the mode
+   needed was a way BACK, and this is it: frame whatever model is on the
+   stage (modelFrame — the three are wildly different sizes) and turn
+   Follow on, so it stays framed while they drive.
+
+   It is on the bar, so it is held to the bar's rule: it touches CAM and
+   nothing else. No panel, no picker, no pref, nothing that could
+   reconfigure the build — which is what keeps it from being a seventh
+   door. syncFollowBtn() writes to #btnFollow, which is inside the hidden
+   #stageTools; that is a class on a hidden button, not a way to reach it,
+   and it keeps the workshop's own Follow lamp honest on the way out. */
+function kioskRecentre(){
+  if(typeof CAM === 'undefined') return false;
+  if(typeof modelFrame === 'function' && typeof modelGet === 'function') modelFrame(modelGet());
+  else if(typeof viewFrame === 'function') viewFrame('full');
+  /* modelFrame/viewFrame both drop Follow — this is the half that says
+     "and keep it there", which is the whole point at a show */
+  CAM.follow = true;
+  if(typeof syncFollowBtn === 'function') syncFollowBtn();
+  return true;
+}
+
 /* the bar's own state — the padlock only claims a lock when there is one */
 function kioskSyncBar(){
   const t = $('kioskState');
@@ -201,3 +256,22 @@ function kioskSyncBar(){
    time is enough — the same contract #appMenu's controls have. */
 if($('btnKioskExit')) $('btnKioskExit').addEventListener('click', ()=>kioskExit());
 if($('btnKiosk'))     $('btnKiosk').addEventListener('click', ()=>kioskAsk());
+
+/* Re-centre is BUILT here rather than written into body.html — that file
+   belongs to another agent this stage — the same way app/track-edit.js
+   builds its EDIT button next to the stage TRACK one. It goes before Exit
+   so the way out stays the last thing on the bar. Nothing extra is needed
+   to keep it out of the workshop: it is a child of #kioskBar, which
+   10-kiosk.css hides whole with `body:not(.kiosk) #kioskBar{display:none}`. */
+function kioskInstallRecentre(){
+  const exit = $('btnKioskExit');
+  if(!exit || $('btnKioskRecentre')) return;
+  const b = el('button', null, 'Re-centre');
+  b.id = 'btnKioskRecentre';
+  b.type = 'button';
+  b.title = 'put the droid back in the middle of the picture and keep it there — '
+          + 'you can still orbit and zoom';
+  b.addEventListener('click', ()=>kioskRecentre());
+  exit.insertAdjacentElement('beforebegin', b);
+}
+kioskInstallRecentre();

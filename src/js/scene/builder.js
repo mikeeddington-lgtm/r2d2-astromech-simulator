@@ -59,6 +59,23 @@
    ===================================================================== */
 
 const MB_GRID = 0.05;                 // 50 mm — Mike's fixed grid unit
+/* the workbench itself: 600 mm square, which is twelve of those cells. Named
+   rather than written into the BoxGeometry call (v1.70.0) because the grid
+   drawn on it and the camera that frames it both have to agree with it. */
+const MB_BASE_SIZE = 0.6;
+/* THE JAGGED EDGES (v1.70.0). The plate's top face sat at exactly y = 0 —
+   which is also where scene/scene.js's ground disc is — so the two were
+   coplanar and the depth buffer picked a winner per pixel. That is the torn,
+   half-there grey polygon the walkthrough saw, and it was never a mesh fault.
+   The MESH lifts by 1.5 mm; the group, and with it the attach frame every
+   part is placed against, stays at y = 0, so nothing about the FRAME note at
+   the top of this file changes. */
+const MB_BASE_LIFT = 0.0015;
+/* how far the drawn grid floats over that. It has to clear two more things:
+   the lifted plate, and the world floor grid at y = 0.002 — 500 mm lines that
+   would otherwise cross this one and read as part of it. Still under a tenth
+   of a cell, so nothing measures differently. */
+const MB_GRID_LIFT = 0.0035;
 const MB_SOFT_CAP = 8;
 const MB_HARD_CAP = 12;
 const MB_HINGE_TRAVEL = 60;           // degrees, ± about the channel's 0.5 home
@@ -123,6 +140,8 @@ const MB = {
   shown: false, built: false,
   sel: null, selHelper: null,
   nextId: 1, nextJoint: 1,
+  helpOpen: null,            // the pane's "how this works" block — null = nobody has said
+
   drag: null,                // a part being dragged on the stage — mbDragBegin()
   undo: null,                // one step back for the drop's auto-connect — mbUndoAttach()
   saveWarn: false            // the storage receipt is once per session — mbSaveState()
@@ -174,13 +193,34 @@ function mbPointOn(parent, x, y, z){
   parent.add(g);
   return g;
 }
+/* THE 50 mm GRID, ACTUALLY DRAWN (v1.70.0). The model's own blurb, the pane's
+   stats line and the help block have all promised a 50 mm grid since v1.41.0,
+   and nothing ever drew one: an empty base plate was one untextured grey
+   polygon, which is why arriving on it read as a rendering failure rather than
+   a workbench. It is a GridHelper, so it is LineSegments and not a Mesh —
+   mbPickAt() collects meshes only, so it can never be clicked, dragged or
+   selected, and it needs no entry anywhere in the part bookkeeping. */
+function mbBuildGrid(){
+  /* light lines, because they are drawn ON the plate and MB_MAT.base is a dark
+     grey in both themes — the centre pair a shade brighter, so the middle of
+     the bench is findable at a glance */
+  const g = new THREE.GridHelper(MB_BASE_SIZE, Math.round(MB_BASE_SIZE / MB_GRID),
+                                 mbHue(0xcdd8e2), mbHue(0x93a0ad));
+  g.material.opacity = 0.75;
+  g.material.transparent = true;
+  g.material.depthWrite = false;       // lines over a plate, never z-fighting it
+  g.position.y = MB_GRID_LIFT;
+  return g;
+}
 function mbBuildBase(){
   const group = new THREE.Group();
-  const mesh = mbMesh(new THREE.BoxGeometry(0.6, 0.02, 0.6), MB_MAT.base);
-  mesh.position.y = -0.01;             // top face sits at y = 0
+  const mesh = mbMesh(new THREE.BoxGeometry(MB_BASE_SIZE, 0.02, MB_BASE_SIZE), MB_MAT.base);
+  mesh.position.y = -0.01 + MB_BASE_LIFT;    // top face sits at y = 0, clear of the ground disc
   mesh.castShadow = false;
   group.add(mesh);
-  return {id:'base', type:'base', group, attachPoint:group, mesh,
+  const grid = mbBuildGrid();
+  group.add(grid);
+  return {id:'base', type:'base', group, attachPoint:group, mesh, grid,
           sockets:[mbSocket('top', group, 'base plate')]};
 }
 function mbBuildSimple(type){
@@ -213,10 +253,20 @@ function mbBuildHinge(){
   const flag = mbMesh(new THREE.BoxGeometry(0.10, 0.01, 0.05), MB_MAT.flag);
   flag.position.set(0.05, 0, 0);       // the paddle extends out from the pivot
   flagPivot.add(flag);
+  /* THE LABELS ARE A HINGE'S OWN WORDS, THE IDS ARE NOT (v1.70.0). "flag" and
+     "flag tip" are what a modeller calls the paddle on a pivot, and nothing in
+     the app ever defined either — so the ATTACH POINT dropdown offered two
+     names for parts of a hinge that a hinge does not have. A hinge has a
+     moving leaf and a fixed side, so that is what they are called now.
+     The IDS stay `flag`/`tip`/`body`: they are written into PREFS.builder and
+     into every exported model file as the `socket` of every child, and
+     renaming one would quietly drop those children back onto the part's
+     default pivot (see mbAttachPoint's "a stale dropdown must never be able to
+     leave a part unparented"). Only the words a person reads moved. */
   return {group, attachPoint:flagPivot, sockets:[
-    mbSocket('flag', flagPivot, 'flag'),
-    mbSocket('tip',  mbPointOn(flagPivot, 0.10, 0, 0), 'flag tip'),
-    mbSocket('body', group, 'body (does not move)')
+    mbSocket('flag', flagPivot, 'moving leaf'),
+    mbSocket('tip',  mbPointOn(flagPivot, 0.10, 0, 0), 'end of leaf'),
+    mbSocket('body', group, 'fixed side (does not move)')
   ]};
 }
 /* 1-DOF, driven CENTRE pivot — Mike's "centre pivoting, such as for plates"
@@ -1288,9 +1338,9 @@ function mbSetShown(on){
 }
 
 /* ================================================================ doors
-   Two ways INTO the builder's own UI that live outside cad/ui.js's pane,
-   which is not this file's to own the markup of — the logic behind both
-   buttons lives here instead.
+   Three ways INTO the builder's own UI that live outside cad/ui.js's pane,
+   which is not this file's to own the markup of — the logic behind every
+   button lives here instead.
 
    1) mbOpenFirmwareSetup() — the door out of the mod2026 channels wall.
       mod2026 wires its servo channels at compile time (app/boards.js's
@@ -1304,7 +1354,20 @@ function mbSetShown(on){
       setup button uses (app/panels.js): this card only exists inside
       #side, which body.kiosk hides wholesale already.
 
-   2) mbInstallStageButton()/mbSyncStageButton()/mbOpenPane() — a second
+   2) mbOpenServoConfig() — the door out of the SECOND wall, and it went
+      missing (v1.70.0). Take the firmware door's advice, switch to a
+      Maestro, and the channels section says the joint still cannot be
+      wired because there is no channel table yet. That message named "the
+      Servo tab", which is not a tab this app has, and it offered no button
+      at all — so the one wall a reader could act on handed them to a dead
+      end. The channel table is generated (the starters) and imported (a
+      .mstr) on ONE pane: #pMae, the tab labelled **Servo / Sequence
+      config**, which lives in the Board workspace. So this is mbOpenPane()
+      pointed the other way — wsSet('bench') raises that workspace, then a
+      synthetic click on the pMae tab button, which is exactly how
+      maestro/ui-pane.js's own import lands you there after reading a file.
+
+   3) mbInstallStageButton()/mbSyncStageButton()/mbOpenPane() — a third
       door, this one where the user is STANDING rather than in the Model
       tab they may not have found yet. A sibling of the model chip itself,
       built the same way app/track-edit.js's trackEditInstallButton() puts
@@ -1322,6 +1385,18 @@ function mbSetShown(on){
 function mbOpenFirmwareSetup(){
   const i = (typeof wizStepIndex === 'function') ? wizStepIndex('firmware') : -1;
   if(typeof wizOpen === 'function') wizOpen(i >= 0 ? i : 0);
+}
+/* the tab's own label, in one place, so the message that names it and the
+   button that opens it can never say different things (and so a rename in
+   html/body.html is one edit away from being picked up here) */
+function mbServoTabLabel(){
+  const t = document.querySelector('#tabs button[data-p="pMae"]');
+  return (t && t.textContent.trim()) || 'Servo / Sequence config';
+}
+function mbOpenServoConfig(){
+  if(typeof wsSet === 'function') wsSet('bench');
+  const t = document.querySelector('#tabs button[data-p="pMae"]');
+  if(t) t.click();
 }
 function mbOpenPane(){
   if(typeof wsSet === 'function') wsSet('config');
@@ -1341,8 +1416,86 @@ function mbInstallStageButton(){
 }
 function mbSyncStageButton(){
   const b = (typeof $ === 'function') ? $('btnMbBuild') : null;
-  if(!b) return;
-  b.hidden = !(typeof modelGet === 'function' && modelGet() === 'builder');
+  if(b) b.hidden = !(typeof modelGet === 'function' && modelGet() === 'builder');
+  mbFrameStage();          // the same call site, for the same reason — see below
+}
+
+/* ======================================================== framing the bench
+   THE GREY SLAB (v1.70.0). Switching to the Builder filled the whole stage
+   with one flat grey polygon: the camera came to rest 0.85 m from the origin,
+   and a 600 mm plate at 0.85 m through a 38° lens overflows the frame in
+   every direction, so the first thing anyone saw of this feature looked like
+   a rendering fault rather than a workbench.
+
+   WHAT THE DISTANCE IS. Not a fourth hand-tuned number: the plate's own
+   bounding radius, divided by the tangent of the narrower half-angle of the
+   lens the stage is actually using, plus a margin. So it fits the plate on a
+   wide Drive stage and in the sequencer desk's narrow column alike, and if
+   MB_BASE_SIZE ever changes the framing follows it without being retuned.
+
+   WHERE THE HEADING COMES FROM. `CAMS` in app/main.js — the table behind the
+   stage's own camera button (the one labelled Front), whose whole job is
+   putting the subject in shot. Its 3/4 row is the stage's default heading, so
+   the bench faces you the way the droid does, and it is read BY NAME at call
+   time so retuning that table retunes this.
+
+   THE ELEVATION IS THE BENCH'S OWN, and that is deliberate. Every row in
+   CAMS is aimed at a 1.2 m droid and sits about 24° above the floor; a flat
+   600 mm plate seen from there is nearly edge-on, and — measurably — parts on
+   it hide each other: at that eye-line a disc one cell behind a beam cannot
+   be clicked at all, because the beam is in front of it. Looking down on the
+   bench at about 40° is what makes the grid read as a grid and every part on
+   it reachable. builder.test.js pins the picking half of that.
+
+   WHEN IT RUNS. modelFrame() (scene/models.js) is what parks the camera on
+   every model change, and that file is not this one's to edit — but
+   modelSyncBtn() is called on the very next line of modelApply(), and it
+   already calls mbSyncStageButton() (see door 3 above). So this rides the
+   seam that already exists.
+
+   AND WHEN IT DOES NOT. Only when the plate does not fit as things stand.
+   That one test does all the gating: a `{frame:false}` apply — the suites'
+   and the boot path's promise that the camera will not be touched — leaves a
+   camera that is already far enough out, and it is left alone; so is a camera
+   the reader has pulled back themselves; and mbSyncStageButton()'s other call
+   sites (mbInstallStageButton at boot, mbSetShown's own modelSyncBtn) are
+   no-ops for the same reason. */
+const MB_FRAME_MARGIN = 1.12;         // a little air round the plate, not a tight crop
+const MB_FRAME_PHI = 0.90;            // ~40° above the bench — see THE ELEVATION above
+/* CAMS is a `const` in app/main.js, which is the LAST module in the manifest —
+   and `typeof` on a const that has not been initialised yet throws rather than
+   answering 'undefined', so the usual guard in this file would be the one
+   thing that could take an early caller down. try/catch is the honest test
+   for "has that line run yet". */
+function mbCamPreset(name){
+  let rows = null;
+  try{ rows = CAMS; }catch(e){ return null; }
+  if(!Array.isArray(rows)) return null;
+  const row = rows.find(c => c && c[0] === name);
+  return row ? {theta:row[1], phi:row[2], dist:row[3]} : null;
+}
+function mbFitDist(){
+  const r = (MB_BASE_SIZE * Math.SQRT2 / 2) * MB_FRAME_MARGIN;
+  const cam = (typeof camera !== 'undefined') ? camera : null;
+  const fov = ((cam && cam.fov) || 38) * MB_DEG2RAD;
+  const asp = (cam && cam.aspect) ? cam.aspect : 1;
+  /* the frustum is narrower vertically on a wide stage and horizontally on a
+     tall one — fit the tighter of the two, whichever it is today */
+  const half = Math.min(fov / 2, Math.atan(Math.tan(fov / 2) * asp));
+  return r / Math.tan(half);
+}
+function mbFrameStage(){
+  if(!MB.shown || typeof CAM === 'undefined' || !CAM.target) return false;
+  const want = mbFitDist();
+  if(CAM.dist >= want) return false;                 // the whole plate is already in shot
+  const p = mbCamPreset('3/4');
+  CAM.follow = false;
+  if(typeof syncFollowBtn === 'function') syncFollowBtn();
+  CAM.target.set(0, MB_GRID, 0);                     // one cell up — where the parts sit
+  CAM.theta = p ? p.theta : Math.PI - 0.62;
+  CAM.phi   = MB_FRAME_PHI;
+  CAM.dist  = want;
+  return true;
 }
 
 /* ============================================================ animation

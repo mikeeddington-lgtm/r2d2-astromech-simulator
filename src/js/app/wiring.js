@@ -79,9 +79,22 @@ function systemLinks(){
        live: !b || b.controller !== 'rc',
        why: (b && b.controller === 'rc') ? 'no RC input layer exists in any of the three sketches yet' : ''});
 
-  /* feet */
+  /* feet.
+     THE THIRD ANSWER FIRST (v1.70.0). Q7 is allowed to be open — "Not
+     decided yet" — and its own option note promises the loom "does not get
+     drawn round a guess". It has to be asked BEFORE the PWM test, because
+     buildApply() deliberately leaves FOOT_CONTROLLER exactly as the sketch
+     flashed it while the answer stands, so a stale 1 (or a stale 0) would
+     otherwise pick a controller the builder has just said they have not
+     picked. One row, drawn dashed like every other undriven link, saying
+     what is missing rather than which of the two it might turn out to be. */
+  const undecided = (typeof buildFootUndecided === 'function') ? buildFootUndecided(b)
+                  : !!(b && b.bodyDrive === 'undecided');
   const pwm = (typeof CFG !== 'undefined' && CFG.FOOT_CONTROLLER === 1) || (b && b.bodyDrive === 'flipsky');
-  if(pwm){
+  if(undecided){
+    add({name:'Foot drive — not decided yet', sub:'foot drive', bus:'—', pins:'—', live:false,
+         why:'the foot drive is still undecided (question 7) — nothing is drawn to the feet until it is chosen'});
+  }else if(pwm){
     add({name:'Left FSESC + hub motor',  sub:'foot drive', bus:'PWM', pins:'pin 44 (R/C mode)',
          live: !!(p && p.footPWM && p.footPWM())});
     add({name:'Right FSESC + hub motor', sub:'foot drive', bus:'PWM', pins:'pin 45 (R/C mode)',
@@ -256,6 +269,42 @@ function actFriendly(act){
    channel from the sheet. It now walks BOTH configured locations through
    hwPins(), which is the same source the Boards cards read, so whatever you
    can see on a board card appears on the sheet. */
+/* ---------------------------------------------------------------------
+   THE BOARD TABLE IS THE TRUTH (2026-08-22, UX review §3.1 / §2.12)
+
+   WHAT THIS USED TO DO. It walked hwLocs(), asked hwPins(loc) for that
+   board's pin list and took the first pin whose `act` matched. For a
+   mod2026 board that gave the sketch's compile-time channel and the
+   endpoints out of CFG. For a Maestro it gave hwPins()'s own answer — and
+   hwPins() only reads MSTR.channels when `PROFILE.hasMaestro && MSTR.loaded
+   && MSTR.board===hw`; otherwise it synthesises a PLANNED layout from
+   starterNames()/guessPart() with no per-channel name, no endpoints and no
+   direction. The `live` test was then repeated here to decide whether to
+   print real travel or the string "set on the board".
+
+   So the sheet's channel map was a function of WHICH SKETCH WAS LOADED. A
+   builder running mod2026 with a dome Maestro's settings file open got a
+   sheet derived from starterNames() while the bench, the engine and the
+   exporter were all working from MSTR.channels — a second derivation of
+   the same fact, free to disagree, and it did: nineteen dome channels in
+   starter order, "set on the board" in every TRAVEL cell, INV empty.
+
+   MSTR.channels is the persisted table. Wherever one is loaded FOR THIS
+   BOARD it is the answer, whatever sketch happens to be running: same
+   channel numbers, same names, same part mapping, same measured ends. A
+   board with no table keeps the planned layout — that is the honest answer
+   for a board nobody has set up yet — and the row is flagged `planned` so
+   the sheet, the CSV and the diagram can all say which it is.
+   --------------------------------------------------------------------- */
+/* the two ends of a Maestro channel, in µs, shut first. chanEnds()
+   (maestro/playback.js) is THE one place that decides which is which — min
+   is the shut end and max the open one, whatever their order — so a
+   reversed servo prints a range that counts down and INV says so. */
+function wiringEnds(c){
+  const e = (typeof chanEnds === 'function') ? chanEnds(c) : {shut:c.min, open:c.max};
+  if(e.shut === undefined || e.open === undefined) return null;
+  return {shut: Math.round(e.shut/4), open: Math.round(e.open/4)};
+}
 function wiringSource(act){
   /* Every board this build actually has, dome first. The sheet follows the
      BUILD, not the running sketch: it is a bench document, and what matters
@@ -263,33 +312,51 @@ function wiringSource(act){
      used to sit above this and made the sheet ignore the build's answer. */
   if(typeof hwPins === 'function' && typeof hwGet === 'function'){
     for(const loc of (typeof hwLocs === 'function' ? hwLocs() : ['dome','body'])){
+      const hw = hwAt(loc);
+      if(hw === 'mod2026'){
+        let info;
+        try{ info = hwPins(loc); }catch(e){ continue; }
+        const p = info.pins.find(x => x.act === act);
+        if(!p) continue;
+        /* the map is compile-time constants in the sketch, so it is a plan
+           until the sketch driving them is the one that is running */
+        const board = (loc === 'body') ? 1 : 2;
+        const d = SERVO_DEFS[board].find(x => x.act === act);
+        const shut = d ? CFG[d.lo] : undefined, open = d ? CFG[d.hi] : undefined;
+        return {
+          board: 'PCA9685 ' + (board === 1 ? '0x40' : '0x41') + ' · ' + loc,
+          ch: p.pin, name: p.name, planned: !info.live,
+          travel: (shut!==undefined && open!==undefined)
+            ? shut+'–'+open+' ticks (≈'+Math.round(shut*4.069)+'–'+Math.round(open*4.069)+' µs)'
+            : '',
+          invert: (shut!==undefined && open!==undefined && open < shut) ? 'yes' : ''
+        };
+      }
+      /* THIS BOARD HAS A TABLE — so the table answers, not a derivation of
+         it. Channels in an Input/Output mode drive nothing and are skipped,
+         the same rule hwPins() applies. */
+      if(typeof MSTR !== 'undefined' && MSTR.loaded && MSTR.board === hw && Array.isArray(MSTR.channels)){
+        const i = MSTR.channels.findIndex(c => c && c.act === act && /^servo/i.test(c.mode || ''));
+        if(i < 0) continue;                        // not on this board's table
+        const c = MSTR.channels[i];
+        const e = wiringEnds(c);
+        return {
+          board: boardById(hw).label + ' · ' + loc,
+          ch: i, name: c.name, planned: false,
+          travel: e ? (e.shut + '–' + e.open + ' µs') : '',
+          invert: (e && e.open < e.shut) ? 'yes' : ''
+        };
+      }
+      /* no table for this board: the planned layout is all anyone has, and
+         it carries no endpoints — say both rather than inventing numbers */
       let info;
       try{ info = hwPins(loc); }catch(e){ continue; }
       const p = info.pins.find(x => x.act === act);
       if(!p) continue;
-      const hw = hwAt(loc);
-      if(hw === 'mod2026'){
-        const board = (loc === 'body') ? 1 : 2;
-        const d = SERVO_DEFS[board].find(x => x.act === act);
-        return {
-          board: 'PCA9685 ' + (board === 1 ? '0x40' : '0x41') + ' · ' + loc,
-          ch: p.pin, name: p.name,
-          travel: (d && CFG[d.lo]!==undefined && CFG[d.hi]!==undefined)
-            ? CFG[d.lo]+'–'+CFG[d.hi]+' ticks (≈'+Math.round(CFG[d.lo]*4.069)+'–'+Math.round(CFG[d.hi]*4.069)+' µs)'
-            : '',
-          invert: ''
-        };
-      }
-      /* a Maestro: take the endpoints from the loaded settings when this is
-         the live board, otherwise say so rather than inventing numbers */
-      const live = PROFILE.hasMaestro && MSTR.loaded && MSTR.board === hw;
-      const c = live ? MSTR.channels[p.pin] : null;
       return {
         board: boardById(hw).label + ' · ' + loc,
-        ch: p.pin, name: p.name,
-        travel: c ? (Math.round(Math.min(c.min,c.max)/4) + '–' + Math.round(Math.max(c.min,c.max)/4) + ' µs')
-                  : 'set on the board',
-        invert: c && c.invert ? 'yes' : ''
+        ch: p.pin, name: p.name, planned: true,
+        travel: 'set on the board', invert: ''
       };
     }
   }
@@ -322,14 +389,27 @@ function wiringRows(){
       ch: src ? src.ch : '',
       chName: src ? src.name : '',
       travel: src ? src.travel : '',
-      invert: src ? src.invert : ''
+      invert: src ? src.invert : '',
+      /* is this row read off a channel table, or off a layout nobody has
+         set up yet? Both are worth printing; only one is worth wiring to */
+      planned: !!(src && src.planned)
     };
   }).filter(r => r.cad || r.board);   // drop actuators that exist in neither
 }
 
+/* HOW MANY PARTS NOTHING DRIVES — the number the sheet's second table has
+   always carried, as a number, for anywhere that wants to say it out loud
+   before the file is downloaded. */
+function wiringCounts(){
+  const rows = wiringRows();
+  const undriven = rows.filter(r => !r.board).length;
+  return {total: rows.length, driven: rows.length - undriven, undriven,
+          planned: rows.filter(r => r.board && r.planned).length};
+}
+
 function wiringCsv(){
   const rows = wiringRows();
-  const head = ['Actuator','Part','CAD name','Group','Bearing','Position','Board','Channel','Channel name','Travel','Inverted'];
+  const head = ['Actuator','Part','CAD name','Group','Bearing','Position','Board','Channel','Channel name','Travel','Inverted','Source'];
   const esc = v => {
     const s = (v === null || v === undefined) ? '' : String(v);
     return /[",\n]/.test(s) ? '"' + s.replace(/"/g,'""') + '"' : s;
@@ -337,7 +417,8 @@ function wiringCsv(){
   return [head.join(',')].concat(rows.map(r => [
     r.act, r.friendly, r.cad, r.kind,
     r.az === null ? '' : r.az.toFixed(0) + '°', r.azWord,
-    r.board, r.ch === '' ? '' : r.ch, r.chName, r.travel, r.invert
+    r.board, r.ch === '' ? '' : r.ch, r.chName, r.travel, r.invert,
+    r.board ? (r.planned ? 'planned' : 'channel table') : ''
   ].map(esc).join(','))).join('\n') + '\n';
 }
 
@@ -393,8 +474,13 @@ function wiringDiagramSvg(rows){
        belongs to from its position on the page */
     s += '<g data-board="'+esc(g.board)+'">';
     s += '<text x="'+boardX+'" y="'+(y0+22)+'" font-size="14" font-weight="700">'+ esc(g.board) +'</text>';
+    /* one board, one source — every row in a group came off the same board,
+       so the section can say whether the picture is read off that board's
+       channel table or off the layout the setup plans for it */
+    const planned = g.rows.every(r=>r.planned);
     s += '<text x="'+boardX+'" y="'+(y0+36)+'" font-size="10" fill="#777">'+ n +' channel'+(n===1?'':'s')
-       + ' — signal + ground only, power distribution is your build\'s business</text>';
+       + (planned ? ' — PLANNED, no channel table loaded for this board' : ' — from this board\'s channel table')
+       + ' · signal + ground only, power distribution is your build\'s business</text>';
     s += '<rect x="'+boardX+'" y="'+boardY+'" width="'+boardW+'" height="'+boardH+'" rx="8" fill="#1c4d2e" stroke="#333" stroke-width="1.5"/>';
     s += '<text x="'+(boardX+boardW/2)+'" y="'+(boardY+boardH/2)+'" font-size="11" fill="#cde" text-anchor="middle">'+ esc(g.board) +'</text>';
     g.rows.forEach((r,i)=>{
@@ -460,7 +546,8 @@ function wiringHtml(){
     <td class="m cad">${esc(r.cad) || '<span class="none">no CAD part</span>'}</td>
     <td class="n">${r.az === null ? '' : r.az.toFixed(0) + '&deg;'}</td>
     <td class="w">${esc(r.azWord)}</td>
-    <td>${esc(r.board) || '<span class="none">not driven</span>'}</td>
+    <td>${esc(r.board) || '<span class="none">not driven</span>'}${
+      r.planned ? ' <span class="plan" title="no channel table is loaded for this board — this is the layout the setup plans, not a measured wiring">planned</span>' : ''}</td>
     <td class="n b">${r.ch === '' ? '' : esc(r.ch)}</td>
     <td class="m">${esc(r.chName)}</td>
     <td class="n">${esc(r.travel)}</td>
@@ -496,6 +583,9 @@ function wiringHtml(){
   table.bld th{text-align:left;width:130px;border-bottom:1px solid #eee;text-transform:none;font-size:11px;color:#333}
   table.bld td{font-size:11px}
   .park{color:#b26b00;font-size:10px;border:1px solid #e8c37a;border-radius:3px;padding:0 4px}
+  /* a channel read off a board's own table is a fact; one read off the
+     planned layout is an intention, and the two must not print alike */
+  .plan{color:#7a5c00;font-size:9.5px;border:1px dotted #c9a227;border-radius:3px;padding:0 3px;white-space:nowrap}
   /* v1.45.0 — the diagrams are beta, and this is the copy that gets printed
      and taken to the bench, so it says so here as well as on screen */
   .bmark{color:#b26b00;font-family:ui-monospace,Consolas,monospace;font-size:9px;letter-spacing:.12em;
@@ -552,12 +642,95 @@ ${orphanCh.map(tr).join('\n')}
 
 ${wiringDiagramSvg(rows)}
 
-<footer>Generated by the R2-D2 Astromech Simulator. Travel figures are the
-endpoints currently set in the sim, not measured on the droid — check each one
-against its mechanical limits before running it at speed. Geometry: MrBaddeley
-Printed Droid MK4.</footer>
+<footer>Generated by the R2-D2 Astromech Simulator. <b>Travel runs shut &rarr; open</b>,
+so a range that counts down is a reversed servo and <b>INV</b> says so. A row marked
+<span class="plan">planned</span> has no channel table behind it: that board's layout is
+what the setup intends, not what anyone has set up. Travel figures are the endpoints
+currently set in the sim, not measured on the droid — check each one against its
+mechanical limits before running it at speed. Geometry: MrBaddeley Printed Droid MK4.</footer>
 </body></html>
 `;
+}
+
+/* =====================================================================
+   THE COUNT GOES BESIDE THE BUTTON (2026-08-22, UX review §2.12)
+
+   "Rigged in the model but nothing drives them" is a whole section of the
+   exported sheet — ten of twenty-nine actuators on the walkthrough's build
+   — and the only way to learn that number was to press the button, find
+   the download, open it and read a red column. It belongs on screen,
+   beside the button, before the export.
+
+   THIS FILE OWNS NONE OF THE THREE BARS: the setup's wiring step
+   (config/wizard.js), the Model tab's CAD pane (cad/ui.js) and the Maestro
+   pane (maestro/ui-pane.js) each draw their own. Pasting the sentence into
+   all three would put three copies of one piece of arithmetic in three
+   files free to drift, which is the exact fault this change exists to
+   remove. So the number stays here and one decorator keeps whichever bars
+   are on the page current.
+
+   Nothing announces when a pane redraws, so the trigger is a
+   MutationObserver: it rejects text-node writes (the status tables rewrite
+   textContent constantly and those are nodeType 3) on the first test,
+   coalesces a burst into one pass on the next tick, and the line it
+   inserts is not a .conbar, so it cannot re-trigger itself.
+   ===================================================================== */
+const WIRING_COUNT_CLASS = 'wirecount';
+function wiringCountText(counts){
+  const c = counts || wiringCounts();
+  return (c.undriven
+      ? c.undriven + ' of ' + c.total + ' rigged parts have no channel — the sheet lists them under '
+        + '“rigged in the model but nothing drives them”.'
+      : 'All ' + c.total + ' rigged parts have a channel.')
+    + (c.planned ? ' ' + c.planned + ' driven channel' + (c.planned===1?' is':'s are')
+        + ' planned — no channel table is loaded for that board yet.' : '');
+}
+/* every export bar on the page: a .conbar carrying a "Wiring sheet" button */
+function wiringExportBars(root){
+  return Array.from((root || document).querySelectorAll('.conbar')).filter(bar =>
+    Array.from(bar.querySelectorAll('button')).some(b => /wiring sheet/i.test(b.textContent || '')));
+}
+function wiringSyncExportBars(){
+  if(typeof document === 'undefined') return 0;
+  let txt, undriven;
+  try{ const c = wiringCounts(); txt = wiringCountText(c); undriven = c.undriven; }
+  catch(e){ return 0; }                       // too early to know — CAD is still loading
+  const bars = wiringExportBars();
+  bars.forEach(bar=>{
+    let n = bar.nextElementSibling;
+    if(!n || !n.classList || !n.classList.contains(WIRING_COUNT_CLASS)){
+      n = document.createElement('div');
+      bar.parentNode.insertBefore(n, bar.nextSibling);
+    }
+    /* an amber plate while something is unwired, a plain hint once nothing
+       is — the count is worth reading either way, worth acting on once */
+    const cls = (undriven ? 'note prose ' : 'hint prose ') + WIRING_COUNT_CLASS;
+    if(n.className !== cls) n.className = cls;
+    if(n.textContent !== txt) n.textContent = txt;
+  });
+  return bars.length;
+}
+let WIRING_COUNT_QUEUED = false;
+function wiringCountWatch(){
+  if(typeof MutationObserver !== 'function' || typeof document === 'undefined' || !document.body) return;
+  wiringSyncExportBars();
+  new MutationObserver(muts=>{
+    if(WIRING_COUNT_QUEUED) return;
+    for(const m of muts) for(const node of m.addedNodes){
+      if(node.nodeType !== 1) continue;                                    // a text write, not a pane
+      if(node.classList && node.classList.contains(WIRING_COUNT_CLASS)) continue;   // our own line
+      if((node.classList && node.classList.contains('conbar')) ||
+         (node.querySelector && node.querySelector('.conbar'))){
+        WIRING_COUNT_QUEUED = true;
+        setTimeout(()=>{ WIRING_COUNT_QUEUED = false; wiringSyncExportBars(); }, 0);
+        return;
+      }
+    }
+  }).observe(document.body, {childList:true, subtree:true});
+}
+if(typeof document !== 'undefined'){
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', wiringCountWatch);
+  else wiringCountWatch();
 }
 
 function downloadWiring(kind){

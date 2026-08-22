@@ -144,7 +144,11 @@ function buildBuilderPane(hostOuter){
      leaking into the droid's own sections */
   const host = el('div','mbpane');
   hostOuter.appendChild(host);
-  const s = sect(host, 'Parts bin', MB.parts.length + ' of ' + MB_HARD_CAP);
+  /* "0 OF 12" said nothing about what the 12 was (v1.70.0) — and the one
+     sentence that explains it, "twelve parts is the limit for one mechanism",
+     was inside the collapsed block BELOW this bin. The noun is the whole
+     fix here; the block below opens itself on a first visit. */
+  const s = sect(host, 'Parts bin', MB.parts.length + ' of ' + MB_HARD_CAP + ' parts used');
   const bin = el('div','mbbin');
   MB_PRIM_ORDER.forEach(type=>{
     const def = MB_PRIM[type];
@@ -171,13 +175,24 @@ function buildBuilderPane(hostOuter){
      that ATTACH TO is the entire point of the feature, that a joint spends a
      servo channel, or that the 50 mm grid is not a setting.
 
-     COLLAPSED, not hidden: a <details> is one line shut, so the bin still
+     COLLAPSIBLE, not hidden: a <details> is one line shut, so the bin still
      lands above the fold, and the answer is one click away rather than in a
      tooltip nobody hovers. Plain words only — this very pane had "fixed at
      compile time" written out of it once already (builder.test.js pins that),
-     so there is nothing here about scene graphs or forward kinematics. */
+     so there is nothing here about scene graphs or forward kinematics.
+
+     OPEN ON A FIRST VISIT (v1.70.0). Collapsed-by-default was the wrong
+     default for the one reader who needs it: a newcomer met "0 OF 12" and a
+     row of Add buttons, and the block that answers nearly every question they
+     had was a shut line UNDER them. It stays where it is — the bin still
+     lands first, which is what the collapse was protecting — and simply
+     starts open while the bin is empty, which is exactly the first visit.
+     Once there is something on the stage it starts shut again, and either way
+     a reader who works the twisty owns it from then on (MB.helpOpen). */
   const help = document.createElement('details');
   help.className = 'mbhelp';
+  help.open = (MB.helpOpen === null || MB.helpOpen === undefined) ? !MB.parts.length : !!MB.helpOpen;
+  help.addEventListener('toggle', ()=>{ MB.helpOpen = help.open; });
   const sum = document.createElement('summary');
   sum.textContent = 'how this works';
   help.appendChild(sum);
@@ -303,19 +318,27 @@ function mbPreviewRow(host, act, label){
   const cur = live ? ACT_T[act] : 0.5;
   rng.value = String(cur);
   rng.disabled = owned || !live;
-  rng.title = owned ? 'a board is driving this channel' : (live ? 'drag to move the joint' : 'the builder is off the stage');
-  const out = el('span','mbval', (+cur).toFixed(2));
+  rng.title = owned ? 'a board is driving this channel'
+                    : (live ? 'drag to move the joint — 0% to 100% of its travel'
+                            : 'the builder is off the stage');
+  /* PER CENT OF TRAVEL, and say so (v1.70.0). The readout was a bare "0.50"
+     with no unit and nothing naming what it measured — next to a Position row
+     that read "0.05 m", the obvious guess was that it was another distance.
+     It is neither: it is where the joint sits between its two end stops, so
+     it is a percentage, and the row's label carries the word. */
+  const pct = v => Math.round(v * 100) + '%';
+  const out = el('span','mbval', pct(cur));
   rng.addEventListener('input', ()=>{
     const v = +rng.value;
-    out.textContent = v.toFixed(2);
+    out.textContent = pct(v);
     if(!mbChanOwned(act) && typeof ACT_T !== 'undefined' && ACT_T[act] !== undefined) ACT_T[act] = v;
   });
   const bMid = el('button','mbstep','·');
-  bMid.title = 'back to the middle';
+  bMid.title = 'back to the middle — 50%';
   bMid.disabled = rng.disabled;
   bMid.addEventListener('click', ()=>{
     if(rng.disabled) return;
-    ACT_T[act] = 0.5; rng.value = '0.5'; out.textContent = '0.50';
+    ACT_T[act] = 0.5; rng.value = '0.5'; out.textContent = pct(0.5);
   });
   wrap.appendChild(rng); wrap.appendChild(out); wrap.appendChild(bMid);
   r.appendChild(wrap);
@@ -341,7 +364,13 @@ function mbPropsCard(host){
   r0.appendChild(inp);
   s.appendChild(r0);
 
-  s.appendChild(mbAxisRow('Position', rec, 'pos', MB_GRID, v=>v.toFixed(2)+' m',
+  /* MILLIMETRES, because that is the unit this feature is described in
+     (v1.70.0). The blurb, the stats line and the help block all say "50 mm
+     grid" and these fields answered "0.05 m", so one stepper click moved the
+     part by a number that did not appear anywhere else in the pane. The
+     record stays in metres — the whole stage is (see the FRAME note in
+     scene/builder.js); only the reading changes. */
+  s.appendChild(mbAxisRow('Position', rec, 'pos', MB_GRID, v=>Math.round(v*1000)+' mm',
     (axis,d)=>{ mbMovePart(rec.id, axis, d); buildCadPane(); }));
   s.appendChild(mbAxisRow('Rotation', rec, 'rot', 90, v=>v+'°',
     (axis,d)=>{ mbRotatePart(rec.id, axis, d); buildCadPane(); }));
@@ -422,7 +451,24 @@ function mbPropsCard(host){
       barFw.appendChild(bFw);
       s.appendChild(barFw);
     }else if(typeof MSTR === 'undefined' || !MSTR.loaded){
-      s.appendChild(el('div','hint dim','no Maestro settings loaded — generate or import a .mstr on the Servo tab, then wire it here.'));
+      /* THE SECOND WALL, and it used to be the dead end (v1.70.0). The one
+         above hands over OPEN THE SETUP — FIRMWARE; take its advice, switch
+         to a Maestro, and you landed here — told to use "the Servo tab",
+         which is not a tab this app has, with no button to press. The channel
+         table is generated (a starter) and imported (a .mstr) on #pMae, so
+         name that tab and open it, exactly as the firmware wall does.
+         mbServoTabLabel()/mbOpenServoConfig() are scene/builder.js's, beside
+         mbOpenFirmwareSetup() — the markup is this file's, the door is not. */
+      const tabName = (typeof mbServoTabLabel === 'function') ? mbServoTabLabel() : 'Servo / Sequence config';
+      s.appendChild(el('div','hint dim','no channel table yet — generate a starter or import a .mstr on '
+        + 'Board ▸ ' + tabName + ', then wire the joint here.'));
+      const barSv = el('div','conbar');
+      const bSv = el('button','b','OPEN ' + tabName.toUpperCase());
+      bSv.id = 'btnMbServoDoor';
+      bSv.title = 'the pane that builds a channel table from a starter, or reads one out of a .mstr';
+      bSv.addEventListener('click', ()=>{ if(typeof mbOpenServoConfig==='function') mbOpenServoConfig(); });
+      barSv.appendChild(bSv);
+      s.appendChild(barSv);
     }else{
       rec.channels.forEach((act,i)=>{
         const r = el('div','selrow');
@@ -436,7 +482,7 @@ function mbPropsCard(host){
        above: the preview is about the MODEL, so it works on a firmware that
        cannot wire the joint at all and before any .mstr has been loaded. */
     rec.channels.forEach((act,i)=>{
-      mbPreviewRow(s, act, 'Preview' + (rec.channels.length > 1 ? ' — ' + String(labels[i]||('ch '+(i+1))).toLowerCase() : ''));
+      mbPreviewRow(s, act, 'Preview travel' + (rec.channels.length > 1 ? ' — ' + String(labels[i]||('ch '+(i+1))).toLowerCase() : ''));
     });
   }
 

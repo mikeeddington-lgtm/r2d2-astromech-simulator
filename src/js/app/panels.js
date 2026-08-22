@@ -214,8 +214,47 @@ function buildOutputs(){
   const bar=()=>{ const td=el('td','tv'); const b=el('div','trav'); const f=el('i'); b.appendChild(f); td.appendChild(b); return {td,f}; };
 
   if(PROFILE.hasServos){
+    /* =================================================================
+       A HEADING THAT SAYS WHAT THE TABLE IS (2026-08-22, UX review §3.1)
+
+       Three surfaces answered "which servo is on which channel" at the
+       same moment, differently, and this one was the loudest: a heading
+       reading `PCA9685 @ 0x41 · BODY` over ten body doors, on a droid
+       whose loaded channel table was a dome Maestro. Two faults in one
+       line. The addresses were the SECTION INDEX (0x41/0x42) rather than
+       the addresses the sketch opens (0x40 body, 0x41 dome pies), which
+       every other surface — the blurb, boards.js, the wiring sheet —
+       already names correctly. And the table itself is compile-time
+       constants out of SERVO_DEFS: it is what THIS SKETCH would drive,
+       which is only the droid's wiring when the build actually has a
+       PCA9685 at that location.
+
+       hwPins() has known which of those it is since v1.45.0 and said so
+       quietly, per board, in a `note` nobody renders here. So ask it, and
+       put the answer in the heading — plus, when this is a plan, one
+       amber line above the table rather than a footnote under it. The
+       extra test beside `live` is WHICH board: hwPins('dome').live is
+       true for a live Maestro too, and this table is not a Maestro's.
+       ================================================================= */
     for(const b of [1,2]){
-      const s=sect(host, 'PCA9685 @ 0x4'+b, b===1?'pwm1 · body':'pwm2 · dome pies');
+      const loc = (b===1) ? 'body' : 'dome';
+      let info=null; try{ info = (typeof hwPins==='function') ? hwPins(loc) : null; }catch(e){}
+      const live = !!(info && info.live && typeof hwAt==='function' && hwAt(loc)==='mod2026');
+      const addr = '0x4'+(b-1);
+      const s=sect(host, 'PCA9685 @ '+addr+' · '+(b===1?'body':'dome pies'),
+                   live ? 'board table' : 'planned');
+      if(!live){
+        /* inside `if(PROFILE.hasServos)` a mod2026 board at this location
+           would BE live, so the board the build has here is always some
+           other one — name it, and say where its real table lives */
+        const other = (typeof hwAt==='function' && typeof hwLabel==='function') ? hwLabel(hwAt(loc)) : '';
+        const n=el('div','note prose');
+        n.innerHTML = '<b>Planned — this is not your wiring.</b> These are <code>'+xmlEsc(PROFILE.short)
+          + '</code>’s own compile-time channels for a PCA9685 at '+addr+'.'
+          + (other ? ' Your build has <b>'+xmlEsc(other)+'</b> here' : ' Your build has another board here')
+          + ', and its channel table — the one the bench edits and the exporter writes — is on the Maestro tab.';
+        s.appendChild(n);
+      }
       const tb=mkTable(s,[['Ch'],['Function'],['Pulse','r'],['Travel']]);
       for(const d of SERVO_DEFS[b]){
         const tr=el('tr', d.act?'clickrow':null);
@@ -337,12 +376,32 @@ function updateOutputs(){
 }
 
 /* ---- controls pane ---- */
+let BUILDMAP_NOTE = null;
+/* v1.71.0 - THE PANE DESCRIBES WHAT IS ON THE STAGE, not what is flashed.
+   PROFILE is the droid's sketch, and it is the right answer for the droid. It
+   is the wrong answer for everything else that can stand on the stage: a
+   walkthrough switched to the Model Builder and was still shown R2-D2's sound
+   bank, R2-D2's .ino name and the full PRIMARY / BODY & DOME button map, none
+   of which drives the thing they were looking at. The sketch IS still running
+   and the pad still reaches it, so the map is not wrong - it is about something
+   that is not there, which is worse than blank, because a newcomer reads it as
+   a description of the mechanism in front of them. So say which it is. */
 function buildMap(){
+  const m = (typeof modelGet === 'function') ? modelGet() : 'droid';
+  if(m !== 'droid'){
+    const lab = (typeof modelById === 'function' && modelById(m)) ? modelById(m).label : m;
+    const n = el('div','note');
+    n.innerHTML = 'This is the sketch running on the <b>droid</b>. <b>' + lab + '</b> is what is on '
+                + 'the stage, and none of these buttons drives it \u2014 the pad still reaches the '
+                + 'sketch, so the droid moves underneath. Put the droid back on the stage to use this map.';
+    BUILDMAP_NOTE = n;
+  }else BUILDMAP_NOTE = null;
   $('hwBlurb').classList.add('prose');                 // the sketch blurb is a paragraph, not a caption
   $('hwBlurb').innerHTML = '<code>'+PROFILE.file+'</code><br>'+PROFILE.blurb;
   $('sndChipName').textContent = PROFILE.audio;
   $('sndBus').textContent = PROFILE.audio==='DY-SV5W' ? '· Serial0 (DYPlayerArduino)' : '· Serial0';
   const host=$('mapHost'); host.innerHTML='';
+  if(BUILDMAP_NOTE) host.appendChild(BUILDMAP_NOTE);
   for(const title in PROFILE.map){
     const s=sect(host,title);
     PROFILE.map[title].forEach(([a,b])=>kvRow(s,a,b));
@@ -384,7 +443,20 @@ function buildConfig(){
      it is are all setup questions, and repeating them here only invited the
      two copies to disagree. */
   cfgAnchor(host,'cfgBuild','Build');
-  const sB = sect(host,'This droid', buildConfigured() ? 'configured' : 'not set up yet');
+  /* THREE STATES, BECAUSE THERE ARE THREE (2026-08-22, UX review §3.4).
+     This said `not set up yet` directly above a complete, correct list of
+     every answer, because buildConfigured() is PREFS.build.done and only
+     the final Finish job ever sets that — answer everything and press
+     "Skip the rest" and the tab called your droid unconfigured.
+
+     The PREDICATE is deliberately left alone: it also gates the boot
+     wizard (main.js), the wizard's own title and its Close/Skip button,
+     and widening it there would be a different decision made by accident.
+     What was missing is the middle state, and only this heading needs it —
+     PREFS.seenStartup is the flag closeStartup() sets, so "the setup has
+     been through, the Finish job has not". */
+  const sB = sect(host,'This droid', buildConfigured() ? 'configured'
+                                   : (PREFS.seenStartup ? 'answered, not finished' : 'not set up yet'));
   const sum = el('div','bsum');
   buildSummaryRows().forEach(r=>{
     const row = el('div','bsumrow'); row.style.gridTemplateColumns='118px 1fr';

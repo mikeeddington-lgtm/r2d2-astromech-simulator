@@ -198,9 +198,32 @@ function svDrives(c){
   const lab = (typeof actPartLabel === 'function') ? actPartLabel(c.act) : '';
   return lab || ((typeof actFriendly === 'function') ? actFriendly(c.act) : c.act);
 }
+/* ONE NUMBERING, AND IT IS THE BOARD'S (v1.70.0)
+   Every tile read `ch 0` over `Servo 1`, `ch 1` over `Servo 2`, all the way to
+   `ch 23` over `Servo 24`: the channel's index and the rack starter's
+   generated name, which is that same channel counted from one. Two schemes
+   for one thing, printed one above the other, on a hundred and twenty-eight
+   tiles at worst.
+   The app is 0-based everywhere else a channel is named — `ch N` on the Board
+   table, on the bench, in app/boards.js's chLabel(), in the wiring sheet, in
+   every dropdown in cad/select.js — so that is the one that stays, and the
+   1-based restatement goes.
+   NOT by rewriting the table: the name belongs to MSTR (maestro/starters.js
+   generates it, servo-store.js keeps it) and this file only draws. It is
+   suppressed at the point of DISPLAY, and only when it is literally this
+   channel's own number said again — "Servo 7" on channel 6 or 7. Any other
+   name, including a "Servo 12" somebody deliberately typed on channel 3,
+   says something the number does not and is shown. */
+function svAutoName(c){
+  const n = String((c && c.name) || '').trim();
+  if(!n) return true;
+  const m = /^servo\s*(\d+)$/i.exec(n);
+  return !!m && (+m[1] === c.i || +m[1] === c.i + 1);
+}
+/* the channel's own name, or '' when it is only the channel number again */
+function svOwnName(c){ return svAutoName(c) ? '' : String(c.name).trim(); }
 function svTileLabel(c){
-  const n = (c.name || '').trim();
-  return n || ('Channel ' + c.i);
+  return svOwnName(c) || ('Channel ' + c.i);
 }
 
 /* ================================================================ the view */
@@ -268,16 +291,21 @@ function buildServos(){
     const wrap = el('div','svtile' + (svIsServo(c) ? '' : ' off') + (SV.sel === c.i ? ' sel' : ''));
     wrap.dataset.ch = c.i;
     wrap.tabIndex = 0;
-    wrap.title = 'channel ' + c.i + ' — ' + svTileLabel(c)
+    const own = svOwnName(c);
+    wrap.title = 'channel ' + c.i + (own ? ' — ' + own : '')
                + (c.act ? '\ndrives ' + svDrives(c) : '\nnot wired to anything on the model')
                + '\nclick to wire, name or test it';
 
     const face = svFace(svShapeOf(c.i));
     wrap.appendChild(face.svg);
 
+    /* `ch N` is the tile's title now (15-servos.css swaps the two type sizes
+       to match), and the name line below carries a name only when there is
+       one worth carrying. It is still appended when empty, so a named and an
+       unnamed tile are the same height and the grid stays square. */
     const n = el('div','svn', 'ch ' + c.i);
     wrap.appendChild(n);
-    const nm = el('div','svname', svTileLabel(c));
+    const nm = el('div','svname' + (own ? '' : ' none'), own);
     wrap.appendChild(nm);
     const dr = el('div','svdrives', c.act ? svDrives(c) : '—');
     if(!c.act) dr.classList.add('none');
@@ -375,10 +403,16 @@ function svBuildCard(){
   const sub = el('div','selsub');
   /* the MODE is only worth a word when it is not the ordinary one — "Servo 4
      · Servo · not wired" reads like a stutter, and every channel here is a
-     servo unless somebody deliberately made it an input */
-  sub.innerHTML = xmlEsc(svTileLabel(c))
-    + (svIsServo(c) ? '' : ' · ' + xmlEsc(c.mode || 'Input'))
-    + (c.act ? ' · drives <b>' + xmlEsc(svDrives(c)) + '</b>' : ' · not wired to the model');
+     servo unless somebody deliberately made it an input.
+     The NAME is only worth a word on the same terms (v1.70.0): the head above
+     already says "Channel 4", so a name that is only "Servo 5" would be the
+     doubled numbering again, one line lower. */
+  const bits = [];
+  const named = svOwnName(c);
+  if(named) bits.push(xmlEsc(named));
+  if(!svIsServo(c)) bits.push(xmlEsc(c.mode || 'Input'));
+  bits.push(c.act ? 'drives <b>' + xmlEsc(svDrives(c)) + '</b>' : 'not wired to the model');
+  sub.innerHTML = bits.join(' · ');
   card.appendChild(sub);
 
   /* 1 — THIS servo's shape. Mike, v1.60.0: "the 180 / 360 gauges should be

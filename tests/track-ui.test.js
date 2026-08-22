@@ -515,6 +515,34 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
   ok('Cones mode: a click places a cone, the same click again removes it',
      coneMode.afterAdd===coneMode.before+1 && coneMode.afterRemove===coneMode.before, JSON.stringify(coneMode));
 
+  /* v1.70.0 — three screenshots of the three modes came back pixel-identical
+     apart from which tab was lit: the instruction line never changed and
+     neither did the drawing, so nothing on screen said what a click was
+     about to do. The mode has to be READABLE, in the line and in the
+     picture — the canvas is the picture, so the canvas is what is compared. */
+  const modePicture = await ev(()=>{
+    trackLibReset();
+    trackEditOpen();
+    const hintEl = ()=>document.getElementById('teHint')
+                     || document.querySelector('#trackEdit .tehead .tesub');
+    const shot = m=>{ teSetMode(m); return {hint:hintEl().textContent, png:TE.canvas.toDataURL()}; };
+    const d = shot('draw'), g = shot('gates'), c = shot('cones');
+    trackEditCancel();
+    return {d, g, c};
+  });
+  ok('each mode says on the instruction line what IT edits',
+     modePicture.d.hint !== modePicture.g.hint && modePicture.g.hint !== modePicture.c.hint &&
+     modePicture.d.hint !== modePicture.c.hint &&
+     /point/i.test(modePicture.d.hint) && /gate/i.test(modePicture.g.hint) &&
+     /cone/i.test(modePicture.c.hint),
+     JSON.stringify({draw:modePicture.d.hint, gates:modePicture.g.hint, cones:modePicture.c.hint}));
+  ok('…and each draws a different canvas — what that mode edits is what is lit',
+     modePicture.d.png !== modePicture.g.png && modePicture.g.png !== modePicture.c.png &&
+     modePicture.d.png !== modePicture.c.png,
+     JSON.stringify({dg:modePicture.d.png!==modePicture.g.png,
+                     gc:modePicture.g.png!==modePicture.c.png,
+                     dc:modePicture.d.png!==modePicture.c.png}));
+
   /* right-click: add a point on the curve, remove one under the cursor,
      never below the floor of 4 */
   const rightClick = await ev(()=>{
@@ -911,25 +939,147 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
      quota.ok === false && quota.n === 0 && quota.active === K.STOCK && quota.warned,
      JSON.stringify(quota));
 
-  /* SAVE on the stock lap forks a copy rather than overwriting it; SAVE on a
-     named layout writes back into that one */
-  const forkAndWrite = await ev(()=>{
+  /* v1.70.0, Mike's ruling: THE EDITOR NEVER OVERWRITES. Saving always
+     lands on a new layout, so the one you opened is still there if the
+     edit turns out to be a mistake. This used to be the opposite on a
+     named layout — SAVE wrote straight back into it. */
+  const neverOverwrite = await ev(()=>{
     trackLibReset();
     trackEditOpen();
     TE.shape = [[0,5],[5,0],[0,-5],[-5,0]];
-    trackEditSave();                              // stock was active — forks
+    trackEditSave('first');                       // stock was active — a new layout
     const lib1 = trackLibLoad();
     trackEditOpen();
     TE.shape = [[0,4],[4,0],[0,-4],[-4,0],[0,-1]];
-    trackEditSave();                              // "my track" was active — writes back
+    trackEditSave('second');                      // "first" was active — still a NEW one
     const lib2 = trackLibLoad();
     return {n1:lib1.list.length, name1:lib1.list[0] && lib1.list[0].name,
-            n2:lib2.list.length, len2:lib2.list[0] && lib2.list[0].shape.length,
-            active:lib2.active};
+            n2:lib2.list.length, names2:lib2.list.map(e=>e.name),
+            firstKept: lib2.list[0] && lib2.list[0].shape.length === 4,
+            secondLen: lib2.list[1] && lib2.list[1].shape.length,
+            active: !!lib2.list[1] && lib2.active === lib2.list[1].id};
   });
-  ok('SAVE forks the stock lap into a copy, then writes back into that copy',
-     forkAndWrite.n1 === 1 && forkAndWrite.name1 === 'my track' &&
-     forkAndWrite.n2 === 1 && forkAndWrite.len2 === 5, JSON.stringify(forkAndWrite));
+  ok('saving never writes over the layout you opened — it always lands beside it',
+     neverOverwrite.n1 === 1 && neverOverwrite.name1 === 'first' && neverOverwrite.n2 === 2 &&
+     neverOverwrite.firstKept && neverOverwrite.secondLen === 5 && neverOverwrite.active,
+     JSON.stringify(neverOverwrite));
+
+  console.log('\n════ one Save as…, and a Cancel that says what it would throw away (v1.70.0) ════');
+  /* the walkthrough: a dragged control point, a good live warning, and then
+     six exits none of which was a plain Save — SAVE AS NEW and SAVE AS A
+     COPY side by side, indistinguishable from their labels. They were the
+     same operation twice (fork the canvas into a new layout); the only
+     other thing SAVE did was the in-place overwrite that is now gone. */
+  const saveOne = await ev(()=>{
+    trackLibReset();
+    trackEditOpen();
+    const b = document.getElementById('teSaveAs');
+    const r = {saveAs:!!b, label:b ? b.textContent : null,
+      plainSave: !!document.getElementById('teSave'),
+      savers: Array.from(document.querySelectorAll('#trackEdit button'))
+                .map(x=>x.textContent).filter(t=>/save/i.test(t))};
+    trackEditCancel();
+    return r;
+  });
+  ok('the two save buttons are one Save as… — nothing offers to overwrite what you opened',
+     saveOne.saveAs && saveOne.label === 'Save as…' && !saveOne.plainSave &&
+     saveOne.savers.length === 1, JSON.stringify(saveOne));
+
+  const saveAsFlow = await ev(async ()=>{
+    trackLibReset();
+    trackLibAdd('original', {shape:[[0,5],[5,0],[0,-5],[-5,0]], gates:[0,0.5], cones:[]});
+    trackEditOpen();
+    TE.shape = [[0,6],[6,0],[0,-6],[-6,0],[1,1]];
+    TE.dirty = true;
+    document.getElementById('teSaveAs').click();
+    await new Promise(r=>setTimeout(r,60));
+    const inp = document.querySelector('.dlgwrap .dlginp');
+    const asked = !!inp, suggested = inp ? inp.value : null;
+    if(inp){ inp.value = 'my copy'; document.querySelector('.dlgwrap .dlgyes').click(); }
+    await new Promise(r=>setTimeout(r,60));
+    const lib = trackLibLoad();
+    return {asked, suggested, closed: !document.getElementById('trackEdit'),
+      names: lib.list.map(e=>e.name),
+      originalLen: (lib.list.find(e=>e.name==='original')||{shape:[]}).shape.length,
+      copyLen: (lib.list.find(e=>e.name==='my copy')||{shape:[]}).shape.length};
+  });
+  ok('Save as… asks for a name suggested off the one you opened, and adds the edit beside it',
+     saveAsFlow.asked && /original/.test(String(saveAsFlow.suggested)) && saveAsFlow.closed &&
+     saveAsFlow.names.length === 2 && saveAsFlow.originalLen === 4 && saveAsFlow.copyLen === 5,
+     JSON.stringify(saveAsFlow));
+
+  /* THE ACTUAL WORK LOSS. Cancel closed with no warning and the drag was
+     gone. The question is the CLEAR EVERY BRICK shape (maestro/blocks-ui.js):
+     it names the count, names the target, says what survives, and labels the
+     buttons with the verbs rather than Yes/No. */
+  const dirtyCancel = await ev(async ()=>{
+    trackLibReset();
+    trackLibAdd('on the stage', {shape:[[0,5],[5,0],[0,-5],[-5,0]], gates:[0,0.5], cones:[[1,1]]});
+    trackEditOpen();
+    TE.shape.push([1,1]); TE.gates.push(0.8); TE.cones.push([2,2]);
+    TE.dirty = true;
+    document.getElementById('teCancel').click();
+    await new Promise(r=>setTimeout(r,60));
+    const card = document.querySelector('.dlgwrap .dlgcard');
+    const txt = card ? card.textContent : '';
+    const labels = card ? [document.querySelector('.dlgwrap .dlgno').textContent,
+                           document.querySelector('.dlgwrap .dlgyes').textContent] : [];
+    const stillOpen = !!document.getElementById('trackEdit');
+    if(card) document.querySelector('.dlgwrap .dlgno').click();     // Keep editing
+    await new Promise(r=>setTimeout(r,60));
+    const kept = !!document.getElementById('trackEdit') && !!TE && TE.shape.length === 5;
+    const again = document.getElementById('teCancel');
+    if(again) again.click();                                        // ask again…
+    await new Promise(r=>setTimeout(r,60));
+    const dy = document.querySelector('.dlgwrap .dlgyes');
+    if(dy) dy.click();                                              // …and discard
+    await new Promise(r=>setTimeout(r,60));
+    trackEditCancel();                                              // whatever is left, close it
+    const lib = trackLibLoad();
+    return {asked:!!card, txt, labels, stillOpen, kept,
+      gone: !document.getElementById('trackEdit'),
+      counts: /5 points/.test(txt) && /3 gates/.test(txt) && /2 cones/.test(txt),
+      target: /on the stage/.test(txt),
+      survives: /stays|unchanged|untouched/.test(txt),
+      libIntact: lib.list.length === 1 && lib.list[0].shape.length === 4};
+  });
+  ok('Cancel on a dirty curve asks before it throws the edit away, and Keep editing keeps it',
+     dirtyCancel.asked && dirtyCancel.stillOpen && dirtyCancel.kept && dirtyCancel.gone &&
+     dirtyCancel.libIntact, JSON.stringify({a:dirtyCancel.asked, s:dirtyCancel.stillOpen,
+       k:dirtyCancel.kept, g:dirtyCancel.gone, l:dirtyCancel.libIntact}));
+  ok('…and it asks it the way CLEAR EVERY BRICK does — the count, the target, what survives, verbs',
+     dirtyCancel.counts && dirtyCancel.target && dirtyCancel.survives &&
+     dirtyCancel.labels.length === 2 && !/^(yes|no|ok|cancel)$/i.test(dirtyCancel.labels[0]) &&
+     !/^(yes|no|ok|cancel)$/i.test(dirtyCancel.labels[1]),
+     JSON.stringify({labels:dirtyCancel.labels, txt:dirtyCancel.txt}));
+
+  /* Esc is the same exit by another road — and the backdrop click is a third */
+  const escDirty = await ev(async ()=>{
+    trackLibReset();
+    trackEditOpen();
+    TE.shape.push([1,1]); TE.dirty = true;
+    document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true}));
+    await new Promise(r=>setTimeout(r,60));
+    const asked = !!document.querySelector('.dlgwrap');
+    const stillOpen = !!document.getElementById('trackEdit');
+    const dy = document.querySelector('.dlgwrap .dlgyes');
+    if(dy) dy.click(); else trackEditCancel();
+    await new Promise(r=>setTimeout(r,60));
+    return {asked, stillOpen, gone: !document.getElementById('trackEdit')};
+  });
+  ok('Esc out of a dirty curve asks the same question rather than binning it silently',
+     escDirty.asked && escDirty.stillOpen && escDirty.gone, JSON.stringify(escDirty));
+
+  /* and it must not nag: nothing edited, nothing to lose */
+  const cleanCancel = await ev(async ()=>{
+    trackLibReset();
+    trackEditOpen();
+    document.getElementById('teCancel').click();
+    await new Promise(r=>setTimeout(r,60));
+    return {asked: !!document.querySelector('.dlgwrap'), gone: !document.getElementById('trackEdit')};
+  });
+  ok('…and an untouched canvas still closes on one click, with no question',
+     !cleanCancel.asked && cleanCancel.gone, JSON.stringify(cleanCancel));
 
   /* the list IS the load gesture: change it and the stage follows */
   const listLoad = await ev(async ()=>{

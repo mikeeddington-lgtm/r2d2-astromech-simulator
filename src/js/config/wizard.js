@@ -499,9 +499,21 @@ function wizHardwareStep(host, step){
     }
   }
   if(step.key === 'bodyDrive'){
-    const n = el('div','hint');
-    n.innerHTML = 'This is the one still open on your build. Switching it here sets <b>FOOT_CONTROLLER</b> on the sketch and rebuilds the Outputs table — '
-      + 'brushed speeds run 90/110/127 with a deadzone of 7, the hub speeds 30/38/50 with a deadzone of 22, so the feel is very different.';
+    /* v1.70.0 — this line used to promise that "switching it here sets
+       FOOT_CONTROLLER", which stopped being true for one of the three
+       answers: an undecided build asserts no constant at all (buildApply).
+       Say what is actually happening instead, and say what it costs, because
+       inert feet with no explanation is the bug this answer exists to
+       prevent, not one to introduce. */
+    const n = el('div', buildFootUndecided(b) ? 'note' : 'hint');
+    n.innerHTML = buildFootUndecided(b)
+      ? '<b>Nothing drives the feet while this stands.</b> Push the sticks and the droid will not move — it will '
+        + 'say why, and offer you this question again. Everything else runs normally: the dome, the panels, the '
+        + 'sounds and the sequencer. Your sketch keeps whatever <b>FOOT_CONTROLLER</b> it was flashed with, because '
+        + 'this build has no opinion about it yet — that is the point of the answer.'
+      : 'This is the one still open on your build. Switching it here sets <b>FOOT_CONTROLLER</b> on the sketch and rebuilds the Outputs table — '
+        + 'brushed speeds run 90/110/127 with a deadzone of 7, the hub speeds 30/38/50 with a deadzone of 22, so the feel is very different. '
+        + 'Not sure yet? <b>Not decided yet</b> above is a real answer — the feet simply stay still until you come back.';
     host.appendChild(n);
   }
   if(step.key === 'controller'){
@@ -2082,15 +2094,39 @@ function buildStartup(){
      nine questions now count against 9 of themselves; a job step names
      itself and says plainly that it is not one of the nine. Traversal
      (back/next) is unchanged — this only touches the label. */
+  /* v1.70.0 — AND NINE IS NOT THE END. A cold-start walkthrough reached
+     "Question 9 of 9", pressed Next → expecting the app, and got six more
+     full screens. The counter was true and the sentence it made was not:
+     "9 of 9" is a finish line wherever it is written.
+
+     The owner's ruling is that the run-through STAYS, so the fix is honesty,
+     not routing. Two candidates:
+
+       · one counter spanning all fifteen — rejected. It is what 1.5c
+         deliberately removed, and for the reason it gave: it counts six JOBS
+         as though they were questions with answers, it disagrees with the
+         rail's own divider ("jobs — come back any time"), and it disagrees
+         with the nine ticks the rail draws.
+       · a per-stretch counter that names the stretch you are in AND the one
+         after it. Chosen. The nine questions still count against nine —
+         which is what the rail's chips show — and the same line says what
+         follows them, so nine cannot be read as the end. The jobs get the
+         count they never had, which is the other half of the same complaint:
+         a second row of identical chips with no way to tell how deep it goes.
+
+     `nJobs` is derived from the step list rather than typed, so inserting a
+     job cannot make this line lie again. */
   const back = $('btnStpBack'), next = $('btnStpNext'), go = $('btnStartupGo'), foot = $('stpFoot');
   const last = WIZ.i >= steps.length-1;
   const isQuestionStep = step.key === '_model' || step.key.charAt(0) !== '_';
+  const nJobs = WIZ_EXTRA.length;
+  const jobNo = WIZ.i - (steps.length - nJobs) + 1;
   if(back) back.disabled = WIZ.i === 0;
   if(next){ next.textContent = last ? 'Finish' : 'Next →'; next.className = 'b prim'; }
   if(go){ go.textContent = buildConfigured() ? 'Close' : 'Skip the rest'; go.className = 'b'; }
   if(foot) foot.textContent = (isQuestionStep
-      ? 'Question '+(WIZ.i+1)+' of 9'
-      : step.title+' · a job, come back any time')
+      ? 'Question '+(WIZ.i+1)+' of 9, then '+nJobs+' jobs'
+      : 'Job '+jobNo+' of '+nJobs+' · '+step.title+' — come back any time')
     + ' · every answer applies straight away, and nothing here is locked in.';
 }
 

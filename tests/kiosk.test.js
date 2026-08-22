@@ -168,6 +168,54 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
   ok('…and Down still cannot reach the D-pad', cDown.key!==1, JSON.stringify(cDown));
   ok('…nor Space the A button', cSpace!==1, String(cSpace));
 
+  /* v1.70.0 — the kiosk used to inherit whatever camera the operator left
+     behind, and one walkthrough's public view had no droid in it at all.
+     There is no Follow, Reset pose or Front in here (they live in
+     #stageTools, which sim only hides whole), so the first visitor to spin
+     the wheel ended the exhibit until an operator typed the password.
+     The camera is deliberately NOT locked — orbit and zoom are the point of
+     handing the laptop over — so what the mode needs is a way BACK. */
+  console.log('\n════ the camera the public gets ════');
+  ok('a Re-centre control sits beside Exit in the kiosk bar', await ev(()=>{
+    const b = $('btnKioskRecentre');
+    return !!b && b.closest('#kioskBar') === $('kioskBar') && b.nextElementSibling === $('btnKioskExit');
+  }));
+  /* the containment: the bar is the one surface sim only ADDS, so what is
+     on it is the shortest road back into the app. Two controls, and the
+     way out is still the last of them. */
+  ok('…and the bar carries exactly those two controls, the way out last', await ev(()=>{
+    const bs = [...$('kioskBar').querySelectorAll('button')];
+    return bs.length === 2 && bs[1] === $('btnKioskExit');
+  }));
+  ok('Re-centre puts the droid back in the picture and keeps it there', await ev(()=>{
+    CAM.follow = false; CAM.dist = 13.5; CAM.target.set(6, 4, -6);   // spun off into the dark
+    const b = $('btnKioskRecentre'); if(!b) return false;
+    b.click();
+    return CAM.follow === true && CAM.dist <= 3 &&
+      Math.hypot(CAM.target.x - R2.pos.x, CAM.target.z - R2.pos.z) < 0.6;
+  }));
+  /* it moves the CAMERA. Nothing else — it must not become the seventh
+     door, so assert the whole visible shape of the mode is unchanged. */
+  ok('…and it is not a door back into the app: it moves the camera and nothing else', await ev(()=>{
+    const snap = ()=>JSON.stringify({model:modelGet(), env:envGet(), ws:wsGet(), track:TRACK.on,
+      kiosk:kioskOn(), body:document.body.className, seq:EDIT.active,
+      head:getComputedStyle(document.querySelector('header')).display,
+      side:getComputedStyle($('side')).display,
+      tools:getComputedStyle($('stageTools')).display,
+      startup:$('startup').classList.contains('on'), card:$('selcard').classList.contains('on')});
+    const before = snap();
+    const b = $('btnKioskRecentre'); if(!b) return false;
+    b.click();
+    return snap() === before;
+  }));
+  ok('entering composes the opening frame instead of inheriting the operator\'s camera', await ev(()=>{
+    kioskLeave();
+    CAM.follow = false; CAM.dist = 13.5; CAM.target.set(6, 4, -6);   // the operator's leftovers
+    kioskEnter('');
+    return CAM.follow === true && CAM.dist <= 3 &&
+      Math.hypot(CAM.target.x - R2.pos.x, CAM.target.z - R2.pos.z) < 0.6;
+  }));
+
   console.log('\n════ leaving with no password set — a confirm, not a lock ════');
   await ev(()=>{ window._x = kioskExit(); });
   await page.waitForSelector('.dlgwrap .dlgyes', {timeout:10000});

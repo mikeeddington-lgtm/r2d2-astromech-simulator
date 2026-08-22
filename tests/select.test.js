@@ -41,6 +41,15 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
     await ev(()=>CAD.stats.draws+' draws'));
 
   console.log('\n════ picking ════');
+  /* the plain click is a PARTS-PANE tool now (see the section below), so the
+     picking assertions have to open the pane the card belongs to first —
+     they used to run on whatever tab the app booted on, which since v1.70.1
+     is the Drive screen and is exactly where the click does nothing */
+  const openModel = () => page.evaluate(()=>{
+    wsSet('config');
+    document.querySelector('#tabs button[data-p="pCad"]').click();
+  });
+  await openModel();
   /* click the middle of the STAGE, measured — a hard-coded viewport pixel
      broke the moment the layout gained a 5px splitter track, and would break
      again on any future pane change */
@@ -70,6 +79,72 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
     const name = partFromHit({object:target, faceIndex:(r.iStart + Math.floor(r.iCount/2))/3|0});
     return name === r.name;
   }));
+
+  /* =================================================================
+     v1.70.1 — THE DROID IS NOT A CONFIG EDITOR DOOR
+
+     A walkthrough clicked the canvas to give the stage keyboard focus,
+     pressed a key, and found #selcard open on the panel it happened to
+     hit: name, colour, groups, pivot/travel and the Maestro channel
+     re-map. The owner's ruling is that a plain click keeps working
+     while a PARTS PANE is open — Configure → Model, and the setup's
+     Panels step — and does nothing on the Drive screen.
+
+     The two non-pointer callers (config/tab.js's assign-row Test
+     button, app/panels.js's Outputs row expander) are legitimate and
+     both live in #side, so they must keep opening the card wherever
+     they are pressed — the Outputs table is a DRIVE pane.
+     ================================================================= */
+  console.log('\n════ a plain stage click only opens the card where part work happens ════');
+  const paneWas = await ev(()=>({ws:WS.cur}));
+  await page.evaluate(()=>{ deselectPart(); wsSet('drive'); });
+  await page.waitForTimeout(150);
+  ok('the Drive screen is not a parts pane', await ev(()=>
+    typeof selPartsPaneOpen==='function' && selPartsPaneOpen()===false));
+  await page.mouse.click(mid[0], mid[1]);
+  await page.waitForTimeout(250);
+  ok('a click on the droid from the Drive screen selects nothing', await ev(()=>
+    SEL.name===null && !$('selcard').classList.contains('on')), await ev(()=>String(SEL.name)));
+  ok('...and the guard is on the function, not the listener', await ev(()=>{
+    const n = CAD.moving.find(m=>m.base==='DataPortDoor').name;
+    selectPart(n,'stage');
+    return SEL.name===null;
+  }));
+  ok('...while the sidebar callers still open it — the Outputs row is a Drive pane', await ev(()=>{
+    const n = CAD.moving.find(m=>m.base==='DataPortDoor').name;
+    selectPart(n);                                  // no `from` — config/tab.js and app/panels.js
+    const got = SEL.name===n && $('selcard').classList.contains('on');
+    deselectPart();
+    return got;
+  }));
+  await openModel();
+  await page.waitForTimeout(150);
+  ok('the Model tab is a parts pane', await ev(()=>
+    typeof selPartsPaneOpen==='function' && selPartsPaneOpen()===true));
+  await page.mouse.click(mid[0], mid[1]);
+  await page.waitForTimeout(250);
+  ok('and there the click opens the card again', await ev(()=>
+    !!SEL.name && $('selcard').classList.contains('on')), await ev(()=>String(SEL.name)));
+  ok('the setup wizard\'s Panels step counts as one too', await ev(()=>{
+    if(typeof selPartsPaneOpen!=='function') return false;
+    const i = wizStepIndex('_panels');
+    if(i < 0) return false;
+    document.querySelector('#tabs button[data-p="pCfg"]').click();   // NOT the Model tab
+    const off = selPartsPaneOpen();
+    wizOpen(i);
+    const on = selPartsPaneOpen();
+    return off===false && on===true;
+  }));
+  ok('...but another step of the same wizard does not', await ev(()=>{
+    if(typeof selPartsPaneOpen!=='function'){ closeStartup(); return false; }
+    wizGo(0);
+    const off = selPartsPaneOpen();
+    closeStartup();
+    return off===false;
+  }));
+  await page.evaluate(w=>{ wsSet(w.ws); }, paneWas);
+  await openModel();
+  await page.waitForTimeout(150);
 
   console.log('\n════ rename: your name rides on top, CAD name untouched ════');
   const doorName = await ev(()=>CAD.moving.find(m=>m.base==='DataPortDoor').name);

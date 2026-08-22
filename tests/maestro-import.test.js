@@ -669,6 +669,76 @@ const LIVE = fs.readFileSync(path.resolve(__dirname,'fixtures-live-dome.mstr'),'
      JSON.stringify(flags.got)===JSON.stringify(['Alpha:-:-','Beta Loop:loop:-','Gamma:-:bg']),
      JSON.stringify(flags.got));
 
+  /* =================================================================
+     v1.70.1 — THE SAME RENUMBERING, THROUGH THE OTHER DOOR.
+
+     v1.70.0 fixed mstrApply(): a whole file re-imported keeps the
+     loadout its script was built from. The chooser's "choreography
+     only, replace" landed the same routines through
+     mstrAdoptSequences() — which appends in LIBRARY order — and then
+     called loadoutReset(), so a curated file came back with every
+     routine in the library on the board, in the wrong slots, and the
+     d-pad fired something else. Same symptom, same fix: the order
+     comes from the file's own subs where it has them.
+     ================================================================= */
+  console.log('\n════ v1.70.1 — choreography only, replace, keeps the file\'s own slot order ════');
+  const choreoOnly = await ev(async ()=>{
+    MSTR.sequences = [];                 // the generator left behind above is not a frame list
+    setBoard('mini24'); makeStarter('dome','mini24');
+    const want = ['Dome Flutter','Whole Dome Open','Dome Pies Close'];
+    MSTR.loadout = want.slice();
+    reindexSubs();
+    const text = buildMstrText();
+    /* a droid of your own — the same channel table, and an empty library,
+       so "replace" is the answer without a dialog to click */
+    MSTR.sequences = []; loadoutReset(); reindexSubs();
+    impChooseOpen({kind:'choreography', from:'test'});
+    impChooseLoad(text, 'curated.mstr');
+    const res = await impChooseRun();
+    const host = document.getElementById('jobWiz');
+    const out = {res, want,
+      loadout:(MSTR.loadout||[]).slice(),
+      lib: MSTR.sequences.length,
+      open: JOBWIZ.open && !host.hidden,
+      text: host.textContent,
+      receipt: (host.querySelector('.iwbody .note.gn')||{textContent:''}).textContent,
+      foot: Array.from(host.querySelectorAll('.iwfoot button')).map(b=>b.textContent)};
+    jobwizClose();
+    return out;
+  });
+  ok('choreography only, replace, takes its slot order from the file\'s own subs',
+     JSON.stringify(choreoOnly.loadout)===JSON.stringify(choreoOnly.want),
+     JSON.stringify(choreoOnly.loadout));
+  ok('...and the rest of the library still arrives, merely not on the board',
+     choreoOnly.lib===8, choreoOnly.lib+' routine(s) in the library');
+
+  console.log('\n════ v1.70.1 — the import says so where the import was asked for ════');
+  ok('an import that landed is reported INSIDE the dialog, naming the file and the count',
+     /Read curated\.mstr/.test(choreoOnly.receipt||'') && /8 routines/.test(choreoOnly.receipt||''),
+     (choreoOnly.receipt||'(no receipt)').slice(0, 70));
+  ok('...so the dialog stays up to show it, rather than vanishing',
+     choreoOnly.res==='done' && choreoOnly.open===true, String(choreoOnly.open));
+  ok('...and the footer button says the job is done',
+     (choreoOnly.foot||[]).slice(-1)[0]==='done', (choreoOnly.foot||[]).join(' | '));
+
+  const wide = await ev(()=>{
+    impChooseOpen({from:'test'});
+    const host = document.getElementById('jobWiz');
+    const out = {
+      accept: (typeof impChooseAccept === 'function') ? impChooseAccept() : '',
+      readable: (typeof servoCfgReadable === 'function') ? servoCfgReadable() : [],
+      text: host.textContent};
+    jobwizClose();
+    return out;
+  });
+  ok('the chooser\'s picker offers every format its reader can read',
+     wide.readable.length>0
+     && wide.readable.every(e=>wide.accept.split(',').map(s=>s.trim()).indexOf(e)>=0),
+     wide.accept);
+  ok('...so the pane no longer apologises for a picker that greys files out',
+     !/greyed out/i.test(wide.text||'') && !/all files/i.test(wide.text||''),
+     (wide.text||'').slice(-120));
+
   ok('no uncaught page errors', errs.length===0, errs.join(' | '));
   await browser.close();
   console.log('\n'+pass+' passed, '+fail+' failed');

@@ -14,6 +14,19 @@
   <input type="file" id="fMstr" accept=".mstr,.xml,text/xml" style="display:none">
   <input type="file" id="fProj" accept=".json" style="display:none">
 </header>
+<!-- PARKED (v1.70.1). The owner: "I think this should move to the tools
+     section and not be updated for now — we've replaced its functions within
+     the sim." Parked is not deleted, and the difference has to be visible IN
+     the app: somebody opening this one file cold cannot tell which of the two
+     they should be using, and the README that says so is not in front of
+     them. It still builds and tools/check-studio.js still guards it against
+     going stale, so standing still cannot quietly turn into rotting. -->
+<div id="parked" style="padding:6px 14px;background:var(--panel2);border-bottom:1px solid var(--am2)">
+  <b style="color:var(--am)">PARKED</b> — this bench is not being updated. Everything it does now lives in the
+  R2-D2 Simulator: the same channel table, the same calibration dial and the same
+  <b>sequences.h</b>, on its <b>Maestro</b> tab and its <b>⚙ Setup</b> bench. Still here and still working
+  if one file on a bench is what you want — but new work goes in the sim.
+</div>
 <main>
   <section id="secCh">
     <h2>Channels

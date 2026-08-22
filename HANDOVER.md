@@ -41,7 +41,7 @@ Fusion OBJ exports have never been in the repository and stay out of it.
 | | |
 |---|---|
 | Modules | 104 JS, 15 CSS, 1 markup fragment (+ the MaestroPCA Arduino library under `arduino/`) |
-| Tests | **5524 passing** across 36 suites, both builds, zero failures — plus PCA Studio's 86-assertion smoke test (in `./test.sh`) and 169 host-compiled C++ assertions plus **four** sketch-compile checks in `arduino/MaestroPCA/test` (`./run.sh`). v1.45.0 added 227 of them and v1.60.0 carries the gauges' 45, every one written red first |
+| Tests | **5972 passing** across 36 suites, both builds, zero failures — plus PCA Studio's 86-assertion smoke test (in `./test.sh`) and 169 host-compiled C++ assertions plus **four** sketch-compile checks in `arduino/MaestroPCA/test` (`./run.sh`). v1.45.0 added 227 of them and v1.60.0 carries the gauges' 45, every one written red first |
 | Dist size | ≈8.21 MB single self-contained HTML (0.75 MB of it the twenty-one board photos, inlined) |
 | PCA Studio | 0.12.2 — built from `pca-studio/manifest.json` — 20 modules, 12 of them the sim's own |
 | Firmware profiles | 3 hand ports (mod2026, Maestro 2025 PWM, Maestro 2022 BETA) + one per imported `.ino`, side by side |
@@ -461,6 +461,28 @@ over). Only `Servo::write()`'s 180 clamp saves it.
 ---
 
 ## 6. Outstanding work
+
+### Asked for, not yet built (2026-08-22, Mike's calls on the UX review)
+
+- **Simulate the dome lighting.** Question 6 asks what lights the dome —
+  AstroPixels, Teeces, none — and all three answers are badged NOT SIMULATED,
+  so a walkthrough spent attention on a question that cannot change anything.
+  Mike: *"keep as is but add a todo to simulate"*. The answer is already
+  recorded and already reaches the wiring sheet; what is missing is the
+  lighting itself on the model.
+- **A sound lane and dome rotation in the sequencer.** *"Panels open AND he
+  beeps"* is the show, and neither is reachable from the timeline: the parts
+  list is mechanical parts only, `LOAD MUSIC` is a backing track to snap frames
+  to rather than a cue you can place, and there is no dome-rotation channel.
+  The Drive view has a whole sound bank and the pad fires it. Mike: *"not yet
+  add to todo"*. Shape when it comes: a bank/track number dropped on the
+  timeline as a zero-length cue, firing in the sim and emitting a `playSound(n)`
+  on export. Until then the sequencer should say where dome rotation actually
+  lives rather than leaving people hunting — v1.71.0 did not do that either.
+- **Promote three of the nine export buttons** — done in v1.71.0. Left here as
+  the note that the *choice* was Mike's and the rest of the row stays reachable
+  behind Advanced, so a future tidy does not quietly delete one.
+
 
 ### Three follow-ups the travel rule exposed (v1.46.0)
 
@@ -1212,6 +1234,108 @@ not missing, it was folded in here (noted 2026-08-17).
   touched it since.
 
 ## 10. Change log
+
+### 2026-08-22 - v1.71.0: the interface half of the review
+
+**Why.** v1.69.0 and v1.70.0 fixed what was broken. This is the half that
+needed Mike to decide: he answered fourteen open questions in one pass, and
+this release is those answers plus the ~30 interface fixes that never needed
+asking. Reports: `docs/UX-REVIEW-2026-08-22.md`.
+
+**The four and a half minutes.** Pushing the stick while the feet are disarmed
+produced total silence - every walkthrough's first action, and the one that made
+one of them conclude the app was broken and close it. The blocking fact lived in
+the last three words of a table row, which you had to join to a *second* table
+to act on. Mike's ruling: keep the Start gate, *"prompt the user if they try to
+use the Controller to press start - a great lesson tip"*. So a line now appears
+over the stage at the moment of the attempt, on every drive door - keyboard,
+on-screen stick, real pad, RC - once per attempt-burst, backing off once you
+have armed at all; the `?` card carries the arming fact as its first row; and on
+a true first run lesson 1 opens on the stage explaining *why* the feet boot
+disarmed. Measured on a fresh profile: the line appears **one frame** after the
+first push, the feet arm 48 ms after the key goes down. **Two deliberate actions
+and about five seconds**, against four and a half minutes and four wrong turns.
+
+**And the wizard that would not stay shut.** Answering all nine questions and
+dismissing the panel never set `PREFS.build.done` - only the final Finish job
+does - so the boot check reopened it at question 1 on **every** reload, forever.
+That also put a full-screen questionnaire under a click meant for the stage,
+which silently swapped a walkthrough's droid for a wheeled chariot. One
+predicate. It was also why Configure headed a complete, correct list of all nine
+answers with **NOT SET UP YET**; that now reads *answered, not finished*.
+
+**Q7 gets an honest third answer.** *"This is the open decision on your build"*
+offered exactly two committing choices. Mike chose **feet inert until you
+choose**: a "Not decided yet" card, the foot drive parked, everything else -
+dome, panels, sounds, sequencer - untouched, and the droid says *why* with a
+jump back to question 7. That created a second silent-feet cause, so the two
+messages are deliberately disjoint and each defers to the other: *"Feet are
+disarmed - hold Enter (Start) to arm"* versus *"No foot controller chosen yet"*.
+`buildApply()` also stopped writing `FOOT_CONTROLLER = 0`, which asserted a
+Sabertooth by omission.
+
+**One channel map is the truth.** Three were live and they disagreed. Mike:
+**the Board table**. It is `MSTR.channels` - what the bench edits, the engine
+drives and the exporter writes. Outputs was answering a different question
+("what would this firmware drive") and already knew - it carried a `live` flag
+and a *planned* note - but under a heading that read as fact, and with section
+titles naming `0x41`/`0x42` from the section index rather than the addresses the
+sketch opens. It now says which it is, in the heading. The wiring sheet was
+worse: `wiringSource()` derived from whichever *sketch* was loaded, so with a
+dome Maestro's table open it printed `starterNames()` order, `set on the board`
+in every TRAVEL cell, and INV structurally always blank (it read `c.invert`,
+retired in v1.46.0). It now reads the channel table, prints real endpoints
+shut->open, and marks a board with no table as planned rather than stating it.
+
+**The safe range is defended.** The dial displayed *"safe range · 1000-2000 µs"*
+and accepted 2700, producing a channel whose centre sat outside its own
+min-max - and a red chip appeared afterwards, off-screen, using a **third** pair
+of thresholds. Mike's policy: *"500 - 2500 but warn when outside of
+1000-2000"*. Four hard-coded pairs (`300/2700` on the dial, `300/2700` on the
+Configure panel, `400/2600` on the apply bar, `500/2500` on the chip) now all
+derive from `servo-units.js`'s single `PW_STD`/`PW_ABS`. Out of band is refused
+at the point of entry with the reason at the control; the warning band decorates
+and does not block; a centre outside its own travel is refused by any door. One
+finding fell out of the fix: the boxes had been *classed* `bad` since v1.37.0
+and the colour could never win, because a specificity accident meant
+`#setupWrap input[type=number]` outranked the band rules. "Nothing turned red"
+was literally true.
+
+**The rest of the interface.** The stage toolbar escaped its own stage - at
+800x600 `Follow` sat at x=-161 with nothing to scroll it back, and at the
+*default* 1440x900 in the Sequence workspace it drew 94 px inside the sequencer
+pane; it is now clamped to the stage's box and scrolls. The app header showed
+through the Panels/Colours/Scene overlays with `DRIVE` cut to "VE". Splitters
+gained real minimums (the pad could be squashed to 90 px, the stage to 17). The
+Parts panel clipped mid-sentence so `READY-MADE` - one click of which builds a
+whole convention show - read as the bottom of the panel; it now announces
+itself, and the caption finally documents that **clicking** a part adds it,
+which is the gesture that always works. The sequence library gained Rename and
+Delete. `Fit` on the timeline, lanes that grow, and a ruler that stops
+re-anchoring mid-drag. **Two clicks and about ten seconds** to one panel opening
+and closing, against eighteen minutes.
+
+**And the decisions that were Mike's alone.** Three export buttons front of
+house with the second following the build, so a Maestro builder is never handed
+a PCA9685 header (the rest stay behind Advanced - nothing became unreachable).
+Clicking the droid opens the part editor only where part work happens, so it
+cannot ambush someone focusing the canvas on the Drive screen. The Track
+Builder's two indistinguishable save buttons became one `Save as...` - no
+in-place overwrite, per Mike - and Cancel now asks before binning a dirty curve.
+Kiosk composes its opening frame and has a Re-centre, so one mouse wheel can no
+longer end the exhibit. PCA Studio is **parked**: a banner saying so and where
+its functions now live in the sim, a `tools` heading in the README, and it keeps
+building and keeps its staleness check so it cannot rot silently. Q9 stays
+advice - the app recommends and does not auto-select, because *"we are offering
+advice they can do what they want"*.
+
+**Suite: 5524 -> 5972 assertions**, 36 suites x 2 builds plus PCA Studio, green.
+
+**Still to come:** the naming standardisation Mike agreed to - ~600 strings
+across sequence/routine/sub/script and channel/servo/port/output - is
+deliberately its own release, so a rename sweep is not tangled with thirty
+behavioural changes.
+
 
 ### 2026-08-22 - v1.70.0: the handed-off half, and a test runner that can fail
 

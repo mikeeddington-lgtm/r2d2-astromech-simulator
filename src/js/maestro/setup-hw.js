@@ -916,6 +916,160 @@ function setupSketchConfig(){
   return s.replace(/[&<>]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
 }
 
+/* =====================================================================
+   THE SAFE RANGE, ENFORCED (v1.70.1)
+
+   Mike, asked what this bench should actually DO about a pulse width
+   somebody types into it: *"500 – 2500 but warn when outside of
+   1000–2000"*. One ruling, two bands, and the difference between them is
+   the entire policy:
+
+     · OUTSIDE 500–2500 µs IS REFUSED. Not flagged, not counted in a chip at
+       the top of a table you have already scrolled past — refused, at the
+       box it was typed into, with the reason beside it and `save servo
+       setting` blocked while it stands. Past that edge you are commanding a
+       pulse the servo answers by driving its horn into its own end stop and
+       sitting there stalled, and a horn held against a hard stop strips its
+       gears in seconds and does it quietly. There is nothing there to warn
+       about: the number is not a wide calibration, it is damage with a
+       delay on it.
+     · OUTSIDE 1000–2000 BUT INSIDE 500–2500 IS ACCEPTED, AND SAID SO.
+       Plenty of digital servos travel this far and people deliberately open
+       them up. "I know, my servo takes this" is a real answer and this
+       screen must not make it impossible — so it gets amber and a sentence,
+       at the control, where the person typing is looking.
+     · INSIDE 1000–2000 IS SILENT. No decoration at all, or the decoration
+       stops meaning anything the day it matters.
+
+   THE BANDS ARE NOT REDEFINED HERE. PW_STD and PW_ABS (servo-units.js) are
+   the pair both apps and both channel tables already agreed about, and
+   pwClass() is the classifier. Everything below turns that classification
+   into a DECISION, which is the half that was missing: the app knew the
+   rule and did not enforce it. Three sets of numbers were in play before
+   this — the dial's displayed 1000–2000, the chip's 500–2500, and the
+   300–2700 the number boxes silently accepted — and three thresholds is
+   the same bug as none.
+
+   AND ONE RULE THAT IS NOT ABOUT BANDS AT ALL. A centre outside its own
+   min–max is invalid on any servo at any width: that is not a wide
+   calibration, it is a channel that cannot rest anywhere in its own travel
+   (`shut 2600 · centre 1000 · open 2700` is the walkthrough that started
+   this). It is refused in its OWN words, because "your centre is not
+   between your two ends" and "that pulse will stall the servo" are
+   different mistakes, and being told the second when you made the first
+   sends you to the wrong box.
+
+   WHICH NUMBER DID THEY JUST TOUCH? That question decides what happens
+   when the ends and the centre stop agreeing, and it has two different
+   right answers:
+
+     · A CENTRE typed outside its own travel is REFUSED. The person has
+       asserted a rest position the travel contradicts, and the app must
+       not quietly overrule a number somebody has just typed.
+     · An END that swallows the centre BRINGS THE CENTRE WITH IT, to the
+       nearer of the two ends, and says so. Shut, then open, then centre is
+       the ordinary way round this dial, and every starter channel arrives
+       with its centre sitting exactly on its shut end — so refusing here
+       would refuse the first number of a normal calibration, on the
+       grounds that a number nobody has touched yet is stale. The end is
+       what was touched; the centre is a consequence, and it is moved
+       inside the travel rather than left outside it.
+
+   Either way the invariant is absolute and it is the invariant that
+   matters: nothing writes a channel whose centre is outside its own
+   min–max, whichever door the numbers came in by. */
+const PW_END_WORD = {min:'shut', max:'open', home:'centre'};
+/* the µs face of a band, in one place — so nothing on screen quotes a
+   number it worked out for itself */
+function pwBandUs(b){ return (b.lo/4)+'–'+(b.hi/4)+' µs'; }
+function pwUs(q){ return (q/4).toFixed(0); }
+/* is this centre nowhere between its own two ends? A reversed pair is
+   ordinary here as everywhere else: min/max is a PAIR, not an order, and
+   every consumer downstream takes Math.min/Math.max of it. */
+function pwCentreStray(ends){
+  if(!ends || !ends.home || !ends.min || !ends.max) return false;
+  const lo = Math.min(ends.min, ends.max), hi = Math.max(ends.min, ends.max);
+  return ends.home < lo || ends.home > hi;
+}
+/* the centre that keeps a trio valid after an END has moved, or 0 when
+   nothing needs to move. The nearer end, because that is the smallest
+   correction that is still inside the travel the person just set — and
+   because a centre stranded below the shut end belongs at the shut end,
+   not halfway across a throw nobody asked for. */
+function pwCentreFollow(ends){
+  if(!pwCentreStray(ends)) return 0;
+  const lo = Math.min(ends.min, ends.max), hi = Math.max(ends.min, ends.max);
+  return ends.home < lo ? lo : hi;
+}
+/* everything wrong with one channel's three numbers, refusals first —
+   a refusal and a note are not the same sentence and must not read as
+   one. `0` is "no pulse" rather than a width (a limp centre is a real
+   setting), so it is never judged. */
+function pwEndsFaults(ends){
+  const out = [];
+  ['min','home','max'].forEach(k=>{
+    const q = ends ? ends[k] : 0;
+    if(!q) return;
+    const cls = pwClass(q);
+    if(cls === 'bad') out.push({level:'bad', end:k, text:
+      PW_END_WORD[k]+' '+pwUs(q)+' µs is outside '+pwBandUs(PW_ABS)+', the widest pulse a servo will take. '
+      + 'Past it the horn drives into its own end stop and stalls there, which strips gears quietly. '
+      + 'Type a width inside '+pwBandUs(PW_ABS)+'.'});
+    else if(cls === 'warn') out.push({level:'warn', end:k, text:
+      PW_END_WORD[k]+' '+pwUs(q)+' µs is outside the standard '+pwBandUs(PW_STD)+'. '
+      + 'Many servos travel this far and some do not — sweep it before you trust it in a sequence.'});
+  });
+  if(pwCentreStray(ends)) out.push({level:'bad', end:'home', centre:true, text:
+    'the centre '+pwUs(ends.home)+' µs is not between shut '+pwUs(ends.min)+' µs and open '+pwUs(ends.max)+' µs. '
+    + 'A servo cannot rest outside its own travel, at any pulse width — move the centre between the two ends, '
+    + 'or move the ends around it.'});
+  return out.sort((a,b)=>(a.level === 'bad' ? 0 : 1) - (b.level === 'bad' ? 0 : 1));
+}
+/* the one gate. Anything that WRITES three ends onto a channel asks this
+   first — the dial's save, the panel's own boxes, the apply bar. */
+function pwEndsRefusal(ends){ return pwEndsFaults(ends).find(f=>f.level === 'bad') || null; }
+/* one typed number, judged on its own: the point-of-entry test, before the
+   value is staged anywhere. The other two ends are deliberately absent, so
+   this answers about the BAND and never about the centre — a half-typed
+   trio is not a fault, it is somebody still typing. */
+function pwEndFault(q, k){
+  const one = {min:0, max:0, home:0}; one[k] = q;
+  return pwEndsRefusal(one);
+}
+/* the class for one box: its own band, and — for the centre alone — the
+   pair it has to sit between */
+function pwEndClass(ends, k){
+  const cls = pwClass(ends ? ends[k] : 0);
+  if(cls) return cls;
+  return (k === 'home' && pwCentreStray(ends)) ? 'bad' : '';
+}
+function pwEndTitle(ends, k){
+  const q = ends ? ends[k] : 0;
+  if(k === 'home' && q && !pwClass(q) && pwCentreStray(ends)) return pwEndsFaults(ends).find(f=>f.centre).text;
+  return q ? pwTitle(q) : 'type the pulse width for this end';
+}
+/* `lead` is a refusal that is not IN the trio — a number the control turned
+   away, which is therefore not staged anywhere and cannot be found by
+   reading the three ends. It still has to be on screen, and first, because
+   it is the thing the person is looking at. */
+function pwEndsWhyHtml(ends, lead){
+  const esc = s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;');
+  return (lead ? '<div class="bad">'+esc(lead)+'</div>' : '')
+    + pwEndsFaults(ends).map(f=>'<div class="'+f.level+'">'+esc(f.text)+'</div>').join('');
+}
+/* SAY IT WHERE THEY ARE LOOKING. The dial and the Configure panel show the
+   same three numbers (setupChPanel says why), so they get the same
+   sentence, filled in rather than re-rendered — the caret must survive
+   being told it is wrong (v0.7.1's lesson, and it applies hardest here). */
+function setupEndsSay(ends, lead){
+  const html = pwEndsWhyHtml(ends, lead);
+  ['calSay','chSay'].forEach(id=>{
+    const el = $(id); if(!el) return;
+    el.innerHTML = html;
+    el.className = 'pwsay' + (html ? '' : ' off');
+  });
+}
+
 /* every out-of-band end on the board, for the counts in the header and on
    the Finish step */
 function pwAudit(){
@@ -940,9 +1094,15 @@ const SETUP_APPLY = [
   {k:'speed',        label:'speed',           type:'num', min:0,   max:16000, step:1,   def:40},
   {k:'acceleration', label:'acceleration',    type:'num', min:0,   max:255,   step:1,   def:10},
   {k:'ease',         label:'ease',            type:'sel', opts:['none','soft','overshoot'], def:'none', tip:EASE_TIP},
-  {k:'minUs',        label:'min (µs)',        type:'num', min:400, max:2600,  step:1,   def:1000},
-  {k:'ctrUs',        label:'centre (µs)',     type:'num', min:400, max:2600,  step:1,   def:1500},
-  {k:'maxUs',        label:'max (µs)',        type:'num', min:400, max:2600,  step:1,   def:2000},
+  /* v1.70.1 — the three µs fields carried min:400 max:2600, which was a
+     FOURTH pair of thresholds and the loosest of them: this bar writes to a
+     bank of channels at once, so it was the widest door in the building.
+     No numbers here now; `pw` says "this field is a pulse width" and
+     setupApplyDef fetches the band, so the bar cannot drift from the dial
+     the way it had. */
+  {k:'minUs',        label:'min (µs)',        type:'num', pw:'min',  step:1,   def:1000},
+  {k:'ctrUs',        label:'centre (µs)',     type:'num', pw:'home', step:1,   def:1500},
+  {k:'maxUs',        label:'max (µs)',        type:'num', pw:'max',  step:1,   def:2000},
   /* Mike, 2026-08-14: "boot should not be auto ticked just because it's
      setup" — ticking boot is the user's explicit opt-in, so the apply bar's
      own default (what "at power-up" shows before you touch it) is limp too,
@@ -951,17 +1111,45 @@ const SETUP_APPLY = [
   {k:'sleep',        label:'sleep when idle', type:'sel', opts:['off','on'],   def:'off'},
   {k:'sleepMs',      label:'idle time (ms)',  type:'num', min:100, max:60000, step:100, def:1200}
 ];
-function setupApplyDef(k){ return SETUP_APPLY.find(x=>x.k===k) || SETUP_APPLY[0]; }
+/* the field, with the bounds filled in where they belong to the policy
+   rather than to this table. Read at CALL time, never at module scope: the
+   bands live in another script and a const referenced across scripts in
+   load order is a trap waiting for the day somebody reorders the manifest
+   (servo-units.js §head). */
+function setupApplyDef(k){
+  const f = SETUP_APPLY.find(x=>x.k===k) || SETUP_APPLY[0];
+  return f.pw ? Object.assign({}, f, {min: PW_ABS.lo/4, max: PW_ABS.hi/4}) : f;
+}
+/* Returns whether the setting was written. The three pulse-width fields
+   can be REFUSED here — this bar is a point of entry like any other, and
+   the one that touches twenty channels in a click — so the caller counts
+   what it skipped and says so out loud rather than reporting a success it
+   did not have. Each channel is judged against ITS OWN other two numbers,
+   not against the one on screen: that is the whole difference between an
+   apply and an edit, and it is why a bank can take a centre on some rows
+   and refuse it on others. */
 function setupApplyOne(c, k, v){
+  const pw = {minUs:'min', maxUs:'max', ctrUs:'home'}[k];
+  if(pw){
+    const q = Math.round(v*4);
+    const ends = {min:c.min, max:c.max, home:c.home};
+    ends[pw] = q;
+    /* an end brings the centre with it here too, or applying `min` to a
+       bank of fresh channels — every one of which has its centre sitting
+       on its shut end — would refuse every row it touched */
+    if(pw !== 'home'){ const f = pwCentreFollow(ends); if(f) ends.home = f; }
+    if(pwEndsRefusal(ends)) return false;
+    setupTouched();
+    c.min = ends.min; c.max = ends.max; c.home = ends.home;
+    return true;
+  }
   setupTouched();
-  if(k === 'minUs'){ c.min  = Math.round(v*4); return; }
-  if(k === 'maxUs'){ c.max  = Math.round(v*4); return; }
-  if(k === 'ctrUs'){ c.home = Math.round(v*4); return; }
-  if(k === 'boot'){  c.homemode = (v === 'limp') ? 'Off' : 'Goto'; return; }
-  if(k === 'sleep'){ c.releaseMs = (v === 'on') ? (c.releaseMs || 1200) : 0; return; }
-  if(k === 'sleepMs'){ c.releaseMs = c.releaseMs ? (+v|0) : 0; return; }
-  if(k === 'ease'){ c.ease = v; return; }
+  if(k === 'boot'){  c.homemode = (v === 'limp') ? 'Off' : 'Goto'; return true; }
+  if(k === 'sleep'){ c.releaseMs = (v === 'on') ? (c.releaseMs || 1200) : 0; return true; }
+  if(k === 'sleepMs'){ c.releaseMs = c.releaseMs ? (+v|0) : 0; return true; }
+  if(k === 'ease'){ c.ease = v; return true; }
   c[k] = (+v|0);
+  return true;
 }
 /* the channels the apply bar will touch: selected AND actually in use */
 function setupPicked(){
@@ -1006,15 +1194,20 @@ function setupStepDone(){
     + '</table>'
     + (()=>{
         /* the pulse-width audit, loudest first: a red channel is one you
-           should look at before you power the droid, not after */
+           should look at before you power the droid, not after.
+           v1.70.1 — the bands are quoted from PW_ABS/PW_STD rather than
+           typed here, and the red case now says where such a channel can
+           have come from: the dial refuses these widths, so anything the
+           audit still finds arrived past the controls. */
         const a = pwAudit();
         if(a.bad.length)
-          return '<div class="setnote bad"><b>'+a.bad.length+' channel'+(a.bad.length===1?'':'s')+' outside 500–2500 µs</b> — '
+          return '<div class="setnote bad"><b>'+a.bad.length+' channel'+(a.bad.length===1?'':'s')+' outside '+pwBandUs(PW_ABS)+'</b> — '
             + 'ch '+a.bad.join(', ')+'. Most servos cannot reach these widths and will drive against their own end stop trying, '
-            + 'which is how gears get stripped. Check them on the dial before you run anything.</div>'
-            + (a.warn.length ? '<div class="setnote warn">'+a.warn.length+' more outside the standard 1000–2000 µs (ch '+a.warn.join(', ')+') — sweep them first.</div>' : '');
+            + 'which is how gears get stripped. The bench will not let you type one, so these came in with a file or from an '
+            + 'older calibration — open each on the dial and give it an end it can reach.</div>'
+            + (a.warn.length ? '<div class="setnote warn">'+a.warn.length+' more outside the standard '+pwBandUs(PW_STD)+' (ch '+a.warn.join(', ')+') — sweep them first.</div>' : '');
         if(a.warn.length)
-          return '<div class="setnote warn"><b>'+a.warn.length+' channel'+(a.warn.length===1?'':'s')+' outside the standard 1000–2000 µs</b> — '
+          return '<div class="setnote warn"><b>'+a.warn.length+' channel'+(a.warn.length===1?'':'s')+' outside the standard '+pwBandUs(PW_STD)+'</b> — '
             + 'ch '+a.warn.join(', ')+'. Plenty of servos travel this far and some do not, so sweep them before you trust them in a sequence.</div>';
         return '';
       })()

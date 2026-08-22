@@ -235,7 +235,30 @@ const BUILD_OPTIONS = {
     {id:'sabertooth', label:'Sabertooth 2x25', sim:'full',
      note:'Brushed motors over Serial1 @ 9600, address 128, setTimeout(950). FOOT_CONTROLLER 0.'},
     {id:'flipsky',    label:'Flipsky FSESC + hub motors', sim:'full',
-     note:'Brushless hub motors, one ESC each, R/C-mode PWM on pins 44 and 45, mixed in software. FOOT_CONTROLLER 1.'}
+     note:'Brushless hub motors, one ESC each, R/C-mode PWM on pins 44 and 45, mixed in software. FOOT_CONTROLLER 1.'},
+    /* v1.70.0 — THE THIRD ANSWER, because the question said so all along.
+       This step opens "This is the open decision on your build" and then
+       offered exactly two ways to close it. A builder standing over a
+       half-built dome picked one anyway — a cold-start walkthrough did
+       exactly that — and every screen after it was built on that guess: the
+       sketch, FOOT_CONTROLLER, the wiring sheet, the speeds on the Outputs
+       table. Costing nothing to say "not yet" is the whole point of asking.
+
+       `park` rather than `sub`: nothing stands in for a controller that has
+       not been bought. It is choosable and it is recorded, and the simulator
+       drives no feet while it stands — see buildFootGate() below, which is
+       what "the feet do not run" actually MEANS in code. The two answers
+       above are unchanged, and this is never the default: a fresh build
+       still ships the self-consistent Sabertooth droid (buildDefault). */
+    /* `art` borrows another answer's picture (config/board-art.js, and the
+       mechanism wizOptionCard has had since v1.45.0): `none` is the empty
+       outline drawn for exactly this — "none / not yet" — and it is what the
+       dome-lighting and controller-board steps already show for theirs. A
+       card with no picture at all would break the row rhythm the other two
+       foot answers set, and would be the one answer on the step that looks
+       like an omission rather than a choice. */
+    {id:'undecided',  label:'Not decided yet', sim:'park', art:'none',
+     note:'Feet on hold. Nothing drives them until you say what does — and nothing else stops: the dome turns, the panels move, the sounds play and the sequencer runs, because the sketch is still the sketch. It is on the wiring sheet as undecided so the loom does not get drawn round a guess. Come back here when the motors are in.'}
   ],
   bodyServo:[
     {id:'mod2026', label:'PCA9685 @ 0x40',   sim:'full', hw:'mod2026', pca:true, short:'PCA9685 direct', family:'direct', size:'16 channels',
@@ -278,7 +301,13 @@ const BUILD_OPTIONS = {
     {id:'mod2026',   label:'padawan360 mod2026', sim:'full',
      note:'PCA9685 servos, Sabertooth feet, MD-YX5300 sound.',
      repo:'https://github.com/sel-uis/Astromech-padawan360-mod2026',
-     file:'padawan_secure _mode.ino'},
+     /* v1.70.0 — the stray space is gone. "Where to get it" on the Firmware
+        step prints this string as the file to fetch from the repo above, and
+        `padawan_secure _mode.ino` is not a name any checkout has. Same typo
+        still stands in profiles/mod2026.js, which is what PROFILE.file feeds
+        to the wiring diagram's subtitle and to the exported sheet — that file
+        is not this agent's to edit; it is handed off. */
+     file:'padawan_secure_mode.ino'},
     {id:'maestro25', label:'Maestro 2025 (PWM)', sim:'full',
      note:'Maestro scripts, DY-SV5W sound, and the only sketch that can drive hub motors.',
      repo:'https://github.com/Imperiallandm/Padawan360_mega_maestro_DYSV5W',
@@ -798,6 +827,76 @@ function buildConfigured(){ return !!(PREFS.build && PREFS.build.done); }
 
 /* --------------------------------------------------------- derived facts */
 function buildFootPWM(b){ return (b||buildGet()).bodyDrive === 'flipsky'; }
+/* ================================ NO FOOT CONTROLLER CHOSEN YET  (v1.70.0)
+   Q7's third answer, and what it MEANS rather than what it says.
+
+   THE RULE: while `undecided` stands, the feet do not run. Everything else
+   does — dome, panels, sounds, the sequencer — because the sketch is
+   untouched and faithful: it goes on commanding the feet exactly as it
+   would, there is simply nothing bolted to the other end of Serial1 or of
+   pins 44/45 for it to command. So the clamp sits where the COMMANDED values
+   meet the model, one call in main.js's frame() after the watchdog and after
+   rcDirectApply() — the one point every source of a foot command has already
+   converged on (the sketch, an RC channel bound straight to an output, the
+   Polar Mouse). Clamping in the profiles instead would mean editing three
+   line-for-line sketch ports to model a wire that is not there, which is the
+   one thing this repo will not do to them.
+
+   AND IT SAYS SO, OUT LOUD, AT THE MOMENT SOMEBODY TRIES. A silent refusal
+   here would recreate the exact bug the rest of this session is fixing: the
+   droid not moving with the reason nowhere on screen. The plate names the
+   CAUSE — no foot controller chosen — and IS the way back to the question,
+   because Q7 is otherwise eight clicks away.
+
+   NOT THE DISARMED HINT. input/pad-ui.js's driveHintCheck() covers the other
+   reason the feet do not move — they boot disarmed — and says "press START
+   (Enter) to arm". That one can only fire while `FW.isDriveEnabled` is
+   false; this one can only fire once the feet ARE armed and the sketch is
+   commanding them. Different state, different sentence, different door, and
+   a builder who hits both meets them one after the other, in the order they
+   have to be fixed. Keep it that way: if this message ever has to change,
+   it must go on naming the controller and must not mention START.
+
+   Rate-limited exactly as that hint is — once, then not again for 30 s —
+   and reset the moment the answer stops being `undecided`, so changing your
+   mind and changing it back does not buy thirty seconds of silence. */
+function buildFootUndecided(b){ return (b||buildGet()).bodyDrive === 'undecided'; }
+const FOOT_UNSET = { shownAt:-Infinity };
+function buildFootUnsetSay(){
+  /* the same three guards driveHintCheck() uses, for the same reasons:
+     sim-only mode has its own story and hides the header this belongs
+     beside, a full-bleed overlay is already covering the stage, and a
+     question that is not asked of this model has nothing to answer */
+  if(typeof kioskOn === 'function' && kioskOn()) return;
+  if(typeof uiModalOpen === 'function' && uiModalOpen()) return;
+  if(typeof stepUsedByModel === 'function' && !stepUsedByModel('bodyDrive')) return;
+  const now = (typeof SIM !== 'undefined') ? SIM.millis : 0;
+  if(FOOT_UNSET.shownAt !== -Infinity && now - FOOT_UNSET.shownAt < 30000) return;
+  FOOT_UNSET.shownAt = now;
+  if(typeof toast !== 'function') return;
+  const p = toast('No foot controller chosen yet — nothing drives the feet. Click here to answer question 7.', 'warn');
+  if(!p) return;
+  /* toast() has already bound its own click-to-dismiss; this listener runs
+     after it, so one click both opens the question and clears the plate */
+  p.title = 'open the setup on the Foot drive question';
+  p.addEventListener('click', ()=>{
+    if(typeof wizOpen === 'function' && typeof wizStepIndex === 'function') wizOpen(wizStepIndex('bodyDrive'));
+  });
+}
+/* returns true on the frames it actually had to stop something */
+function buildFootGate(){
+  if(typeof MOT === 'undefined') return false;
+  if(!buildFootUndecided()){ FOOT_UNSET.shownAt = -Infinity; return false; }
+  const tried = MOT.drive !== 0 || MOT.turn !== 0 || MOT.leftFoot !== 90 || MOT.rightFoot !== 90;
+  MOT.drive = MOT.turn = 0;
+  MOT.leftFoot = MOT.rightFoot = 90;
+  /* the packet clock stops too, so the HUD and the Outputs table read the
+     same nothing the wheels are doing rather than a live-looking zero */
+  MOT.driveAt = MOT.footAt = -1e9;
+  MOT.driveTO = true;
+  if(tried) buildFootUnsetSay();
+  return tried;
+}
 /* "does anything on this droid answer restartScript() over a UART?" —
    which is the question every firmware check is really asking. A MaestroPCA
    co-processor counts, because that is precisely what it is built to do. */
@@ -867,6 +966,13 @@ function firmwareBlockers(fwId, b){
   b = b||buildGet();
   const out = [];
   const no = (why, w)=>out.push({why, w});
+  /* THE FOOT TESTS BELOW ALL ASK `bodyDrive === 'flipsky'`, and that is the
+     right shape for the third answer too (v1.70.0): `undecided` raises no
+     foot objection against any sketch, because there is nothing yet for a
+     sketch to be unable to drive. Deliberately not "objects to everything" —
+     greying out the whole firmware list to punish an honest "not yet" would
+     make the third answer cost more than guessing, which is the behaviour it
+     was added to remove. The objection reappears the moment feet are chosen. */
   /* An IMPORTED sketch (v1.22.0) is judged from what the transpiler actually
      found in it — which libraries it instantiates, whether it writes servo
      PWM for the feet, which sound board it opens — never from the
@@ -953,7 +1059,12 @@ function buildConflicts(b){
       text:'you chose '+buildLabel('firmware', b.firmware)+' yourself, so the setup has left it alone rather than swapping it — change the hardware above, or press "let the setup choose" on the Firmware step'});
   if(typeof PROFILE !== 'undefined' && PROFILE && PROFILE.id !== b.firmware)
     out.push({kind:'live', text:'the sim is running '+PROFILE.short+' but your build says '+buildLabel('firmware', b.firmware)});
-  if(b.firmware === 'maestro25' && typeof CFG !== 'undefined' &&
+  /* ...unless nothing has been chosen to drive the feet (v1.70.0), in which
+     case the build has NO opinion about FOOT_CONTROLLER — and reporting the
+     sketch's own value back as a contradiction would be the build asserting
+     Sabertooth by omission, which is the guess Q7's third answer exists to
+     avoid. buildApply() leaves the constant alone for the same reason. */
+  if(b.firmware === 'maestro25' && !buildFootUndecided(b) && typeof CFG !== 'undefined' &&
      CFG.FOOT_CONTROLLER !== undefined && CFG.FOOT_CONTROLLER !== (buildFootPWM(b)?1:0))
     out.push({kind:'live', text:'FOOT_CONTROLLER is '+CFG.FOOT_CONTROLLER+' but your feet are '+buildLabel('bodyDrive', b.bodyDrive)});
   const want = buildMaestroBoard(b);
@@ -1300,7 +1411,13 @@ function buildApply(){
     loadProfile(b.firmware);
     did.push('firmware → '+PROFILE.short);
   }
-  if(typeof CFG !== 'undefined' && CFG.FOOT_CONTROLLER !== undefined){
+  /* An undecided foot drive is not a vote for Sabertooth (v1.70.0). `want`
+     below is `buildFootPWM() ? 1 : 0`, and a third answer falling through
+     that ternary would write FOOT_CONTROLLER 0 — the build silently choosing
+     the very thing the builder said they had not chosen. So leave the
+     sketch's own constant exactly as it flashed; what the answer costs is
+     the feet themselves, and that is buildFootGate()'s job, every frame. */
+  if(typeof CFG !== 'undefined' && CFG.FOOT_CONTROLLER !== undefined && !buildFootUndecided(b)){
     const want = buildFootPWM(b) ? 1 : 0;
     if(CFG.FOOT_CONTROLLER !== want){
       CFG.FOOT_CONTROLLER = want;

@@ -1840,6 +1840,338 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
   ok('...it names the routine you are actually in',
      stepStale.value === '500' && stepStale.modern === 500, JSON.stringify(stepStale));
 
+
+  /* =====================================================================
+     THE COLD-START WALKTHROUGH (2026-08-22)
+
+     A builder who wanted a convention show took ~18 minutes and ~14
+     interactions to get one panel opening and closing; the theoretical
+     minimum is four clicks. Everything below is one piece of that gap,
+     and every one of them is measured — geometry and getComputedStyle,
+     never a stylesheet's cssRules, which throw on a LINKED sheet under
+     file:// and would quietly assert nothing here.
+     ===================================================================== */
+  await page.setViewportSize({width:1440, height:900});
+  await page.waitForTimeout(200);
+
+  console.log('\n════ the parts panel shows that it continues ════');
+  const moreSetup = await ev(()=>{
+    MSTR.sequences.length = 0;
+    EDIT.seq = blockNewRoutine('Walkthrough');
+    const s = MSTR.sequences[EDIT.seq];
+    blockAdd(s,'act','pie0',0,{dur:600}); blockSync(s);
+    BLK.sel = null; setStripMode('seq'); buildSequencer();
+    const lib = document.querySelector('#seqblocks .blklib');
+    const rm  = Array.from(lib.querySelectorAll('.blklibhead'))
+                     .find(h=>/Ready-made/i.test(h.textContent));
+    return {clipped: lib.scrollHeight > lib.clientHeight + 4,
+            rmBelow: !!rm && rm.getBoundingClientRect().top > lib.getBoundingClientRect().bottom,
+            hasMore: !!lib.querySelector('.blkmore')};
+  });
+  ok('the panel really is clipped at 1440×900, with READY-MADE below the fold',
+     moreSetup.clipped && moreSetup.rmBelow, JSON.stringify(moreSetup));
+  await page.waitForTimeout(250);                 // .blkmore fades in over 120 ms
+  const moreCs = await ev(()=>{
+    const m = document.querySelector('#seqblocks .blklib .blkmore');
+    if(!m) return {};
+    const cs = getComputedStyle(m);
+    return {pos:cs.position, op:cs.opacity, cls:m.className,
+            h:Math.round(m.getBoundingClientRect().height)};
+  });
+  ok('a scroll affordance sits on the clipped edge, pinned there',
+     moreCs.pos === 'sticky' && +moreCs.op > 0.5, JSON.stringify(moreCs));
+  ok('…and it costs the panel no height of its own',
+     moreCs.h === 0, JSON.stringify(moreCs));
+  ok('the panel announces itself as a scroller rather than ending in a hard edge',
+     await ev(()=>{
+       const cs = getComputedStyle(document.querySelector('#seqblocks .blklib'));
+       return cs.overflowY === 'auto' && cs.scrollbarColor !== 'auto';
+     }));
+  ok('clicking it brings READY-MADE into the visible part of the panel',
+     await ev(()=>{
+       const lib = document.querySelector('#seqblocks .blklib');
+       const b = lib.querySelector('.blkmore button');
+       if(!b) return false;
+       b.click();
+       if(!Array.from(lib.querySelectorAll('.blklibhead')).some(h=>/Ready-made/i.test(h.textContent))) return false;
+       const r = lib.getBoundingClientRect();
+       const rm = Array.from(lib.querySelectorAll('.blklibhead'))
+                       .find(h=>/Ready-made/i.test(h.textContent));
+       const t = rm.getBoundingClientRect();
+       return t.top >= r.top - 2 && t.bottom <= r.bottom + 2;
+     }));
+  await ev(()=>{
+    const lib = document.querySelector('#seqblocks .blklib');
+    lib.scrollTop = lib.scrollHeight;
+    if(typeof blkLibMoreSync === 'function') blkLibMoreSync();
+  });
+  await page.waitForTimeout(250);                 // …and fades back out over the same 120 ms
+  ok('…and once you are at the bottom it stops claiming there is more',
+     await ev(()=>{
+       const m = document.querySelector('#seqblocks .blklib .blkmore');
+       return !!m && +getComputedStyle(m).opacity < 0.5;
+     }));
+
+  console.log('\n════ the gesture that always works is the one named first ════');
+  ok('the PARTS caption says click BEFORE it says drag', await ev(()=>{
+    const h = Array.from(document.querySelectorAll('#seqblocks .blklib .blklibhead'))
+                   .find(x=>/Parts/i.test(x.querySelector('b').textContent));
+    const t = h.querySelector('.blklibhint').textContent;
+    return /click/i.test(t) && /drag/i.test(t) && t.search(/click/i) < t.search(/drag/i);
+  }));
+  ok('a part chip says both in its tooltip too', await ev(()=>{
+    const c = document.querySelector('#seqblocks .blklib .blkchip');
+    return /click/i.test(c.title) && /drag/i.test(c.title);
+  }));
+  await page.hover('#seqblocks .blklib .blkchip');
+  await page.waitForTimeout(80);
+  ok('hovering a chip shows what a plain click will do', await ev(()=>{
+    const c = document.querySelector('#seqblocks .blklib .blkchip');
+    const s = getComputedStyle(c, '::after').content;
+    return !!s && s !== 'none' && /end/i.test(s);
+  }), await ev(()=>getComputedStyle(document.querySelector('#seqblocks .blklib .blkchip'),'::after').content));
+
+  console.log('\n════ a sequence can be renamed and deleted from its own card ════');
+  const cardBtns = await ev(()=>{
+    MSTR.sequences.length = 0;
+    ['Wave','Spare','Holder'].forEach(n=>{
+      const s = MSTR.sequences[blockNewRoutine(n)];
+      blockAdd(s,'act','pie0',0,{dur:400}); blockSync(s);
+    });
+    /* Holder plays Wave as one whole-sequence brick — the case v1.70.0
+       taught the Maestro pane to warn about (paneSeqRefs) */
+    const holder = MSTR.sequences.find(s=>s.name==='Holder');
+    blockAdd(holder,'seq','Wave',1000,{dur:400}); blockSync(holder);
+    EDIT.seq = MSTR.sequences.findIndex(s=>s.name==='Spare');
+    buildSequencer();
+    const i = MSTR.sequences.findIndex(s=>s.name==='Wave');
+    blkLibPreview(i, document.querySelector('#seqlib .blkchip.seq'));
+    const card = document.querySelector('.libprev');
+    return {labels: card ? Array.from(card.querySelectorAll('button')).map(b=>b.textContent) : []};
+  });
+  ok('the card offers Rename and Delete beside Open / Preview / Insert',
+     cardBtns.labels.some(l=>/Rename/i.test(l)) && cardBtns.labels.some(l=>/Delete/i.test(l)),
+     JSON.stringify(cardBtns));
+
+  const delAsked = await ev(async ()=>{
+    const card = document.querySelector('.libprev');
+    const b = card && Array.from(card.querySelectorAll('button')).find(x=>/Delete/i.test(x.textContent));
+    if(!b) return false;
+    b.click();
+    await new Promise(r=>setTimeout(r,60));
+    return !!document.querySelector('.dlgwrap');
+  });
+  const delDlg = await ev(()=>{
+    const d = document.querySelector('.dlgwrap');
+    if(!d) return {title:'',msg:'',yes:'',no:''};
+    return {title:d.querySelector('h4').textContent, msg:d.querySelector('.dlgmsg').textContent,
+            yes:d.querySelector('.dlgyes').textContent, no:d.querySelector('.dlgno').textContent};
+  });
+  ok('Delete asks before it acts — no sequence disappears on one click', delAsked,
+     JSON.stringify(delDlg));
+  ok('it asks in the house style — names the target, the count, and what survives',
+     /Wave/.test(delDlg.title) && /1 brick\b/.test(delDlg.msg)
+     && /Holder/.test(delDlg.msg) && /untouched|survive|keeps|kept/i.test(delDlg.msg),
+     JSON.stringify(delDlg));
+  ok('…and labels its buttons with verbs, never Yes/No',
+     /delete/i.test(delDlg.yes) && /keep/i.test(delDlg.no) && !/^(yes|no|ok|cancel)$/i.test(delDlg.no.trim()),
+     JSON.stringify(delDlg));
+  await ev(()=>{ const d=document.querySelector('.dlgwrap .dlgno'); if(d) d.click(); });
+  await page.waitForTimeout(80);
+  ok('answering "Keep it" leaves the library exactly as it was',
+     await ev(()=>MSTR.sequences.length===3 && !!MSTR.sequences.find(s=>s.name==='Wave')));
+
+  await ev(()=>{
+    const i = MSTR.sequences.findIndex(s=>s.name==='Wave');
+    if(i < 0) return;
+    blkLibPreview(i, document.querySelector('#seqlib .blkchip.seq'));
+    const card = document.querySelector('.libprev'); if(!card) return;
+    const b = Array.from(card.querySelectorAll('button')).find(x=>/Delete/i.test(x.textContent));
+    if(b) b.click();
+  });
+  await page.waitForTimeout(120);
+  await ev(()=>{ const d=document.querySelector('.dlgwrap .dlgyes'); if(d) d.click(); });
+  await page.waitForTimeout(120);
+  ok('answering the verb deletes it, and the sequence being edited is still the one open',
+     await ev(()=>MSTR.sequences.length===2 && !MSTR.sequences.find(s=>s.name==='Wave')
+              && MSTR.sequences[EDIT.seq] && MSTR.sequences[EDIT.seq].name==='Spare'),
+     await ev(()=>JSON.stringify({n:MSTR.sequences.map(s=>s.name), edit:EDIT.seq})));
+
+  await ev(()=>{
+    const i = MSTR.sequences.findIndex(s=>s.name==='Holder');
+    if(i < 0) return;
+    blkLibPreview(i, document.querySelector('#seqlib .blkchip.seq'));
+    const card = document.querySelector('.libprev'); if(!card) return;
+    const b = Array.from(card.querySelectorAll('button')).find(x=>/Rename/i.test(x.textContent));
+    if(b) b.click();
+  });
+  await page.waitForTimeout(120);
+  await ev(()=>{
+    const d = document.querySelector('.dlgwrap'); if(!d || !d.querySelector('.dlginp')) return;
+    d.querySelector('.dlginp').value = 'Convention wave';
+    d.querySelector('.dlgyes').click();
+  });
+  await page.waitForTimeout(120);
+  ok('Rename renames it in the library',
+     await ev(()=>!!MSTR.sequences.find(s=>s.name==='Convention wave')));
+
+  await ev(()=>{
+    /* the other half of paneSeqRefs: a whole-sequence brick naming the
+       renamed routine has to follow it, exactly as the Maestro pane's
+       Rename already makes it */
+    MSTR.sequences.length = 0;
+    ['Wave','Holder'].forEach(n=>{
+      const s = MSTR.sequences[blockNewRoutine(n)];
+      blockAdd(s,'act','pie0',0,{dur:400}); blockSync(s);
+    });
+    const holder = MSTR.sequences.find(s=>s.name==='Holder');
+    blockAdd(holder,'seq','Wave',1000,{dur:400}); blockSync(holder);
+    EDIT.seq = MSTR.sequences.indexOf(holder);
+    buildSequencer();
+  });
+  await ev(()=>{
+    const i = MSTR.sequences.findIndex(s=>s.name==='Wave'); if(i < 0) return;
+    blkLibPreview(i, document.querySelector('#seqlib .blkchip.seq'));
+    const card = document.querySelector('.libprev'); if(!card) return;
+    const b = Array.from(card.querySelectorAll('button')).find(x=>/Rename/i.test(x.textContent));
+    if(b) b.click();
+  });
+  await page.waitForTimeout(120);
+  await ev(()=>{
+    const d = document.querySelector('.dlgwrap'); if(!d || !d.querySelector('.dlginp')) return;
+    d.querySelector('.dlginp').value = 'Big wave';
+    d.querySelector('.dlgyes').click();
+  });
+  await page.waitForTimeout(120);
+  ok('…and every whole-sequence brick that played it follows the new name',
+     await ev(()=>{
+       const h = MSTR.sequences.find(s=>s.name==='Holder');
+       return blockList(h).filter(b=>b.kind==='seq').every(b=>b.ref==='Big wave');
+     }), await ev(()=>JSON.stringify(blockList(MSTR.sequences.find(s=>s.name==='Holder')).map(b=>b.kind+':'+b.ref))));
+
+  console.log('\n════ the timeline fits, grows, and stays put ════');
+  const fit = await ev(()=>{
+    MSTR.sequences.length = 0;
+    EDIT.seq = blockNewRoutine('Long one');
+    const s = MSTR.sequences[EDIT.seq];
+    blockAdd(s,'act','pie0',0,{dur:3950}); blockSync(s);
+    BLK.pxms = 0.14; BLK.sel = null; buildSequencer();
+    const sc = document.querySelector('#seqblocks .tlouter');
+    const before = blkX(blkTotal(s)) > sc.clientWidth - 118;
+    const has = !!$('sqFit');
+    if(has) $('sqFit').click();
+    const sc2 = document.querySelector('#seqblocks .tlouter');
+    return {has, before, after: blkX(blkTotal(MSTR.sequences[EDIT.seq])),
+            room: sc2.clientWidth - 118, pxms: BLK.pxms};
+  });
+  ok('a 3.95 s brick really does overrun the visible track at 1×', fit.before, JSON.stringify(fit));
+  ok('the toolbar offers a fit control', fit.has, JSON.stringify(fit));
+  ok('…and one click makes the whole routine fit the track', fit.has && fit.after <= fit.room + 1,
+     JSON.stringify(fit));
+  const grow = await ev(()=>{
+    MSTR.sequences.length = 0;
+    EDIT.seq = blockNewRoutine('Mexican wave');
+    const s = MSTR.sequences[EDIT.seq];
+    ['pie0','pie1','pie2','pie3','panel0','panel1'].forEach((a,i)=>blockAdd(s,'act',a,i*200,{dur:600}));
+    blockSync(s); BLK.sel = null; buildSequencer();
+    const sc = document.querySelector('#seqblocks .tlouter');
+    const rows = sc.querySelectorAll('.tlrow').length;
+    return {rows, client: sc.clientHeight, content: sc.scrollHeight};
+  });
+  ok('a seven-lane routine gets a lane area tall enough to show its lanes',
+     grow.client >= grow.content - 2, JSON.stringify(grow));
+  const anchor = await ev(()=>{
+    const s = MSTR.sequences[EDIT.seq];
+    BLK.pxms = 0.4; buildSequencer();
+    const sc = document.querySelector('#seqblocks .tlouter');
+    sc.scrollLeft = 220;
+    const was = sc.scrollLeft;
+    const b = blockList(s)[0];
+    BLK.sel = b.id;
+    b.t0 = 1000; blockSync(s); buildSequencer();       // in view, and staying there
+    const b2 = blockList(MSTR.sequences[EDIT.seq]).find(x=>x.id === BLK.sel);
+    b2.t0 = 1400;                                      // the edit a drag commits
+    blockSync(s); buildSequencer();
+    const sc2 = document.querySelector('#seqblocks .tlouter');
+    return {was, now: sc2.scrollLeft, x0: blkX(b2.t0), x1: blkX(b2.t0 + b2.dur), w: sc2.clientWidth};
+  });
+  ok('committing a brick move does not re-anchor the timeline under the pointer',
+     anchor.was > 0 && Math.abs(anchor.now - anchor.was) <= 2, JSON.stringify(anchor));
+
+  console.log('\n════ the library filter tells the truth about itself ════');
+  const filt = await ev(()=>{
+    MSTR.sequences.length = 0;
+    ['Convention open','Convention close','Wave','Breathe','Idle'].forEach(n=>{
+      const s = MSTR.sequences[blockNewRoutine(n)];
+      blockAdd(s,'act','pie0',0,{dur:400}); blockSync(s);
+    });
+    EDIT.seq = 0; BLK.libq = ''; buildSequencer();
+    const si = document.querySelector('#seqlib .libsearch');
+    const auto = si.getAttribute('autocomplete');
+    si.value = 'Convention'; si.dispatchEvent(new Event('input'));
+    const head = Array.from(document.querySelectorAll('#seqlib .libgrph')).map(x=>x.textContent).join(' | ');
+    const clear = document.querySelector('#seqlib .libclear');
+    return {auto, head, hasClear: !!clear};
+  });
+  const stored = await ev(()=>{
+    /* a query that is not a substring of ANY sequence name, so what the check
+       finds can only be the filter itself and never the library */
+    const si = document.querySelector('#seqlib .libsearch');
+    si.value = 'zqxwv'; si.dispatchEvent(new Event('input'));
+    if(typeof servoStoreSave === 'function') servoStoreSave();
+    const hay = JSON.stringify(localStorage) + JSON.stringify(typeof PREFS === 'undefined' ? {} : PREFS);
+    return hay.indexOf('zqxwv') >= 0;
+  });
+  ok('a filtered count says what it is a count OF — "2 of 5", not "(2)"',
+     /2 of 5/.test(filt.head), JSON.stringify(filt));
+  ok('…and offers a way out of the filter', filt.hasClear, JSON.stringify(filt));
+  ok('the filter is session state — nothing writes it anywhere it could come back from',
+     filt.auto === 'off' && !stored, JSON.stringify({auto:filt.auto, stored}));
+  ok('clearing the filter brings the whole library back', await ev(()=>{
+    const c = document.querySelector('#seqlib .libclear'); if(!c) return false;
+    c.click();
+    return BLK.libq === '' && document.querySelectorAll('#seqlib .blkchip.seq').length === 5;
+  }));
+
+  console.log('\n════ one brick, one frame, one length ════');
+  ok('a routine with one brick says "1 brick", not "1 bricks"', await ev(()=>{
+    MSTR.sequences.length = 0; BLK.libq = '';
+    EDIT.seq = blockNewRoutine('Single');
+    const s = MSTR.sequences[EDIT.seq];
+    blockAdd(s,'act','pie0',0,{dur:500}); blockSync(s); buildSequencer();
+    return / 1 brick(\s|$|\D)/.test($('seqName').textContent) && !/1 bricks/.test($('seqName').textContent);
+  }), await ev(()=>$('seqName').textContent));
+  ok('a hand-made list of one frame says "1 frame"', await ev(()=>{
+    MSTR.sequences.length = 0; BLK.libq = '';
+    MSTR.sequences.push({name:'One frame', frames:[{name:'F0',duration:500,targets:[]}]});
+    EDIT.seq = 0; buildSequencer();
+    return !/1 frames/.test($('seqName').textContent) && /1 frame/.test($('seqName').textContent);
+  }), await ev(()=>$('seqName').textContent));
+  ok('the library card counts in the singular too', await ev(()=>{
+    const anchor = document.querySelector('#seqlib .blkchip.seq'); if(!anchor) return false;
+    blkLibPreview(0, anchor);
+    const m = document.querySelector('.libprev .meta'); if(!m) return false;
+    const t = m.textContent;
+    blkLibPreviewClose();
+    return !/1 frames/.test(t);
+  }));
+  const lens = await ev(()=>{
+    MSTR.sequences.length = 0; BLK.libq = '';
+    const off = BLKH.movers().filter(m=>!m.on)[0];
+    EDIT.seq = blockNewRoutine('Two readouts');
+    const s = MSTR.sequences[EDIT.seq];
+    blockAdd(s,'act','pie0',0,{dur:1000});
+    if(off) blockAdd(s,'act',off.act,2000,{dur:1000});
+    blockSync(s); BLK.sel = null; buildSequencer();
+    const head = ($('seqName').textContent.match(/([\d.]+)s\s*$/) || [])[1];
+    const row = Array.from($('seqinsp').querySelectorAll('.blkfield'))
+                     .find(r=>r.querySelector('label') && /Length/i.test(r.querySelector('label').textContent));
+    const insp = row ? row.querySelector('.blkval').textContent.replace('s','') : null;
+    return {head, insp, unwired: !!off};
+  });
+  ok('the header and the summary panel print the SAME length',
+     lens.head && lens.insp && lens.head === lens.insp, JSON.stringify(lens));
+
   console.log('\n════ no page errors ════');
   ok('nothing threw', errs.length===0, errs.join(' | '));
 

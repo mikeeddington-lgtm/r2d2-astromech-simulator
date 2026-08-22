@@ -334,9 +334,12 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
     wizGo(wizSteps().findIndex(s=>s.key==='controller'));
     return $('stpFoot').textContent.indexOf('Question 2 of 9')===0;
   }));
-  ok('…and names the job, with the "come back any time" line, on Panels', await ev(()=>{
+  /* v1.70.0 — the job line gained a count of its own. It still names the job
+     and still says "come back any time"; what it no longer does is leave a
+     second row of six chips with no way to tell how deep it goes. */
+  ok('…and names the job, counted within the six, with the "come back any time" line, on Panels', await ev(()=>{
     wizGo(wizStepIndex('_panels'));
-    return $('stpFoot').textContent.indexOf('Panels · a job, come back any time')===0;
+    return $('stpFoot').textContent.indexOf('Job 3 of 6 · Panels — come back any time')===0;
   }));
   ok('the rail groups the nine questions from the six jobs, with a label between them', await ev(()=>{
     wizGo(0);
@@ -2911,6 +2914,189 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
      /growboards/.test(spin.html) ? 'button' : 'no button');
   ok('the spinner ceiling is PCA_MAX_BOARDS_UI', spin.max === await ev(()=>PCA_MAX_BOARDS_UI), String(spin.max));
   await clearDlg();
+
+  /* ================================================================
+     v1.70.0 — FOUR COLD-START FINDINGS
+
+     All four came out of walkthroughs by people who had never seen the
+     app, and all four are about the setup telling the truth: about
+     whether it has already been through, about how much of it is left,
+     about an answer nobody has actually given, and about a filename.
+     ================================================================ */
+
+  console.log('\n════ the wizard does not put itself back after you have put it away ════');
+  /* The boot trigger is one line inside main.js's load handler, so the only
+     honest way to test it is to BOOT. A second page, its own localStorage,
+     reloaded between the two readings — which is exactly the gesture the
+     walkthrough made five times ("five reloads, five wizards"). */
+  const bootPage = await browser.newPage({ viewport: { width: 1400, height: 900 } });
+  const bootUrl = 'file://'+path.resolve(__dirname, '..', process.env.R2_TARGET || 'R2D2-Simulator.html')+R2_Q;
+  const bootLoad = async ()=>{
+    await bootPage.waitForFunction('typeof CAD!=="undefined" && CAD.loaded', {timeout:40000});
+    await bootPage.waitForTimeout(250);
+  };
+  await bootPage.goto(bootUrl);
+  await bootLoad();
+  await bootPage.evaluate(()=>{ localStorage.clear(); });
+  await bootPage.reload();
+  await bootLoad();
+  ok('a genuinely fresh profile still gets the wizard, at question 1', await bootPage.evaluate(()=>
+    $('startup').classList.contains('on') && WIZ.i === 0 && !buildConfigured() && !PREFS.seenStartup));
+
+  /* answer nothing, press "Skip the rest" — which is closeStartup(), the same
+     call the ×, the backdrop and Esc all make — then come back */
+  await bootPage.evaluate(()=>{ $('btnStartupGo').click(); });
+  await bootPage.reload();
+  await bootLoad();
+  const dismissed = await bootPage.evaluate(()=>({
+    open: $('startup').classList.contains('on'),
+    seen: !!PREFS.seenStartup,
+    done: buildConfigured(),
+    saved: !!(JSON.parse(localStorage.getItem('r2sim.prefs.v1')||'{}').seenStartup)
+  }));
+  ok('...and once it has been skipped, a reload does NOT put it back',
+     dismissed.open === false, JSON.stringify(dismissed));
+  ok('...the dismissal is what is remembered, not a finished build',
+     dismissed.seen === true && dismissed.saved === true && dismissed.done === false,
+     JSON.stringify(dismissed));
+  /* the wizard is still the door, it just no longer forces itself */
+  ok('...and Setup still opens it on demand', await bootPage.evaluate(()=>{
+    openStartup();
+    const on = $('startup').classList.contains('on');
+    closeStartup();
+    return on;
+  }));
+  await bootPage.evaluate(()=>{ localStorage.clear(); });
+  await bootPage.close();
+
+  console.log('\n════ nine is not the end, and the footer says so ════');
+  const foot = await ev(()=>{
+    closeStartup();
+    const out = {};
+    wizOpen(0);
+    wizGo(8);                                   // the ninth question — Firmware
+    out.q9 = $('stpFoot').textContent;
+    out.q9key = wizSteps()[8].key;
+    wizGo(9);                                   // the first job — Servo setup
+    out.j1 = $('stpFoot').textContent;
+    wizGo(14);                                  // the last job — Finish
+    out.j6 = $('stpFoot').textContent;
+    out.n = wizSteps().length;
+    closeStartup();
+    return out;
+  });
+  console.log('  '+JSON.stringify(foot));
+  ok('question 9 of 9 still counts against the nine questions',
+     /Question 9 of 9/.test(foot.q9) && foot.q9key === 'firmware', foot.q9);
+  ok('...but says on the same line that there is more after it',
+     /9,? then 6 jobs/i.test(foot.q9), foot.q9);
+  ok('a job names its own place in the six, so the second row is countable',
+     /Job 1 of 6/.test(foot.j1) && /Job 6 of 6/.test(foot.j6), foot.j1+' | '+foot.j6);
+  ok('...and no job claims to be one of the nine questions',
+     !/Question/.test(foot.j1) && !/Question/.test(foot.j6), foot.j1);
+
+  console.log('\n════ Q7: "not decided yet", and the feet are inert while it stands ════');
+  const q7 = await ev(()=>{
+    const o = BUILD_OPTIONS.bodyDrive.find(x=>x.id === 'undecided');
+    return o ? {label:o.label, note:o.note, sim:o.sim, n:BUILD_OPTIONS.bodyDrive.length} : null;
+  });
+  console.log('  '+JSON.stringify(q7));
+  ok('Q7 has a third card that commits to nothing', !!q7 && !!q7.label && !!q7.note && !!q7.sim,
+     JSON.stringify(q7));
+  ok('...in the voice "No dome motor yet" and "None yet" already use',
+     !!q7 && /yet|not decided/i.test(q7.label), q7 ? q7.label : '(missing)');
+
+  await ev(()=>{
+    closeStartup();
+    PREFS.build = buildDefault(); buildApply();
+    buildSet('bodyDrive','undecided');
+    modelSet('droid', {frame:false});
+    FW.isDriveEnabled = true;
+    INPUT.virtual.LY = 1; INPUT.virtual.RX = 1;      // full ahead, and spin the dome
+  });
+  await page.waitForTimeout(700);
+  const inert = await ev(()=>({
+    d: MOT.drive, t: MOT.turn, l: MOT.leftFoot, r: MOT.rightFoot,
+    vec: driveVector(), dome: MOT.dome, armed: FW.isDriveEnabled,
+    plate: (()=>{ const p = document.querySelector('#toasts .toastp'); return p ? p.textContent : null; })()
+  }));
+  console.log('  '+JSON.stringify(inert));
+  ok('the feet do not run while the foot drive is undecided',
+     inert.d === 0 && inert.t === 0 && inert.l === 90 && inert.r === 90, JSON.stringify(inert));
+  ok('...the model is not being pushed along either',
+     inert.vec && inert.vec.f === 0 && inert.vec.y === 0, JSON.stringify(inert.vec));
+  ok('...and everything else carries on — the dome still turns',
+     inert.dome !== 0, String(inert.dome));
+  ok('the droid says WHY, naming the cause rather than the symptom',
+     !!inert.plate && /foot controller/i.test(inert.plate) && !/press START/i.test(inert.plate),
+     String(inert.plate));
+  /* the other cold-start finding being fixed in parallel is the DISARMED
+     hint (input/pad-ui.js, driveHintCheck): "press START (Enter) to arm".
+     The two must never be mistaken for each other — different state,
+     different sentence, different door. */
+  ok('...and it is not the disarmed hint wearing different words',
+     !!inert.plate && inert.plate !== 'Feet are disarmed — press START (Enter) to arm.',
+     String(inert.plate));
+  const jump = await ev(()=>{
+    const p = document.querySelector('#toasts .toastp');
+    if(!p) return null;
+    p.click();
+    const at = $('startup').classList.contains('on') ? wizSteps()[WIZ.i].key : null;
+    closeStartup();
+    return at;
+  });
+  ok('...and the plate itself is the way back to question 7', jump === 'bodyDrive', String(jump));
+
+  const gates = await ev(()=>{
+    const b = buildGet();
+    const fc = CFG.FOOT_CONTROLLER;
+    buildApply();
+    return {
+      pwm: buildFootPWM(b),
+      undecided: buildFootUndecided(b),
+      /* the build has no opinion about FOOT_CONTROLLER while nothing is
+         chosen, so it must not assert one — and must not then report the
+         sketch's own value back as a contradiction */
+      fcUntouched: CFG.FOOT_CONTROLLER === fc,
+      fcConflict: buildConflicts(b).some(c=>/FOOT_CONTROLLER/.test(c.text)),
+      /* an undecided foot drive blocks no sketch: there is nothing to clash */
+      blockers: PROFILE_ORDER.map(id=>firmwareBlockers(id, b).map(x=>x.why).join(' ')).join(' '),
+      label: buildLabel('bodyDrive', b.bodyDrive),
+      row: buildSummaryRows(b).find(r=>r.key === 'bodyDrive')
+    };
+  });
+  console.log('  '+JSON.stringify({pwm:gates.pwm, undecided:gates.undecided, fcUntouched:gates.fcUntouched,
+    fcConflict:gates.fcConflict, label:gates.label, row:gates.row}));
+  ok('a third answer does not read as "Sabertooth" anywhere',
+     gates.undecided === true && gates.pwm === false &&
+     !/Sabertooth/.test(gates.label) && !/Sabertooth/i.test(gates.blockers),
+     JSON.stringify([gates.label, gates.blockers]));
+  ok('...buildApply() asserts no FOOT_CONTROLLER it was never told',
+     gates.fcUntouched === true && gates.fcConflict === false,
+     JSON.stringify([gates.fcUntouched, gates.fcConflict]));
+  ok('...and the review row says the answer, flagged as unsimulated',
+     !!gates.row && /yet|not decided/i.test(gates.row.label) && gates.row.sim === 'park',
+     JSON.stringify(gates.row));
+
+  await ev(()=>{
+    INPUT.virtual.LY = 0; INPUT.virtual.RX = 0;
+    FW.isDriveEnabled = false;
+    PREFS.build = buildDefault(); buildApply();
+  });
+  await page.waitForTimeout(300);
+  ok('choosing a real controller gives the feet back', await ev(()=>{
+    FW.isDriveEnabled = true;
+    MOT.drive = 60; MOT.driveAt = SIM.millis;
+    const held = buildFootGate() === false && MOT.drive === 60;
+    MOT.drive = 0; FW.isDriveEnabled = false;
+    return held;
+  }));
+  await clearDlg();
+
+  console.log('\n════ the mod2026 filename has a space in it ════');
+  ok('the "Where to get it" row names a file you could actually open', await ev(()=>
+    (BUILD_OPTIONS.firmware.find(o=>o.id === 'mod2026')||{}).file === 'padawan_secure_mode.ino'),
+    await ev(()=>(BUILD_OPTIONS.firmware.find(o=>o.id === 'mod2026')||{}).file));
 
   console.log('\n════ no page errors ════');
   ok('nothing threw', errs.length===0, errs.join(' | '));

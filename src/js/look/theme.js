@@ -94,7 +94,10 @@ function bindUiScaleReset(){
   l.addEventListener('click',()=>applyUiScale(1.0));
 }
 function applyUiScale(v){
-  PREFS.uiScale = clamp(Math.round(v*20)/20, 0.85, 1.5);
+  /* the range is not symmetric about 100% and should not pretend to be:
+     A+ buys 50% and A− bought 15, on a header whose one fully readable
+     size before the chip work was the smallest one. Down to 75%. */
+  PREFS.uiScale = clamp(Math.round(v*20)/20, 0.75, 1.5);
   document.body.style.zoom = PREFS.uiScale;
   const l = $('uiScaleLbl'); if(l) l.textContent = Math.round(PREFS.uiScale*100)+'%';
   if(typeof onResize==='function') setTimeout(onResize, 0);   // zoom changes the canvas box

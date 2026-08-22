@@ -219,10 +219,17 @@ function setupChPanel(){
   const vHome = cal ? cal.home : c.home;
 
   const q = v => ((v||0)/4).toFixed(0);
-  const pw = (k, lab, val, tip) =>
+  /* the trio this panel is showing, judged as a trio: a centre is only
+     wrong RELATIVE to the two ends beside it, so no box here can be banded
+     on its own value alone (v1.70.1). The min/max attributes are the
+     policy's, not this file's — they were 300–2700, which is how 2700 got
+     in without an argument. */
+  const ends = {min:vMin, max:vMax, home:vHome};
+  const pw = (k, end, lab, val, tip) =>
     '<label class="chf" title="'+tip+'"><span>'+lab+'</span>'
-    + '<input type="number" data-k="'+k+'" data-ch="'+i+'" value="'+q(val)+'" min="300" max="2700" step="1"'
-    + ' class="'+pwClass(val)+'" title="'+pwTitle(val)+'"><em>µs</em></label>';
+    + '<input type="number" data-k="'+k+'" data-ch="'+i+'" value="'+q(val)+'" step="1"'
+    + ' min="'+(PW_ABS.lo/4)+'" max="'+(PW_ABS.hi/4)+'"'
+    + ' class="'+pwEndClass(ends, end)+'" title="'+pwEndTitle(ends, end).replace(/"/g,'&quot;')+'"><em>µs</em></label>';
   const num = (k, lab, val, min, max, tip) =>
     '<label class="chf" title="'+tip+'"><span>'+lab+'</span>'
     + '<input type="number" data-k="'+k+'" data-ch="'+i+'" value="'+(val|0)+'" min="'+min+'" max="'+max+'"></label>';
@@ -236,14 +243,19 @@ function setupChPanel(){
     + '<span class="stat">channel '+i+' · board '+(i>>4)+' pin '+(i&15)+'</span></div>'
 
     + '<h4>Travel</h4><div class="chcfgrow">'
-    + pw('minUs', 'shut',   vMin,  'the pulse width at the shut end of the travel')
-    + pw('ctrUs', 'centre', vHome, 'the pulse width it rests at — and goes to at power-up when boot is ticked')
-    + pw('maxUs', 'open',   vMax,  'the pulse width at the open end of the travel')
+    + pw('minUs', 'min',  'shut',   vMin,  'the pulse width at the shut end of the travel')
+    + pw('ctrUs', 'home', 'centre', vHome, 'the pulse width it rests at — and goes to at power-up when boot is ticked')
+    + pw('maxUs', 'max',  'open',   vMax,  'the pulse width at the open end of the travel')
     + tick('rev', 'reversed', vMin > vMax,
         'the linkage runs the other way — ticking swaps this channel’s two ends, unticking puts them back')
     + tick('boot', 'go to centre at power-up', !/off|ignore/i.test(c.homemode||''),
         'at power-up, drive to the centre above. Unticked = no pulses at all, so the servo is limp and a panel does not buzz.')
     + '</div>'
+    /* the same sentence the dial shows under its own three boxes, under
+       these three (v1.70.1). Both surfaces are the same numbers, so both
+       say the same thing at the same moment — setupEndsSay fills both in
+       one pass, which is what stops the two from ever disagreeing. */
+    + '<div class="pwsay'+(pwEndsWhyHtml(ends) ? '' : ' off')+'" id="chSay">'+pwEndsWhyHtml(ends)+'</div>'
 
     + '<h4>Motion</h4><div class="chcfgrow">'
     + num('speed', 'speed', c.speed, 0, 16000,
@@ -518,10 +530,36 @@ function setupStepChannels(){
       + cols.map(col=>col.td(r)).join('')
       + '</tr>';
   }
+  /* ============================================== WHAT THE CHIP IS FOR NOW
+     v1.70.1. This chip was the app's ONLY answer to an impossible endpoint:
+     it appeared after a save, at the top of a table you had already
+     scrolled past, counting against 500–2500 while the dial beside the box
+     said 1000–2000 and the box itself accepted 300–2700. It was the wrong
+     mechanism in the wrong place — a summary standing in for a rule.
+
+     It is not redundant now, but it does mean something different, and the
+     words say which. Every control on this screen refuses a width outside
+     500–2500, so a red count can no longer describe anything typed here:
+     it describes what a FILE brought in — an imported servo config, a
+     .mstr, a profile, a calibration from before this release. That is
+     worth a line at the top of the table, because those channels are on
+     your board right now and nobody typed them.
+
+     The amber count keeps its old meaning exactly: legitimately wide ends
+     somebody chose on purpose, which the dial takes and warns about at the
+     control. Both counts read the same pwClass() the boxes do, so the
+     summary and the rule cannot drift apart again. */
   const audit = pwAudit();
   const chn = n=>n+' channel'+(n===1?'':'s');
-  const flag = (audit.bad.length ? '<span class="pwflag bad">'+chn(audit.bad.length)+' outside 500–2500 µs</span>' : '')
-             + (audit.warn.length ? '<span class="pwflag warn">'+chn(audit.warn.length)+' outside 1000–2000 µs</span>' : '');
+  const chs = a=>'ch '+a.join(', ');
+  const flag = (audit.bad.length
+        ? '<span class="pwflag bad" title="'+chs(audit.bad)+'. The bench refuses these widths as they are typed, so these arrived with a file, a profile or an older calibration — open each on the dial and give it an end a servo can reach.">'
+          + chn(audit.bad.length)+' outside '+pwBandUs(PW_ABS)+', from a file</span>'
+        : '')
+             + (audit.warn.length
+        ? '<span class="pwflag warn" title="'+chs(audit.warn)+'. Wider than standard is allowed and is often deliberate — sweep each one before you trust it in a sequence.">'
+          + chn(audit.warn.length)+' outside '+pwBandUs(PW_STD)+'</span>'
+        : '');
 
   const f = setupApplyDef(SETUP.apField || 'speed');
   const val = (SETUP.apVal === undefined || SETUP.apField !== f.k) ? f.def : SETUP.apVal;
@@ -821,23 +859,82 @@ function setupBindChannels(){
     if(k === 'name') c.name = e.target.value;
     else if(k === 'minUs' || k === 'maxUs' || k === 'ctrUs'){
       const q = Math.round((+e.target.value || 0) * 4);
+      const end = {minUs:'min', maxUs:'max', ctrUs:'home'}[k];
       const cal = (SETUP.cal && SETUP.cal.ch === i) ? SETUP.cal : null;
+      /* ============================ REFUSED AT THE POINT OF ENTRY (v1.70.1)
+         The same rule as the dial's own boxes, in the other half of the one
+         set of numbers: outside 500–2500 µs the value is not staged and not
+         written. The box keeps the number so you can see what you meant,
+         goes red, and the strip under the row says what is wrong.
+
+         It also stops a half-typed number reaching a channel on its way
+         past. This handler is `oninput`, so typing 1500 used to write 1,
+         15 and 150 µs to hardware before it wrote 1500 — three widths no
+         servo can take, one keystroke apart. */
+      const now = cal || {min:c.min, max:c.max, home:c.home};
+      const no = pwEndFault(q, end)
+        /* a centre is refused against its own two ends, wherever those two
+           currently live — the dial's staged pair when there is one, the
+           channel's own when there is not (setup-hw.js §policy) */
+        || (end === 'home' ? pwEndsRefusal(Object.assign({}, now, {home:q})) : null);
+      if(no){
+        e.target.className = 'bad';
+        e.target.title = no.text;
+        setupEndsSay(now, no.text);
+        /* the dial below is showing these same three numbers and carries
+           the save button for them, so a number this panel turned away has
+           to block that button too (setup-hw-cal.js §calPaint) */
+        if(cal){
+          cal.refuse = {end, text:no.text};
+          const okNow = document.querySelector('#calWrap [data-cal=ok]');
+          if(okNow){ okNow.disabled = true; okNow.title = no.text; }
+        }
+        return;
+      }
+      if(cal) cal.refuse = null;
       /* v1.51.0 — one set of numbers. With the dial open these fields ARE
          its three ends (setupChPanel says why), so typing here moves the
          dial and `save servo setting` is what reaches the channel. Without
          it — Studio, or a channel the dial is not on — they write straight
-         through exactly as before. */
+         through exactly as before.
+         v1.70.1 — and with no dial in front of it, writing IS saving, so
+         the trio has to be whole before it lands: a centre that is not
+         between its own two ends is refused here rather than at a save
+         button this surface has not got. */
+      /* an end drags its centre inside the travel rather than stranding it
+         there — the other half of the rule, and the same words the dial
+         uses, because it is the same edit seen from the other control */
+      const drag = ends2=>{
+        const f = (end === 'home') ? 0 : pwCentreFollow(ends2);
+        if(f) HW.say('centre moved to '+(f/4).toFixed(0)+' µs — it was outside the travel you just set', 'warn');
+        return f;
+      };
       if(cal){
         if(k === 'minUs') cal.min = q; else if(k === 'maxUs') cal.max = q; else cal.home = q;
+        const f = drag(cal); if(f) cal.home = f;
         if(typeof calPaint === 'function') calPaint();
       }else{
-        if(k === 'minUs') c.min = q; else if(k === 'maxUs') c.max = q; else c.home = q;
+        const ends = {min:c.min, max:c.max, home:c.home};
+        ends[end] = q;
+        const f = drag(ends); if(f) ends.home = f;
+        /* whatever is still wrong after that cannot be written: with no
+           dial in front of it this surface IS the save, and there is no
+           button to hold the number at */
+        const stop = pwEndsRefusal(ends);
+        if(stop){
+          e.target.className = 'bad';
+          e.target.title = stop.text;
+          setupEndsSay(ends);
+          return;
+        }
+        c.min = ends.min; c.max = ends.max; c.home = ends.home;
+        setupEndsSay(ends);
         HW.rebuild(true);
       }
       /* band the cell as you type, without rebuilding the input under the
          caret — the dial learned this lesson the hard way (v0.7.1) */
-      e.target.className = pwClass(q);
-      e.target.title = pwTitle(q);
+      e.target.className = pwEndClass(cal || {min:c.min, max:c.max, home:c.home}, end);
+      e.target.title = pwEndTitle(cal || {min:c.min, max:c.max, home:c.home}, end);
     }
     else if(k === 'sleep'){
       const ms = document.querySelector('#chCfg [data-k=sleepMs]');
@@ -924,11 +1021,29 @@ function setupBindChannels(){
          cancelling must not throw the number away and quietly hand back the
          default the next time the button is pressed */
       SETUP.apVal = raw;
+      /* v1.70.1 — the widest door in the building: one press, twenty
+         channels, and until now three µs fields that took anything between
+         400 and 2600. A width outside 500–2500 is refused before the
+         confirm rather than inside it, because a strip that asks "apply to
+         12 channels?" about a number that cannot be applied to any of them
+         is a question with no true answer. */
+      if(f.pw){
+        const no = pwEndFault(Math.round(shown*4), f.pw);
+        if(no){ HW.say('not applied — '+no.text, 'warn'); setupRender(); return; }
+      }
       setupAsk('Set <b>'+f.label+'</b> to <b>'+shown+'</b> on '+list.length+' channel'+(list.length===1?'':'s')+'?',
         'apply', ()=>{
-          list.forEach(i=>setupApplyOne(HW.channels()[i], f.k, shown));
+          /* setupApplyOne answers whether it wrote. A centre is judged
+             against the ends of the channel it lands on, so a bank can
+             legitimately take a setting on some rows and refuse it on
+             others — and the ones it skipped are named rather than counted
+             as a success. */
+          const took = list.filter(i=>setupApplyOne(HW.channels()[i], f.k, shown));
           HW.save(); HW.rebuild(true);
-          HW.say(f.label+' set to '+shown+' on '+list.length+' channel'+(list.length===1?'':'s'));
+          const missed = list.length - took.length;
+          HW.say(f.label+' set to '+shown+' on '+took.length+' channel'+(took.length===1?'':'s')
+            + (missed ? ' — '+missed+' refused it: '+shown+' µs would leave that channel a centre outside its own travel' : ''),
+            missed ? 'warn' : undefined);
         }, 'table');
       setupRender();
       return;

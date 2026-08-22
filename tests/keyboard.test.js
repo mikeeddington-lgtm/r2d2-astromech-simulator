@@ -229,23 +229,167 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
      boot state, no drive-hint cooldown in effect, no stray toast plate.
      DRIVEHINT (input/pad-ui.js) may not exist on a pre-change tree — that
      is exactly the point of the RED run, so this reset is guarded rather
-     than assumed. */
-  await ev(()=>{
+     than assumed.
+
+     hintReset() is the whole of that state in one place because the block
+     below tests SIX doors and three suppression rules, and every one of
+     them has to start from the same nothing-has-happened-yet: a stale
+     `armedOnce` alone would make every later assertion pass vacuously. */
+  const hintReset = () => ev(()=>{
     FW.isDriveEnabled = false;
-    if(typeof DRIVEHINT !== 'undefined'){ DRIVEHINT.shownAt = -Infinity; DRIVEHINT.plate = null; }
+    INPUT.virtual.LX = INPUT.virtual.LY = 0;
+    INPUT.keys = {};
+    if(typeof DRIVEHINT !== 'undefined'){
+      DRIVEHINT.shownAt = -Infinity; DRIVEHINT.plate = null;
+      DRIVEHINT.pushing = false; DRIVEHINT.armedOnce = false;
+    }
     document.querySelectorAll('#toasts .toastp').forEach(p=>p.remove());
   });
+  await hintReset();
   ok('boot state for this block: disarmed', await ev(()=>!FW.isDriveEnabled));
 
-  ok('W held while disarmed shows the hint, with the exact wording, via the toast host', await ev(()=>{
+  /* THE WORDING IS THE FIX. "press START" is what the app said and it is
+     wrong twice over: a tap can fall between two pollInput() calls and do
+     nothing, and START is the pad's name for a key the reviewer only ever
+     saw labelled ↵. The line has to say HOLD, and it has to name ENTER. */
+  ok('W held while disarmed shows the hint, and it says HOLD ENTER', await ev(()=>{
     window.dispatchEvent(new KeyboardEvent('keydown', {code:'KeyW', key:'w', bubbles:true, cancelable:true}));
     pollInput();
     const p = document.querySelector('#toasts .toastp');
     const text = p ? p.textContent : null;
     window.dispatchEvent(new KeyboardEvent('keyup', {code:'KeyW', key:'w', bubbles:true, cancelable:true}));
     pollInput();
-    return text === 'Feet are disarmed — press START (Enter) to arm.';
+    return text === 'Feet are disarmed — hold Enter (Start) to arm.';
   }));
+
+  /* ONCE PER ATTEMPT-BURST. pollInput() runs once a frame, so a check with
+     no edge in it is a toast sixty times a second. */
+  await hintReset();
+  ok('a two-second hold is ONE plate, not one per frame', await ev(()=>{
+    window.dispatchEvent(new KeyboardEvent('keydown', {code:'KeyW', key:'w', bubbles:true, cancelable:true}));
+    for(let i=0;i<120;i++){ SIM.millis += 16; pollInput(); }
+    const n = document.querySelectorAll('#toasts .toastp').length;
+    window.dispatchEvent(new KeyboardEvent('keyup', {code:'KeyW', key:'w', bubbles:true, cancelable:true}));
+    pollInput();
+    return n === 1;
+  }));
+  ok('…and a SECOND attempt, after letting go, speaks again', await ev(()=>{
+    SIM.millis += 5000;
+    window.dispatchEvent(new KeyboardEvent('keydown', {code:'KeyW', key:'w', bubbles:true, cancelable:true}));
+    pollInput();
+    const n = document.querySelectorAll('#toasts .toastp').length;
+    window.dispatchEvent(new KeyboardEvent('keyup', {code:'KeyW', key:'w', bubbles:true, cancelable:true}));
+    pollInput();
+    return n === 2;
+  }));
+
+  /* EVERY DOOR. The review names three ways in and the app has five; the
+     one check has to sit where all of them have already merged. */
+  await hintReset();
+  ok('door 2 — dragging the on-screen left stick shows it', await ev(()=>{
+    INPUT.virtual.LY = 0.8;
+    pollInput();
+    const n = document.querySelectorAll('#toasts .toastp').length;
+    INPUT.virtual.LY = 0;
+    pollInput();
+    return n === 1;
+  }));
+
+  await hintReset();
+  ok('door 3 — a real pad pushed forward shows it', await ev(()=>{
+    const real = navigator.getGamepads;
+    navigator.getGamepads = ()=>[{connected:true, index:0, id:'fake pad', axes:[0,-1,0,0], buttons:[]}];
+    pollInput();
+    const n = document.querySelectorAll('#toasts .toastp').length;
+    navigator.getGamepads = real;
+    pollInput();
+    return n === 1;
+  }));
+
+  /* RC is the one the old check could not reach at all: it ran BEFORE the
+     transmitter's channels were merged into LX/LY, so a radio set pushed
+     forward on a disarmed droid was silent by construction. Stubbing the
+     two entry points is enough — rcEnabled() stays real and false, so the
+     gamepad scan above is unaffected. */
+  await hintReset();
+  ok('door 4 — an RC transmitter pushed forward shows it', await ev(()=>{
+    const rr = rcRead, rc = rcContribute;
+    rcRead = ()=>true;
+    rcContribute = ()=>({ax:{LY:0.9}, btn:{}});
+    pollInput();
+    const n = document.querySelectorAll('#toasts .toastp').length;
+    rcRead = rr; rcContribute = rc;
+    pollInput();
+    return n === 1;
+  }));
+
+  /* BACK OFF ONCE THEY KNOW. Somebody who has armed the feet once this
+     session has been taught the fact; repeating it every time they disarm
+     is the nagging the brief rules out. */
+  await hintReset();
+  ok('after arming once, a later disarmed attempt does NOT nag again', await ev(()=>{
+    window.dispatchEvent(new KeyboardEvent('keydown', {code:'Enter', key:'Enter', bubbles:true, cancelable:true}));
+    pollInput(); fwLoop();
+    window.dispatchEvent(new KeyboardEvent('keyup', {code:'Enter', key:'Enter', bubbles:true, cancelable:true}));
+    pollInput(); fwLoop();
+    const armed = FW.isDriveEnabled;
+    window.dispatchEvent(new KeyboardEvent('keydown', {code:'Enter', key:'Enter', bubbles:true, cancelable:true}));
+    pollInput(); fwLoop();
+    window.dispatchEvent(new KeyboardEvent('keyup', {code:'Enter', key:'Enter', bubbles:true, cancelable:true}));
+    pollInput(); fwLoop();
+    document.querySelectorAll('#toasts .toastp').forEach(p=>p.remove());
+    SIM.millis += 5000;
+    window.dispatchEvent(new KeyboardEvent('keydown', {code:'KeyW', key:'w', bubbles:true, cancelable:true}));
+    pollInput();
+    const n = document.querySelectorAll('#toasts .toastp').length;
+    window.dispatchEvent(new KeyboardEvent('keyup', {code:'KeyW', key:'w', bubbles:true, cancelable:true}));
+    pollInput();
+    return armed && !FW.isDriveEnabled && n === 0;
+  }));
+
+  /* THE OTHER REASON THE FEET DO NOT MOVE (v1.70.0, Q7's third answer,
+     config/hardware.js). Two different causes must not both shout, and
+     they must not be confused: mine is "disarmed — hold Enter", theirs is
+     "no foot controller chosen yet". With no controller chosen, arming
+     buys nothing, so this hint must not say a word about START — it hands
+     the moment to buildFootUnsetSay(), whose plate names the controller
+     and jumps back to question 7. The assertion is on the WORDS, because
+     "a plate appeared" would pass on either of them. */
+  await hintReset();
+  ok('Q7 undecided — the arming hint hands over: the plate names the CONTROLLER, not START', await ev(()=>{
+    const was = buildGet().bodyDrive;
+    buildGet().bodyDrive = 'undecided';
+    if(typeof FOOT_UNSET !== 'undefined') FOOT_UNSET.shownAt = -Infinity;
+    window.dispatchEvent(new KeyboardEvent('keydown', {code:'KeyW', key:'w', bubbles:true, cancelable:true}));
+    pollInput();
+    const txt = [...document.querySelectorAll('#toasts .toastp')].map(p=>p.textContent).join(' | ');
+    window.dispatchEvent(new KeyboardEvent('keyup', {code:'KeyW', key:'w', bubbles:true, cancelable:true}));
+    pollInput();
+    buildGet().bodyDrive = was;
+    document.querySelectorAll('#toasts .toastp').forEach(p=>p.remove());
+    return /foot controller/i.test(txt) && !/disarmed/i.test(txt) && !/start/i.test(txt);
+  }));
+  ok('…and with a real foot controller chosen again it speaks', await ev(()=>{
+    if(typeof DRIVEHINT !== 'undefined'){ DRIVEHINT.shownAt = -Infinity; DRIVEHINT.pushing = false; }
+    window.dispatchEvent(new KeyboardEvent('keydown', {code:'KeyW', key:'w', bubbles:true, cancelable:true}));
+    pollInput();
+    const n = document.querySelectorAll('#toasts .toastp').length;
+    window.dispatchEvent(new KeyboardEvent('keyup', {code:'KeyW', key:'w', bubbles:true, cancelable:true}));
+    pollInput();
+    return n === 1;
+  }));
+
+  await hintReset();
+  // put a live plate on screen first, or "arming dismisses the hint" below
+  // asserts nothing at all
+  await ev(()=>{
+    window.dispatchEvent(new KeyboardEvent('keydown', {code:'KeyW', key:'w', bubbles:true, cancelable:true}));
+    pollInput();
+    window.dispatchEvent(new KeyboardEvent('keyup', {code:'KeyW', key:'w', bubbles:true, cancelable:true}));
+    pollInput();
+  });
+  ok('a plate is standing before the START press', await ev(()=>
+    !!document.querySelector('#toasts .toastp')));
 
   await ev(()=>{
     // START, the same way M7d above presses Space — a real keydown/keyup
@@ -277,11 +421,8 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
     getComputedStyle($('chDrive')).cursor === 'pointer'
     && $('chDrive').title === 'arm / disarm the foot motors (START)'));
 
-  await ev(()=>{
-    if(typeof DRIVEHINT !== 'undefined'){ DRIVEHINT.shownAt = -Infinity; DRIVEHINT.plate = null; }
-    document.querySelectorAll('#toasts .toastp').forEach(p=>p.remove());
-    wizOpen();
-  });
+  await hintReset();
+  await ev(()=>{ wizOpen(); });
   ok('the wizard is open (a modal overlay)', await ev(()=>$('startup').classList.contains('on')));
   ok('W held while a modal overlay is open shows no hint', await ev(()=>{
     window.dispatchEvent(new KeyboardEvent('keydown', {code:'KeyW', key:'w', bubbles:true, cancelable:true}));
@@ -292,6 +433,77 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
     return !present;
   }));
   await ev(()=>{ closeStartup(); PREFS.seenStartup = true; });
+
+  console.log('\n════ M9 · the fact is written down, and it is taught (UX 2026-08-22 §1.1) ════');
+  /* A toast lasts 3.5 s. The `?` card is where somebody goes AFTER it has
+     faded, and it is the one place the review says a person looks — and it
+     was the one place that did not carry the fact at all. */
+  await page.keyboard.press('?');
+  ok('the ? card carries the arming fact, in the driving column', await ev(()=>{
+    const t = $('kbdHelp').textContent;
+    return /disarmed/i.test(t) && /\bhold\b/i.test(t) && /Start/.test(t);
+  }));
+  ok('…and it still carries the driving map it always did', await ev(()=>{
+    const t = $('kbdHelp').textContent;
+    return /Left stick/.test(t) && /WASD/.test(t) && /Ctrl\+Z/.test(t);
+  }));
+  await page.keyboard.press('Escape');
+
+  /* THE OWNER'S RULING: "a great lesson tip" — taught, not just announced.
+     The teaching machinery already exists (app/tutor.js), so the attempt
+     has to reach THAT, not a second parallel one. */
+  ok('lesson 1 tells you to HOLD it, which is what actually arms the feet', await ev(()=>
+    /hold/i.test(LESSONS.find(l=>l.id==='arm').how)));
+
+  ok('a first-run drive attempt opens the lessons on the arming lesson', await ev(()=>{
+    setTutor(false);
+    TUTOR.done = {}; TUTOR.seen = {}; TUTOR.tipped = false;
+    if(typeof DRIVEHINT !== 'undefined'){
+      DRIVEHINT.shownAt = -Infinity; DRIVEHINT.pushing = false; DRIVEHINT.armedOnce = false;
+    }
+    FW.isDriveEnabled = false;
+    window.dispatchEvent(new KeyboardEvent('keydown', {code:'KeyW', key:'w', bubbles:true, cancelable:true}));
+    pollInput();
+    window.dispatchEvent(new KeyboardEvent('keyup', {code:'KeyW', key:'w', bubbles:true, cancelable:true}));
+    pollInput();
+    const on = TUTOR.on, cur = tutorCurrent();
+    return on && cur && cur.id === 'arm' && $('hudTutor').style.display !== 'none'
+        && /hold/i.test($('hudTutor').textContent);
+  }));
+  ok('…and it is a FIRST-run tip: somebody who has already done a lesson is left alone', await ev(()=>{
+    setTutor(false);
+    TUTOR.done = {sound:true}; TUTOR.tipped = false;
+    if(typeof DRIVEHINT !== 'undefined'){
+      DRIVEHINT.shownAt = -Infinity; DRIVEHINT.pushing = false; DRIVEHINT.armedOnce = false;
+    }
+    window.dispatchEvent(new KeyboardEvent('keydown', {code:'KeyW', key:'w', bubbles:true, cancelable:true}));
+    pollInput();
+    window.dispatchEvent(new KeyboardEvent('keyup', {code:'KeyW', key:'w', bubbles:true, cancelable:true}));
+    pollInput();
+    return TUTOR.on === false;
+  }));
+
+  /* FOUR NUMBERS FOR TWO THINGS on one screen: "the thirteen lessons
+     below", "Lessons 1 of 12", the stage card's "1/12", and "21 chapters"
+     — and 13 + 20 is not 21. Everything countable has to come off the list
+     it is counting. */
+  const NUM_WORD = {10:'ten',11:'eleven',12:'twelve',13:'thirteen',14:'fourteen',15:'fifteen'};
+  const learn = await ev(()=>{
+    tutorReset(); buildTutor();
+    return { total: tutorProgress().total,
+             rows:  $('tutorHost').querySelectorAll('.turow').length,
+             txt:   $('tutorHost').textContent };
+  });
+  ok('the Learn tab quotes the lesson count it is actually showing', (()=>{
+    const stale = Object.keys(NUM_WORD).filter(n=>
+      +n !== learn.total && new RegExp('\\b'+NUM_WORD[n]+'\\b','i').test(learn.txt));
+    return learn.rows === learn.total && stale.length === 0
+        && new RegExp('\\b('+learn.total+'|'+NUM_WORD[learn.total]+')\\b','i').test(learn.txt);
+  })(), learn.total+' lessons · '+learn.rows+' rows');
+  /* the manual's own section header is the single source for chapters
+     (app/manual.js). The blurb must not restate it in another number. */
+  ok('…and it no longer invents a second, contradictory chapter count',
+     /21 chapters/.test(learn.txt) && !/twenty chapters/i.test(learn.txt));
 
   console.log('\n════ M7e · "?" over the servo bench, and the Esc that hung up (2026-08-22) ════');
   /* Two halves of one containment bug, both about a real board.

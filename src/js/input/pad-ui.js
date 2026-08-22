@@ -86,48 +86,125 @@ function dz(v){ return Math.abs(v)<INPUT.rawDeadzone ? 0 : v; }
    while disarmed does NOTHING VISIBLE: the only explanations live in a
    console line (each profile's setup(), e.g. profiles/mod2026.js) and
    lesson 1 (app/tutor.js's 'arm' entry, Learn tab). Neither is where a new
-   user is looking.
+   user is looking. Four cold-start walkthroughs stopped dead here; one of
+   them concluded the app was broken and closed it.
 
-   Seam: driveHintCheck() is called from inside pollInput() below, right
-   after LX/LY have been merged from keyboard + on-screen pad + a real
-   gamepad — the three sources the review calls out by name — and BEFORE
-   the RC transmitter or the Polar Mouse (mouseTakeSticks) get a say. That
-   merge point is the ONE place all three sources converge on a single
-   number, so one check here covers every source with no per-source
-   duplication anywhere else. RC and the mouse are deliberately excluded:
-   RC has its own calibration UI and its own "why is nothing happening"
-   story, and while the mouse holds the sticks the feet are not what is
-   being driven.
+   Seam: driveHintCheck() is called from inside pollInput() below, AFTER
+   every source has been merged into LX/LY — keyboard, the on-screen pad, a
+   real gamepad and the RC transmitter. It used to sit one block earlier,
+   before the RC merge, on the reasoning that "RC has its own story"; it
+   does not have one for THIS, so a radio set pushed forward on a disarmed
+   droid was silent by construction. One check at the last merge point
+   covers every door with no per-source duplication.
 
-   Workshop only — kiosk has its own guards, and this hint (the header
-   chip it sits beside) is hidden there anyway (10-kiosk.css) — and never
-   over a modal overlay (uiModalOpen(), core/util.js: the startup/build
-   wizard, the servo-hardware bench, the import wizard, the "Build your
-   Maestro" wizard, the servo hardware overlay all cover the whole
-   viewport, so this is redundant with them physically blocking the
-   pad/HUD but cheap insurance against a future non-full-bleed overlay).
+   THE THINGS THAT ARE NOT THIS (2026-08-22). Nothing is worse here than a
+   confident wrong answer, so the hint names its own cause — DISARMED — and
+   yields to every other reason the feet are inert:
+     · no foot controller CHOSEN — Q7's `undecided` answer, added to
+       config/hardware.js in this same release. That one is not merely
+       skipped, it is HANDED OVER to: see driveFootUndecided() and the
+       hand-off below.
+     · the Polar Mouse holding the sticks — mouseIsDriving(); the feet are
+       not what is being driven, so arming would change nothing.
+     · puppet mode — the sketch is handed a centred pad on purpose
+       (pupGated(), core/xbox.js), so the feet stay still whether or not
+       they are armed.
+   Plus kiosk (its own guards, and the header chip this hint sits beside is
+   hidden there anyway — 10-kiosk.css) and a modal overlay (uiModalOpen(),
+   core/util.js), which are physical rather than logical exclusions.
 
-   Rate-limited: shown once, then not again until the feet arm or 30s
-   pass — whichever comes first. Reuses the existing toast (core/toast.js)
-   rather than a new widget: its own ~3.5s life is close enough to the
-   ~4s the spec asks for, and arming dismisses it early through the same
-   toastDrop() a click on the plate itself uses. */
-const DRIVEHINT = { shownAt:-Infinity, plate:null };
+   HOW OFTEN. pollInput() runs once a frame, so a check with no edge in it
+   is a toast sixty times a second. It fires on the RISING edge of an
+   attempt-burst — centred to pushed — and once the user has armed the feet
+   even once this session the fact has been learned by doing, so the window
+   between repeats widens from a couple of seconds to a minute. Arming
+   stamps that window, which is what makes the disarm-and-try-again case
+   quiet rather than immediately loud again.
+
+   WHY "hold". A tap of ↵ can fall entirely between two pollInput() calls
+   and never produce the rising edge getButtonClick('START') needs. The old
+   wording said "press START (Enter)", which is both the advice that does
+   not always work and the pad's name for a key the reviewer only ever saw
+   labelled ↵.
+
+   Reuses the existing toast (core/toast.js) rather than a new widget: its
+   ~3.5s life is close enough to the ~4s the review asks for, and arming
+   dismisses it early through the same toastDrop() a click on the plate
+   itself uses. */
+const DRIVEHINT_MSG   = 'Feet are disarmed — hold Enter (Start) to arm.';
+const DRIVEHINT_BURST = 1500;    // ms — two attempts closer than this are one attempt
+const DRIVEHINT_KNOWN = 60000;   // ms — the gap once they have armed the feet at least once
+const DRIVEHINT = { shownAt:-Infinity, plate:null, pushing:false, armedOnce:false };
+
+/* "Has this build said what drives the feet at all?" — Q7's third answer,
+   added in config/hardware.js in the same release. buildFootUndecided() is
+   THAT change's own predicate and it is the one asked: the id it tests for
+   (`undecided`) belongs to it and is free to move, and a private copy of
+   the string here would be a second opinion about somebody else's answer.
+   The fallback below is for a host that loads this file without
+   config/hardware.js, and reads the SHAPE of the answer instead — absent,
+   parked, or explicitly flagged. It is wrong only in the safe direction:
+   an answer it cannot recognise silences this hint and leaves the other
+   explanation to speak. */
+function driveFootUndecided(){
+  if(typeof buildFootUndecided === 'function') return !!buildFootUndecided();
+  if(typeof buildGet !== 'function') return false;
+  const id = buildGet().bodyDrive;
+  if(!id) return true;
+  const o = (typeof buildOpt === 'function') ? buildOpt('bodyDrive', id) : null;
+  return !o || o.undecided === true || o.sim === 'park';
+}
+
 function driveHintCheck(lx, ly){
   if(FW.isDriveEnabled){
     if(DRIVEHINT.plate && typeof toastDrop==='function') toastDrop(DRIVEHINT.plate);
     DRIVEHINT.plate = null;
-    DRIVEHINT.shownAt = -Infinity;           // armed — the next disarm starts its own fresh window
+    DRIVEHINT.pushing = false;
+    DRIVEHINT.armedOnce = true;
+    DRIVEHINT.shownAt = SIM.millis;          // arming IS the lesson landing — start the quiet window here
     return;
   }
-  if(INPUT.forceDisconnect) return;          // a different "why is nothing happening" — not this hint's job
-  if(Math.abs(lx)<=INPUT.rawDeadzone && Math.abs(ly)<=INPUT.rawDeadzone) return;
+  /* NOT AN ATTEMPT AT ALL, so the edge is not latched either and a stick
+     still held when the overlay closes counts as a fresh attempt: the pad
+     is unplugged, the Polar Mouse has the sticks (the feet are not what is
+     being driven, so arming would change nothing), puppet mode is handing
+     the sketch a centred pad on purpose, the kiosk has its own guards, or a
+     full-bleed overlay is already covering the stage. */
+  if(INPUT.forceDisconnect) return;
+  if(typeof mouseIsDriving==='function' && mouseIsDriving()) return;
+  if(typeof PUPPET!=='undefined' && PUPPET.on) return;
   if(typeof kioskOn==='function' && kioskOn()) return;
   if(typeof uiModalOpen==='function' && uiModalOpen()) return;
+
+  const pushing = Math.abs(lx)>INPUT.rawDeadzone || Math.abs(ly)>INPUT.rawDeadzone;
+  const rising  = pushing && !DRIVEHINT.pushing;
+  DRIVEHINT.pushing = pushing;
+  if(!rising) return;
+
+  /* A REAL ATTEMPT, BUT NOT THIS CAUSE. With no foot controller chosen,
+     arming the feet buys nothing — there is nothing on the other end of
+     Serial1 to arm — so saying "hold Enter" would send a beginner down a
+     dead end. That change's own gate (buildFootGate, config/hardware.js)
+     only speaks on frames where the sketch is COMMANDING the feet, which
+     cannot happen while they are disarmed; so rather than going quiet and
+     recreating the silence this whole fix is about, hand the moment to its
+     own voice. Its words, its jump back to question 7, its rate limit —
+     this file says nothing here. */
+  if(driveFootUndecided()){
+    if(typeof buildFootUnsetSay==='function') buildFootUnsetSay();
+    return;
+  }
+
   const now = SIM.millis;
-  if(DRIVEHINT.shownAt!==-Infinity && now-DRIVEHINT.shownAt<30000) return;
+  if(now - DRIVEHINT.shownAt < (DRIVEHINT.armedOnce ? DRIVEHINT_KNOWN : DRIVEHINT_BURST)) return;
   DRIVEHINT.shownAt = now;
-  if(typeof toast==='function') DRIVEHINT.plate = toast('Feet are disarmed — press START (Enter) to arm.', 'warn');
+  if(typeof toast==='function') DRIVEHINT.plate = toast(DRIVEHINT_MSG, 'warn');
+  /* and TEACH it, which is the owner's ruling on this fix: the attempt is
+     the moment the lesson makes sense, so it goes to the lessons that
+     already exist (app/tutor.js) rather than growing a second teaching
+     surface here. tutorArmTip() decides for itself whether this user is
+     new enough to be shown them. */
+  if(typeof tutorArmTip==='function') tutorArmTip();
 }
 
 function pollInput(){
@@ -178,10 +255,6 @@ function pollInput(){
     }
   } else if(INPUT.gpIndex!==null){ INPUT.gpIndex=null; INPUT.gpName=''; }
 
-  /* keyboard + on-screen pad + real pad are now fully merged into LX/LY —
-     see driveHintCheck() above for why this is the seam. */
-  driveHintCheck(LX, LY);
-
   /* RC transmitter (v1.32.0). rcRead() runs whether or not RC is the
      controller answer — the calibration panel needs live bars while the
      answer is still being made — but only rcContribute() reaches the
@@ -203,6 +276,10 @@ function pollInput(){
       for(const n in rc.btn) btn[n] = Math.max(btn[n], rc.btn[n]);
     }
   }
+
+  /* EVERY drive door has now landed in LX/LY — keyboard, on-screen pad,
+     real gamepad, RC. This is the seam; see driveHintCheck() above. */
+  driveHintCheck(LX, LY);
 
   /* trigger noise floor */
   if(btn.L2<25) btn.L2=0;

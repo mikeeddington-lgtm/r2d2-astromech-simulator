@@ -8,6 +8,20 @@
    BLOCKS — highlight the offending stretch red with a one-line reason.
    SAVE persists into PREFS.track and the sim drives the edited track.
 
+   v1.70.0, two rulings out of a walkthrough that lost an edit:
+
+     · SAVING NEVER OVERWRITES. There is one save gesture, Save as…, and
+       it always lands on a NEW layout — the one you opened is still
+       there if the edit turns out to be a mistake (Mike). It replaces
+       two buttons that were the same sentence twice ("Save as new" and
+       a SAVE that read "Save as a copy" on the stock lap) plus the
+       in-place overwrite that SAVE did on a named one.
+     · LEAVING ASKS, once there is something to lose. Cancel, Esc and the
+       backdrop all go through trackEditCancelAsk(), which asks the
+       CLEAR EVERY BRICK question (maestro/blocks-ui.js) when TE.dirty.
+       trackEditCancel() is still the unconditional discard underneath —
+       the same split kiosk.js has between kioskExit() and kioskLeave().
+
    Built entirely in JS at open time (no body.html markup — that file
    belongs to another agent this stage) and REMOVED on close, same rule
    as the stage pickers, the app dialog and the "?" shortcuts card
@@ -20,8 +34,8 @@
    never disagree with what SAVE actually builds.
 
    TE is null while the editor is closed; non-null (the working state —
-   a plain object, not PREFS) while it is open. Cancel discards it,
-   Save copies it into PREFS.track.
+   a plain object, not PREFS) while it is open. Cancel discards it — after
+   asking, once TE.dirty — and Save as… copies it into a new layout.
    ===================================================================== */
 let TE = null;
 
@@ -187,9 +201,19 @@ function teDrawStartLine(ctx, pts){
   ctx.beginPath(); ctx.moveTo(x0,y0); ctx.lineTo(x1,y1); ctx.stroke();
   ctx.restore();
 }
-function teDrawGates(ctx, pts){
+/* WHICH MODE YOU ARE IN HAS TO BE VISIBLE (v1.70.0). Three screenshots of
+   DRAW / GATES / CONES came back pixel-identical apart from which tab was
+   lit: one instruction line for all three, and one drawing. All three modes
+   ARE wired and all three do different things (teBindCanvas) — it was only
+   the picture that never said so. So each mode now draws the things IT
+   edits at full strength, with a grab handle on them, and drops everything
+   else back to TE_DIM. Nothing about what a click DOES changed here. */
+const TE_DIM = 0.34;
+function teDrawGates(ctx, pts, active){
   ctx.save();
-  ctx.strokeStyle = teToken('--am'); ctx.fillStyle = teToken('--am'); ctx.lineWidth = 2.5;
+  if(!active) ctx.globalAlpha = TE_DIM;
+  ctx.strokeStyle = teToken('--am'); ctx.fillStyle = teToken('--am');
+  ctx.lineWidth = active ? 3.5 : 2.5;
   ctx.font = '600 11px '+teToken('--mono'); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   TE.gates.forEach((t,gi)=>{
     const p = pts[teSampleIndex(t, pts.length)];
@@ -197,24 +221,38 @@ function teDrawGates(ctx, pts){
     const [x1,y1] = teWorldToPx(p.x-p.nx*(TRACK_HALF+0.3), p.z-p.nz*(TRACK_HALF+0.3));
     ctx.beginPath(); ctx.moveTo(x0,y0); ctx.lineTo(x1,y1); ctx.stroke();
     const [lx,ly] = teWorldToPx(p.x, p.z);
+    /* the handle: in Gates mode a gate is a thing you can grab, so it is
+       drawn as one — a dot on the curve where the click is tested */
+    if(active){
+      ctx.beginPath(); ctx.arc(lx,ly,5,0,Math.PI*2); ctx.fill();
+      ctx.save(); ctx.lineWidth = 1.5; ctx.strokeStyle = teToken('--ink');
+      ctx.stroke(); ctx.restore();
+    }
     ctx.fillText(String(gi+1), lx, ly-10);
   });
   ctx.restore();
 }
-function teDrawCones(ctx){
+function teDrawCones(ctx, active){
   ctx.save();
+  if(!active) ctx.globalAlpha = TE_DIM;
   ctx.fillStyle = teToken('--am'); ctx.strokeStyle = teToken('--ink'); ctx.lineWidth = 1;
   TE.cones.forEach(([cx,cz])=>{
     const [x,y] = teWorldToPx(cx,cz);
-    ctx.beginPath(); ctx.arc(x,y,5,0,Math.PI*2); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.arc(x,y,active ? 7 : 5,0,Math.PI*2); ctx.fill(); ctx.stroke();
+    /* the halo says "this one is grabbable", at the radius teHitCone uses */
+    if(active){
+      ctx.save(); ctx.strokeStyle = teToken('--am'); ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(x,y,11,0,Math.PI*2); ctx.stroke(); ctx.restore();
+    }
   });
   ctx.restore();
 }
-function teDrawPoints(ctx){
+function teDrawPoints(ctx, active){
   ctx.save();
+  if(!active) ctx.globalAlpha = TE_DIM;
   TE.shape.forEach((p,i)=>{
     const [x,y] = teWorldToPx(p[0],p[1]);
-    ctx.beginPath(); ctx.arc(x,y,6,0,Math.PI*2);
+    ctx.beginPath(); ctx.arc(x, y, active ? 6 : 4, 0, Math.PI*2);
     ctx.fillStyle = (i===TE.dragIdx) ? teToken('--am') : teToken('--cy');
     ctx.fill();
     ctx.lineWidth = 1.5; ctx.strokeStyle = teToken('--ink'); ctx.stroke();
@@ -229,9 +267,15 @@ function teRedraw(){
   const viol = trackSpacingViolations(TE.shape);
   teDrawCurve(ctx, viol);
   teDrawStartLine(ctx, viol.pts);
-  teDrawGates(ctx, viol.pts);
-  teDrawCones(ctx);
-  teDrawPoints(ctx);
+  /* back to front, so whatever the mode edits is drawn LAST and no dimmed
+     marker can sit on top of a live handle */
+  const layers = {
+    gates: ()=>teDrawGates(ctx, viol.pts, TE.mode === 'gates'),
+    cones: ()=>teDrawCones(ctx, TE.mode === 'cones'),
+    draw:  ()=>teDrawPoints(ctx, TE.mode === 'draw')
+  };
+  Object.keys(layers).forEach(k=>{ if(k !== TE.mode) layers[k](); });
+  if(layers[TE.mode]) layers[TE.mode]();
   teDrawScaleBar(ctx);
   const violating = viol.bad.size > 0;
   const tight = viol.tight && viol.tight.size > 0;
@@ -246,9 +290,25 @@ function teRedraw(){
    as app/splitters.js's drag handles): pointermove redraws in place,
    the canvas host is never rebuilt mid-drag
    =================================================================== */
+/* the instruction line, per mode (v1.70.0). Right-click is on every line
+   because it is a shape gesture available in every mode (teBindCanvas), and
+   ±7 m is on every line because the canvas is the same map in all three. */
+const TE_MODE_HINT = {
+  draw:  'DRAW — drag a control point to move it · right-click the curve to add a point, '
+       + 'right-click a point to remove it (min 4) · ±7 m',
+  gates: 'GATES — click the curve to add a timing gate, click a gate to take it away (one always stays) · '
+       + 'they are crossed in track order, and gate 1 is the start/finish · right-click still edits points · ±7 m',
+  cones: 'CONES — click anywhere to drop a cone, click a cone to take it away · '
+       + 'cones are markers to steer around: nothing collides with them · right-click still edits points · ±7 m'
+};
 function teSetMode(mode){
   TE.mode = mode;
   Object.keys(TE.modeBtns).forEach(k=>TE.modeBtns[k].classList.toggle('act', k===mode));
+  /* the line and the picture are the two halves of "which mode am I in" —
+     neither of them moved before this, so the tab highlight was the only
+     difference between the three modes on screen */
+  if(TE.hintEl) TE.hintEl.textContent = TE_MODE_HINT[mode] || TE_MODE_HINT.draw;
+  teRedraw();
 }
 function teResetDefault(){
   if(!TE) return;
@@ -283,12 +343,17 @@ function teLibRefresh(){
   const stock = lib.active === TRACK_STOCK_ID;
   TE.libBtns.rename.disabled = stock;
   TE.libBtns.del.disabled = stock;
-  /* the stock lap can never be written over, so SAVE forks it — say which
-     it is going to do rather than let the button lie */
-  TE.libBtns.save.textContent = stock ? 'Save as a copy' : 'Save';
-  TE.libBtns.save.title = stock
-    ? 'the stock circuit is never overwritten — this keeps your edit as a new layout'
-    : 'write these changes back into "'+(trackLibNames(lib).find(e=>e.active)||{}).name+'"';
+  /* one save gesture, and it says which layout it is going to leave alone */
+  TE.libBtns.saveAs.title = 'keep what is on the canvas as a NEW layout — "'
+    + (trackLibNames(lib).find(e=>e.active)||{}).name + '" is left exactly as it is';
+}
+/* what Save as… offers to call the copy — "<name> copy", then "copy 2" and
+   up, so a second copy of the same layout does not silently collide */
+function teCopyName(base, lib){
+  const taken = n=>lib.list.some(e=>e.name === n);
+  let n = base + ' copy';
+  for(let i=2; taken(n); i++) n = base + ' copy ' + i;
+  return n;
 }
 /* LOAD — one click in the list. An unsaved edit is worth a question. */
 async function teLoadLayout(id){
@@ -311,20 +376,21 @@ async function teLoadLayout(id){
   lg('sys','track builder: loaded '+((trackLibNames().find(e=>e.active)||{}).name||id));
   return true;
 }
-/* SAVE AS NEW — the copy button */
-async function teSaveAsNew(){
+/* SAVE AS… — the ONE save gesture (v1.70.0). It asks for the name and hands
+   it to trackEditSave(), which is the half that writes. */
+async function teSaveAs(){
   if(!TE) return null;
-  const suggest = 'layout '+(trackLibLoad().list.length+1);
+  const lib = trackLibLoad();
+  const cur = trackLibEntry(lib, lib.active);
+  const from = cur ? cur.name : 'Stock circuit';
+  const suggest = cur ? teCopyName(cur.name, lib) : ('layout '+(lib.list.length+1));
   const name = (typeof appPrompt === 'function')
-    ? await appPrompt('A name for this layout.', {title:'Save as new track', value:suggest, yes:'Save'})
+    ? await appPrompt('This keeps what is on the canvas as a NEW layout, and puts it on the stage. '
+        + '"'+from+'" is left exactly as it is.',
+        {title:'Save as a new track', value:suggest, yes:'Save as', no:'Cancel'})
     : suggest;
   if(name === null || !TE) return null;
-  const r = trackLibAdd(name, {shape:TE.shape, gates:TE.gates, cones:TE.cones});
-  if(!r.ok) return null;                     // trackLibPersist() already said why
-  lg('sys','track builder: saved as new track "'+r.name+'" — '+TE.shape.length+' points, '
-    +TE.gates.length+' gates, '+TE.cones.length+' cones');
-  trackEditClose();
-  return r.id;
+  return trackEditSave(name);
 }
 async function teRenameLayout(){
   if(!TE) return false;
@@ -434,8 +500,11 @@ function teBindCanvas(){
    where TE.onKey wraps this, below. Since v1.45.0 the layout list DOES
    open appConfirm/appPrompt over the editor (load, rename, delete), so
    this now yields to a .dlgwrap like the other five sites do: otherwise
-   Esc'ing out of "delete this layout?" would also throw the editor away. */
-const trackEditEsc = escGuard(()=> !!TE && !document.querySelector('.dlgwrap'), trackEditCancel);
+   Esc'ing out of "delete this layout?" would also throw the editor away.
+   Since v1.70.0 that includes the editor's OWN question: Esc goes to
+   trackEditCancelAsk, and the second Esc lands on the confirm it raised —
+   which resolves false, i.e. keep editing. */
+const trackEditEsc = escGuard(()=> !!TE && !document.querySelector('.dlgwrap'), trackEditCancelAsk);
 function trackEditOpen(){
   if(TE) return;
   /* never stack over another full-page overlay, and never open under a
@@ -460,8 +529,9 @@ function trackEditOpen(){
 
   const head = el('div','tehead');
   head.appendChild(el('h2',null,'Track Builder'));
-  head.appendChild(el('div','tesub',
-    'drag a point to move it · right-click the curve to add a point, right-click a point to remove it (min 4) · ±7 m'));
+  /* the instruction line is per MODE (TE_MODE_HINT) — teSetMode rewrites it */
+  const hint = el('div','tesub', TE_MODE_HINT.draw); hint.id = 'teHint';
+  head.appendChild(hint);
   card.appendChild(head);
 
   /* the layout row — one list, the active layout selected in it, and the
@@ -473,9 +543,10 @@ function trackEditOpen(){
   libSel.id = 'teLayout'; libSel.className = 'msel'; libSel.style.width = 'auto';
   libSel.title = 'the saved layouts — pick one to load it onto the stage';
   libBar.appendChild(libSel);
-  const bNew = el('button','b','Save as new'); bNew.id = 'teSaveAs';
-  bNew.title = 'keep what is on the canvas as a new layout, leaving the current one alone';
-  bNew.addEventListener('click', teSaveAsNew);
+  /* the ONE save (v1.70.0): it lives on the layout row because that is the
+     row about "which track am I editing", and it always makes another one */
+  const bNew = el('button','b prim','Save as…'); bNew.id = 'teSaveAs';
+  bNew.addEventListener('click', teSaveAs);
   const bRen = el('button','b','Rename'); bRen.id = 'teRename';
   bRen.addEventListener('click', teRenameLayout);
   const bDel = el('button','b danger','Delete'); bDel.id = 'teDelete';
@@ -489,22 +560,21 @@ function trackEditOpen(){
   [['draw','Draw'],['gates','Gates'],['cones','Cones']].forEach(([id,label])=>{
     const b = el('button', 'b'+(id==='draw' ? ' act' : ''), label);
     b.id = 'teMode'+id[0].toUpperCase()+id.slice(1);
-    b.title = id==='draw' ? 'drag the control points'
-      : id==='gates' ? 'click the curve to place a gate, click a gate to remove it'
-      : 'click to place a cone, click a cone to remove it';
+    /* the tooltip is the mode's own instruction line, so the tab and the
+       line under the title can never say two different things */
+    b.title = TE_MODE_HINT[id];
     b.addEventListener('click', ()=>teSetMode(id));
     modeBtns[id] = b;
     toolbar.appendChild(b);
   });
   toolbar.appendChild(el('div','tegap'));
   const bReset = el('button','b danger','Reset to default'); bReset.id = 'teReset';
-  bReset.title = 'put back the stock circuit — Save to keep it';
+  bReset.title = 'put the stock circuit back on the canvas — Save as… to keep it';
   bReset.addEventListener('click', teResetDefault);
-  const bSave = el('button','b prim','Save'); bSave.id = 'teSave';
-  bSave.addEventListener('click', trackEditSave);
   const bCancel = el('button','b','Cancel'); bCancel.id = 'teCancel';
-  bCancel.addEventListener('click', trackEditCancel);
-  toolbar.appendChild(bReset); toolbar.appendChild(bSave); toolbar.appendChild(bCancel);
+  bCancel.title = 'close the builder — asks first if there is an edit on the canvas';
+  bCancel.addEventListener('click', trackEditCancelAsk);
+  toolbar.appendChild(bReset); toolbar.appendChild(bCancel);
   card.appendChild(toolbar);
 
   const frame = el('div','teframe');
@@ -522,8 +592,8 @@ function trackEditOpen(){
   document.body.appendChild(wrap);
 
   TE.root = wrap; TE.canvas = canvas; TE.ctx = canvas.getContext('2d');
-  TE.modeBtns = modeBtns; TE.warnEl = warn;
-  TE.libSel = libSel; TE.libBtns = {save:bSave, rename:bRen, del:bDel};
+  TE.modeBtns = modeBtns; TE.warnEl = warn; TE.hintEl = hint;
+  TE.libSel = libSel; TE.libBtns = {saveAs:bNew, rename:bRen, del:bDel};
   libSel.addEventListener('change', ()=>teLoadLayout(libSel.value));
   teLibRefresh();
 
@@ -545,7 +615,7 @@ function trackEditOpen(){
   /* nothing leaks through to the stage underneath (the dialog rule) */
   ['pointerdown','pointerup','click'].forEach(t=>
     wrap.addEventListener(t, e=>e.stopPropagation()));
-  wrap.addEventListener('click', e=>{ if(e.target === wrap) trackEditCancel(); });
+  wrap.addEventListener('click', e=>{ if(e.target === wrap) trackEditCancelAsk(); });
 
   teRedraw();
   lg('sys','track builder: opened');
@@ -556,13 +626,46 @@ function trackEditClose(){
   TE.root.remove();
   TE = null;
 }
+/* the unconditional discard. Nothing in the UI reaches this while there is
+   an edit on the canvas — trackEditCancelAsk() is the door — but the suites
+   and the console need a way past the question (app/kiosk.js's
+   kioskExit()/kioskLeave() split, same reasoning). */
 function trackEditCancel(){
   if(!TE) return;
   trackEditClose();
   lg('sys','track builder: cancelled — nothing changed');
 }
-function trackEditSave(){
-  if(!TE) return;
+function tePlural(n, w){ return n + ' ' + w + (n === 1 ? '' : 's'); }
+/* THE EXIT (v1.70.0). Cancel closed with no warning and a dragged control
+   point was simply gone — the actual work loss in the walkthrough, since
+   the dialog's other five exits all lead somewhere. CLEAR EVERY BRICK? is
+   the shape (maestro/blocks-ui.js): name the count, name the target, say
+   what survives, and label the buttons with the verbs rather than Yes/No.
+   Nothing to lose asks nothing — a confirm that fires on an untouched
+   canvas is a confirm nobody reads. */
+async function trackEditCancelAsk(){
+  if(!TE) return false;
+  if(!TE.dirty){ trackEditCancel(); return true; }
+  const on = (trackLibNames().find(e=>e.active)||{}).name || 'the stock circuit';
+  if(typeof appConfirm === 'function'){
+    const msg =
+        'The canvas has ' + tePlural(TE.shape.length,'point') + ', '
+      + tePlural(TE.gates.length,'gate') + ' and ' + tePlural(TE.cones.length,'cone') + ', '
+      + 'and closing here keeps none of it — there is no undo behind the builder.\n\n'
+      + '“' + on + '” is what stays on the stage, unchanged, and so is every other saved '
+      + 'layout. Save as… keeps this canvas beside them under a name of its own instead.';
+    const yes = await appConfirm(msg, {title:'Throw this edit away?',
+                                       yes:'Throw it away', no:'Keep editing', danger:true});
+    if(!yes || !TE) return false;            // Keep editing — the canvas is exactly as it was
+  }
+  trackEditCancel();
+  return true;
+}
+/* SAVE — always a NEW layout (v1.70.0, Mike): the editor never writes over
+   the layout you opened. teSaveAs() is the door and supplies the name; a
+   missing one falls through to trackLibAdd's own "layout N". */
+function trackEditSave(name){
+  if(!TE) return null;
   const violating = trackSpacingViolations(TE.shape).bad.size > 0;
   const data = {
     shape: TE.shape.map(p=>p.slice()),
@@ -573,17 +676,15 @@ function trackEditSave(){
     gates: TE.gates.slice().sort((a,b)=>a-b),
     cones: TE.cones.map(p=>p.slice())
   };
-  const lib = trackLibLoad();
-  /* the stock circuit is never overwritten, so saving on top of it forks
-     a copy instead — trackLibAdd/Update persist, verify and rebuild */
-  const r = trackLibEntry(lib, lib.active)
-    ? trackLibUpdate(lib.active, data)
-    : trackLibAdd('my track', data);
-  if(!r.ok) return;                          // storage said no — the editor stays open
-  lg('sys','track builder: saved "'+r.name+'" — '+TE.shape.length+' points, '+TE.gates.length
-    +' gates (sorted into track order), '+TE.cones.length+' cones'
+  /* trackLibAdd persists, verifies against the store, rebuilds the stage and
+     makes the new layout the active one */
+  const r = trackLibAdd(name, data);
+  if(!r.ok) return null;                     // storage said no — the editor stays open
+  lg('sys','track builder: saved as a new track "'+r.name+'" — '+TE.shape.length+' points, '
+    +TE.gates.length+' gates (sorted into track order), '+TE.cones.length+' cones'
     +(violating ? ' (spacing warning noted — not blocked)' : ''));
   trackEditClose();
+  return r.id;
 }
 
 /* -------------------------------------------------------------------

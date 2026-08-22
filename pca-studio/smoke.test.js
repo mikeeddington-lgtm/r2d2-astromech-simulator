@@ -470,7 +470,15 @@ const LIVE = fs.readFileSync(path.resolve(__dirname,'..','examples','R2-dome-pad
     mx().value = '2600'; mx().dispatchEvent(new Event('input', {bubbles:true}));
     out.clsBad = mx().className;
     setupCalCommit(); setupRender();
-    out.auditBad = pwAudit().bad.indexOf(1) >= 0;
+    /* v1.70.1 — this used to assert that 2600 µs REACHED the channel and
+       that the audit then found it, which was a description of the bug: the
+       screen knew the rule and did not enforce it. The bench refuses a width
+       outside 500–2500 at the point of entry now (setup-hw.js §policy), so
+       the box goes red, the number is never staged, the commit writes the
+       last width that WAS accepted, and there is nothing out of band on the
+       board for the audit to count. */
+    out.badRefused = pwAudit().bad.length === 0 && pwClass(PROJ.channels[1].max) !== 'bad';
+    out.badKeptUs = (PROJ.channels[1].max / 4).toFixed(0);
     mx().value = '1775'; mx().dispatchEvent(new Event('input', {bubbles:true}));   /* put it back */
     setupCalCommit(); setupRender();
     out.clsClean = mx().className === '' && pwAudit().bad.length === 0;
@@ -589,9 +597,10 @@ const LIVE = fs.readFileSync(path.resolve(__dirname,'..','examples','R2-dome-pad
   ok('min / centre / max are µs in the table and quarter-µs underneath',
      setup.tableUsShown === '1075' && setup.tableUsSet === 4400,
      'showed '+setup.tableUsShown+' µs, stored '+setup.tableUsSet);
-  ok('a width outside 1000–2000 µs is flagged amber, outside 500–2500 red',
-     setup.clsWarn === 'warn' && setup.clsBad === 'bad' && setup.auditBad,
-     '2400 µs → '+setup.clsWarn+', 2600 µs → '+setup.clsBad);
+  ok('a width outside 1000–2000 µs is flagged amber, and one outside 500–2500 is refused',
+     setup.clsWarn === 'warn' && setup.clsBad === 'bad' && setup.badRefused,
+     '2400 µs → '+setup.clsWarn+', 2600 µs → '+setup.clsBad
+     + ' and never written — the channel kept '+setup.badKeptUs+' µs');
   ok('  and the flag clears when the number comes back inside',
      setup.clsClean);
   ok('  the band function agrees at every boundary',

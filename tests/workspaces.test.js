@@ -453,6 +453,261 @@ const REFUSAL = 'this build has no servo board yet — answer the servo question
      && mRate.typed >= parseFloat(mRate.min), JSON.stringify(mRate));
   await ev(()=>wsSet('bench'));
 
+
+  /* ══════════════════════════════════════════════════════════════════════
+     THE STAGE TOOLBAR CANNOT LEAVE THE STAGE
+
+     `#stageTools` was `position:absolute; bottom:10px; right:12px` with no
+     left edge and no width, so its shrink-to-fit box was floored at its
+     MIN-CONTENT width and grew LEFTWARDS out of #stage the moment the nine
+     buttons stopped fitting. Follow / Grid / Reset pose — the only way back
+     when the orbit camera loses the droid, which it does on the first
+     successful drive — went with it: x=-161 at 800×600 with
+     body.scrollWidth === clientWidth === 800, so nothing scrolled them
+     back, and x=856 in the SEQUENCE workspace at the default 1440×900,
+     94px inside the sequencer pane with no resizing at all.
+
+     Every number here is a measured box. A stylesheet read would prove
+     nothing: under file:// a LINKED sheet's cssRules throws, so an
+     assertion on the CSS text passes on the dist and reads nothing at all
+     on dev.html.
+     ══════════════════════════════════════════════════════════════════════ */
+  console.log('\n════ the stage toolbar stays inside the stage, at every size ════');
+  const enterWs = async ws => {
+    await page.evaluate(w=>{
+      if(w === 'seq'){ wsSet('drive'); document.querySelector('#stripmode .smbtn[data-m="seq"]').click(); }
+      else { document.querySelector('#stripmode .smbtn[data-m="pad"]').click(); wsSet('drive'); }
+    }, ws);
+    await page.waitForTimeout(220);
+  };
+  /* the row's geometry against the pane it is supposed to live in */
+  const toolbar = () => ev(()=>{
+    const st = $('stage').getBoundingClientRect();
+    const t  = $('stageTools');
+    const tr = t.getBoundingClientRect();
+    const r  = b => b.getBoundingClientRect();
+    const btns = [...t.children].filter(b => r(b).width > 0);
+    /* reachable = the row can be scrolled to either end and both ends are
+       then inside the stage. A box that merely escapes cannot scroll. */
+    t.scrollLeft = 0;
+    const firstIn = r(btns[0]).left >= st.left - 0.5;
+    t.scrollLeft = t.scrollWidth;
+    const lr = r(btns[btns.length - 1]);
+    const lastIn = lr.right <= st.right + 0.5 && lr.left >= st.left - 0.5;
+    t.scrollLeft = 0;
+    return {
+      stageX: Math.round(st.left), stageW: Math.round(st.width),
+      seqbig: document.body.classList.contains('seqbig'),
+      first: btns[0].id, firstX: Math.round(r(btns[0]).left),
+      maxH: Math.round(Math.max(...btns.map(b=>r(b).height))),
+      escaped: btns.filter(b => r(b).left < st.left - 0.5).map(b => b.id),
+      boxIn: tr.left >= st.left - 1 && tr.right <= st.right + 1,
+      overflowX: getComputedStyle(t).overflowX,
+      firstIn, lastIn,
+      body: [document.body.scrollWidth, document.body.clientWidth]
+    };
+  });
+  const TB = {};
+  for(const ws of ['drive','seq']){
+    await enterWs(ws);
+    for(const [w,h] of [[1440,900],[1024,700],[800,600]]){
+      await page.setViewportSize({width:w, height:h});
+      await page.waitForTimeout(220);
+      const m = await toolbar();
+      TB[ws+' '+w+'×'+h] = m;
+      console.log('      '+(ws+'        ').slice(0,6)+' '+(w+'×'+h+'   ').slice(0,9)
+        +' stage x='+String(m.stageX).padStart(4)+' w='+String(m.stageW).padStart(4)
+        +'   '+m.first+' x='+String(m.firstX).padStart(5)
+        +'   overflow-x='+m.overflowX+'  tallest button '+m.maxH+'px'
+        +'   escaped=['+m.escaped.join(' ')+']');
+      ok('no stage button is drawn outside the stage — '+ws+' '+w+'×'+h,
+         m.escaped.length === 0 && m.boxIn, JSON.stringify(m));
+      ok('…and both ends of the row can be reached, with no button squashed — '+ws+' '+w+'×'+h,
+         m.firstIn && m.lastIn && m.maxH <= 32
+         && (m.overflowX === 'auto' || m.overflowX === 'scroll'), JSON.stringify(m));
+      ok('…without the page itself growing a scrollbar — '+ws+' '+w+'×'+h,
+         m.body[0] === m.body[1], JSON.stringify(m.body));
+    }
+  }
+  await enterWs('drive');
+
+  /* ══════════════════════════════════════════════════════════════════════
+     ONE HEADER AT A TIME
+
+     The Panels / Colours / Scene steps narrow the overlay so the droid is
+     visible beside it — and left the whole APP header exposed and clickable
+     at top right, inches from the overlay's own 📖 MANUAL | DARK | LIGHT |
+     CLOSE, with the DRIVE tab guillotined to "VE" by the overlay's edge.
+     elementFromPoint is the assertion, not opacity: the question is whether
+     a second header can still take the click.
+     ══════════════════════════════════════════════════════════════════════ */
+  console.log('\n════ a setup job that shows the droid does not show two headers ════');
+  await page.setViewportSize({width:1440, height:900});
+  await page.waitForTimeout(150);
+  await ev(()=>{ wsSet('drive'); wizOpen(wizSteps().findIndex(s=>s.key==='_panels')); });
+  await page.waitForTimeout(250);
+  const hdrs = await ev(()=>{
+    const live = ['hdrBezel','viewsel','btnSetup','btnKbd','btnAppMenu'].filter(id=>{
+      const e = $(id); if(!e) return false;
+      const r = e.getBoundingClientRect();
+      if(r.width <= 0 || getComputedStyle(e).visibility === 'hidden') return false;
+      const x = Math.min(r.left + r.width/2, innerWidth - 1), y = r.top + r.height/2;
+      const hit = document.elementFromPoint(x, y);
+      return !!(hit && (hit === e || e.contains(hit)));
+    });
+    /* the DRIVE tab straddles the overlay's edge whatever we do — the app
+       header is as wide as the window. What must not happen is it being
+       PAINTED there, half a word wide, next to a header that is not it. */
+    const ws = document.querySelector('#viewsel .wsbtn[data-ws="drive"]');
+    const wr = ws.getBoundingClientRect(), cr = $('startup').getBoundingClientRect();
+    const shown = getComputedStyle(ws).visibility === 'visible' && wr.width > 0;
+    return {split: document.body.classList.contains('wizsplit'), live, shown,
+            cut: shown && wr.left < cr.right - 0.5 && wr.right > cr.right + 0.5,
+            tab:[Math.round(wr.left), Math.round(wr.right)], overlayRight: Math.round(cr.right)};
+  });
+  console.log('      overlay right edge x='+hdrs.overlayRight+'  DRIVE tab '+JSON.stringify(hdrs.tab)
+            +(hdrs.shown?' PAINTED':' not painted')+'  still clickable: ['+hdrs.live.join(' ')+']');
+  ok('the Panels step really is the split layout', hdrs.split, JSON.stringify(hdrs));
+  ok('no app-header control is left live beside the overlay\'s own header',
+     hdrs.live.length === 0, JSON.stringify(hdrs));
+  ok('…so nothing in it can be guillotined by the overlay\'s edge either',
+     !hdrs.cut, JSON.stringify(hdrs));
+  await ev(()=>closeStartup());
+  await page.waitForTimeout(200);
+  ok('closing the job hands the header back', await ev(()=>{
+    const e = $('btnAppMenu'), r = e.getBoundingClientRect();
+    const hit = document.elementFromPoint(r.left + r.width/2, r.top + r.height/2);
+    return getComputedStyle(e).visibility === 'visible' && !!hit && (hit === e || e.contains(hit));
+  }));
+
+  /* ══════════════════════════════════════════════════════════════════════
+     A SPLITTER MINIMUM HAS TO KEEP THE PANE WORTH HAVING
+
+     Dragged right, the sketch name overhung #side by 27px and read
+     "Padawan360_mega_maestro_DYSV5W_PWM." — a filename that does not
+     exist — with no ellipsis to say so. Dragged up, padH's static max of
+     640 left a 17px stage at 1024×700, the HUD's DOME row hanging over the
+     edge and the orbit hint printed through the toolbar. Dragged down, the
+     pad was a 117×53 thumbnail.
+     ══════════════════════════════════════════════════════════════════════ */
+  console.log('\n════ splitter minimums keep each pane usable ════');
+  await ev(()=>loadProfile('maestro25'));
+  await page.waitForFunction('PROFILE.id==="maestro25"', {timeout:10000});
+  const fw = await ev(()=>{
+    wsSet('drive');
+    document.querySelector('#tabs button[data-p="pHelp"]').click();
+    splitSet('sideW', 1);                                  // slam the handle right
+    const code = [...document.querySelectorAll('#pHelp code')].find(e=>/Padawan360/.test(e.textContent));
+    if(!code) return {missing:true, blurb:($('hwBlurb')||{}).textContent};
+    const was = code.textContent;
+    const read = () => {
+      const cr = code.getBoundingClientRect(), sr = $('side').getBoundingClientRect();
+      return {overhang: Math.round(cr.right - sr.right), clipped: code.scrollWidth > code.clientWidth + 1};
+    };
+    const real = read();
+    /* the longest name the profiles actually ship — no minimum can promise
+       to fit it, so it must END rather than be cut mid-word */
+    code.textContent = 'Padawan360_body_mega_maestro_DY5_audioplayer_BETA.ino';
+    const long = read();
+    code.textContent = was;
+    return {sideW: PREFS.split.sideW, side: $('side').clientWidth, text: was,
+            ellipsis: getComputedStyle(code).textOverflow, real, long};
+  });
+  console.log('      '+(fw.missing?'NO SKETCH LINE — '+JSON.stringify(fw):'')+'sideW at its minimum = '+fw.sideW+'  (#side '+fw.side+'px)  "'+fw.text+'"'
+            + '  overhang '+fw.real.overhang+'px   text-overflow:'+fw.ellipsis
+            + '   52-char name overhang '+fw.long.overhang+'px');
+  ok('dragged right, the sketch name still fits inside the sidebar',
+     !fw.missing && fw.real.overhang <= 0, JSON.stringify(fw));
+  ok('…and a name too long for any minimum ellipsises instead of being cut mid-word',
+     !fw.missing && fw.ellipsis === 'ellipsis' && fw.long.overhang <= 0 && fw.long.clipped, JSON.stringify(fw));
+
+  const pad = await ev(()=>{
+    splitSet('padH', 1);                                   // slam the handle down
+    const s = $('padsvg').getBoundingClientRect();
+    return {padH: PREFS.split.padH, w: Math.round(s.width), h: Math.round(s.height)};
+  });
+  console.log('      padH at its minimum = '+pad.padH+'  → #padsvg '+pad.w+'×'+pad.h);
+  ok('dragged down, the virtual pad is still a pad and not a thumbnail',
+     pad.h >= 120, JSON.stringify(pad));
+
+  await page.setViewportSize({width:1024, height:700});
+  await page.waitForTimeout(200);
+  const up = await ev(()=>{
+    splitSet('padH', 99999);                               // slam the handle up
+    const st = $('stage').getBoundingClientRect();
+    const tl = $('hudTL').getBoundingClientRect();
+    const t  = $('stageTools').getBoundingClientRect();
+    const bl = $('hudBL');
+    const br = bl.getBoundingClientRect();
+    const hintUp = getComputedStyle(bl).display !== 'none' && br.width > 0;
+    return {padH: PREFS.split.padH, stageH: Math.round(st.height),
+            hudIn: tl.bottom <= st.bottom + 0.5,
+            toolsIn: t.top >= st.top - 0.5 && t.bottom <= st.bottom + 0.5,
+            collide: hintUp && !(br.right <= t.left || br.left >= t.right
+                                 || br.bottom <= t.top || br.top >= t.bottom),
+            hint: hintUp ? [Math.round(br.left), Math.round(br.right)] : null,
+            tools: [Math.round(t.left), Math.round(t.right)]};
+  });
+  console.log('      1024×700, padH at its maximum = '+up.padH+'  → stage '+up.stageH+'px tall'
+            + '   hint '+JSON.stringify(up.hint)+'  toolbar '+JSON.stringify(up.tools));
+  ok('dragged up, the stage keeps enough height for its own HUD',
+     up.stageH >= 200 && up.hudIn && up.toolsIn, JSON.stringify(up));
+  ok('…and the orbit hint is never printed through the toolbar',
+     !up.collide, JSON.stringify(up));
+
+  /* the same wreck by the road a user actually takes: drag the strip out on
+     a big screen, then make the window small. --padH is a FIXED row and the
+     stage takes what is left, so a size stored at one window is a promise
+     about a different one. */
+  await page.setViewportSize({width:1440, height:900});
+  await page.waitForTimeout(200);
+  await ev(()=>splitSet('padH', 99999));
+  const stored = await ev(()=>PREFS.split.padH);
+  await page.setViewportSize({width:1024, height:700});
+  await page.waitForTimeout(300);
+  const shrunk = await ev(()=>{
+    const st = $('stage').getBoundingClientRect();
+    return {stored: PREFS.split.padH, applied: getComputedStyle(document.body).getPropertyValue('--padH').trim(),
+            stageH: Math.round(st.height), strip: Math.round($('padwrap').getBoundingClientRect().height)};
+  });
+  console.log('      padH '+stored+' dragged at 1440×900, window then 1024×700 → stage '
+            + shrunk.stageH+'px tall, strip '+shrunk.strip+'px, --padH '+shrunk.applied);
+  ok('a size dragged on a big window is re-fitted when the window shrinks',
+     shrunk.stageH >= 200, JSON.stringify(shrunk));
+  ok('…without throwing the size the user chose away',
+     shrunk.stored === stored, JSON.stringify(shrunk)+' stored was '+stored);
+
+  await page.setViewportSize({width:1500, height:950});
+  await page.waitForTimeout(150);
+  await ev(()=>{ splitReset('sideW'); splitReset('padH'); splitReset('seqW'); });
+
+  /* ══════════════════════════════════════════════════════════════════════
+     THE TEXT-SIZE RANGE IS SYMMETRIC
+
+     A+ went to 150% and A− stopped at 85 — and the smallest size is the one
+     a cramped header is read at. Measured on the COMPUTED zoom, which is
+     what the layout is actually laid out in.
+     ══════════════════════════════════════════════════════════════════════ */
+  console.log('\n════ A− reaches 75% ════');
+  const scale = await ev(()=>{
+    applyUiScale(1.0);
+    for(let i=0;i<14;i++) applyUiScale(PREFS.uiScale - 0.05);   // hold A− down
+    const floor = {pref: PREFS.uiScale, zoom: getComputedStyle(document.body).zoom, lbl: $('uiScaleLbl').textContent};
+    applyUiScale(1.0);
+    for(let i=0;i<14;i++) applyUiScale(PREFS.uiScale + 0.05);   // and A+
+    const ceil = {pref: PREFS.uiScale, zoom: getComputedStyle(document.body).zoom, lbl: $('uiScaleLbl').textContent};
+    applyUiScale(1.0);
+    return {floor, ceil};
+  });
+  console.log('      A− bottoms out at '+scale.floor.lbl+' (zoom '+scale.floor.zoom+')'
+            + '   ·   A+ tops out at '+scale.ceil.lbl+' (zoom '+scale.ceil.zoom+')');
+  ok('A− goes down to 75%, not 85',
+     scale.floor.pref === 0.75 && parseFloat(scale.floor.zoom) === 0.75 && scale.floor.lbl === '75%',
+     JSON.stringify(scale.floor));
+  ok('…and A+ still tops out where it did',
+     scale.ceil.pref === 1.5 && parseFloat(scale.ceil.zoom) === 1.5, JSON.stringify(scale.ceil));
+  await ev(()=>{ wsSet('bench'); const h=$('toasts'); if(h) h.remove(); });
+
   console.log('\n════ no page errors ════');
   ok('nothing threw', errs.length===0, errs.join(' | '));
 

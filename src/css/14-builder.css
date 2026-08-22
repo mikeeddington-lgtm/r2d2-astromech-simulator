@@ -42,8 +42,11 @@
 .mbval{font-family:var(--mono);font-size:10.5px;color:var(--cy);min-width:44px;text-align:center}
 
 /* ---- usage instructions (v1.45.0) -------------------------------------
-   Collapsed by default in the markup, so the parts bin stays above the fold —
-   these rules only have to keep the shut state to one quiet line. */
+   It sits BELOW the parts bin, so the bin stays above the fold — these rules
+   only have to keep the shut state to one quiet line.
+   v1.70.0: cad/ui.js opens it on a first visit (an empty bin), because the
+   sentence that explains the bin header's "0 of 12" lives in here. That is a
+   property on the element, not a rule — the open state is styled already. */
 .mbhelp{margin:2px 0 8px}
 .mbhelp>summary{
   font-family:var(--sans);font-size:10.5px;color:var(--cy);

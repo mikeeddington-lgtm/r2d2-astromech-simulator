@@ -43,15 +43,33 @@ const KBD = { open:false, wrap:null, onKey:null };
 
 /* one column per key family; a key spec is space-separated caps and a
    '+' inside a token renders as a chord (Ctrl+Z) */
+/* THE ARMING FACT (2026-08-22, UX review §1.1). The one thing a first-time
+   user needs before anything else moves was written down in exactly one
+   place — the last three words of a Controls-tab table row — and you had to
+   join it to a SECOND table to find out which key Start was. This card, the
+   place the review says people actually look, had neither, and four
+   walkthroughs stalled for four and a half minutes.
+
+   So it gets both halves, in the column the person is already reading, and
+   in one row rather than two: what the key is AND what holding it does.
+   "Start / Back" was the row that hid it, and it is gone — Back's own line
+   below carries the other half of what it used to say. KBDLEAD says it once
+   more above the columns, because somebody who opened this card is asking
+   "why is nothing happening", not "what is Start bound to". */
+const KBDLEAD = 'The feet boot DISARMED, on purpose — the same as on a real droid. '
+              + 'Hold ↵ (Start) for a moment to arm them; nothing drives until you do, '
+              + 'and the DRIVE chip in the header says which it is.';
+
 const KBD_COLS = [
   {h:'Driving — the pad', rows:[
-    ['Left stick',      'W A S D'],
-    ['Right stick',     'I J K L'],
+    ['Start — HOLD it to arm the feet', '↵'],
+    ['Left stick — drive + turn, once armed', 'W A S D'],
+    ['Right stick — dome, always live', 'I J K L'],
     ['D-pad',           '↑ ↓ ← →'],
     ['LB / RB',         'Q E'],
     ['LT / RT',         'Z C'],
     ['A / B / X / Y',   'Spc B V Y'],
-    ['Start / Back',    '↵ N'],
+    ['Back — automation','N'],
     ['L3 / R3',         'R F'],
     ['Guide',           'G']
   ]},
@@ -101,6 +119,9 @@ function kbdHelpOpen(){
   const wrap = el('div'); wrap.id = 'kbdHelp';
   const card = el('div','kovcard');
   card.appendChild(el('h4',null,'Keyboard shortcuts'));
+  /* plain `hint` — the card's own type, and no new selector, because the
+     stylesheets belong to another agent this stage */
+  card.appendChild(el('div','hint', KBDLEAD));
   const cols = el('div','kovcols');
   KBD_COLS.forEach(c=>{
     const col = el('div','kovcol');

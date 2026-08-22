@@ -23,7 +23,8 @@
        tab. Both read the same LESSONS array.
    ===================================================================== */
 
-const TUTOR = { on:false, i:0, done:{}, since:0, flash:0, seen:{}, base:null, t0:0, modelWarned:false };
+const TUTOR = { on:false, i:0, done:{}, since:0, flash:0, seen:{}, base:null, t0:0,
+                modelWarned:false, tipped:false };
 
 /* Some state is already true the moment you start — the sketch plays its
    boot sound on connect, so "make some noise" would tick before the user
@@ -46,9 +47,14 @@ function tzAnyDoor(){ return ['doorL','doorR','doorRL','doorRR'].some(k=>ACT[k] 
 function tzSeqRunning(){ return Object.keys(MAESTRO.slot).some(k=>MAESTRO.slot[k]); }
 
 const LESSONS = [
+  /* "Press START" was true and useless: START is the pad's name for the ↵
+     key, which this lesson never said, and a quick tap can fall entirely
+     between two pollInput() calls and produce no button edge at all — so
+     the one instruction a first-time user follows first could fail
+     silently. Say HOLD, and name the key. (2026-08-22, UX review §1.1) */
   { id:'arm', title:'Wake the feet up',
-    how:'Press <b>START</b>. Nothing drives until you do — that is deliberate, and it is the same on the real droid.',
-    why:'Both firmware families boot disarmed. If the feet ever move before you press START, something is wrong with your build.',
+    how:'<b>Hold START</b> — the <b>↵</b> key — for a moment. Nothing drives until you do: that is deliberate, and it is the same on the real droid.',
+    why:'Both firmware families boot disarmed. A tap can be missed, because the sketch only sees the button between one loop and the next — hold it. If the feet ever move before you arm them, something is wrong with your build.',
     done:()=>FW.isDriveEnabled && !TUTOR.base.armed },
 
   { id:'drive', title:'Drive forward and back',
@@ -123,7 +129,9 @@ function tutorList(){
 function tutorLoad(){ TUTOR.done = PREFS.tutor || (PREFS.tutor = {}); }
 function tutorSave(){ PREFS.tutor = TUTOR.done; prefsSave(); }
 function tutorReset(){
-  TUTOR.done = {}; TUTOR.seen = {}; TUTOR.i = 0;
+  /* tipped goes with the progress: somebody who has reset their badges is a
+     first-run user again, and the arming tip is theirs to be shown once more */
+  TUTOR.done = {}; TUTOR.seen = {}; TUTOR.i = 0; TUTOR.tipped = false;
   if(TUTOR.on) tutorBaseline();
   tutorSave(); buildTutor(); tutorHud();
   lg('sys','lessons reset');
@@ -156,6 +164,43 @@ function setTutor(on){
   }else{
     TUTOR.modelWarned = false;
   }
+  buildTutor(); tutorHud();
+}
+
+/* THE TEACHABLE MOMENT (2026-08-22, UX review §1.1). Mike, on the fix for
+   "pushing the stick while disarmed says nothing": *"Prompt the user if
+   they try to use the Controller to press start — a great lesson tip."*
+
+   input/pad-ui.js's driveHintCheck() puts one line over the stage the
+   instant a drive input arrives on disarmed feet. That announces. This
+   TEACHES, and it does it through the lessons that already exist rather
+   than a second mechanism: the attempt is exactly when lesson 1 makes
+   sense, so the lessons come on standing at lesson 1, with its own why
+   ("both firmware families boot disarmed") on the stage card. Pressing
+   START then ticks it off through the ordinary done() check — nothing here
+   watches the button, same as every other lesson.
+
+   Who gets it, and how often:
+     · ONCE a session (TUTOR.tipped), because the toast beside it already
+       repeats on its own schedule and two of anything is nagging.
+     · only on a TRUE first run — nobody who has ever completed a lesson
+       has the lessons switched on underneath them. TUTOR.done is loaded
+       from PREFS, so this survives a reload the way the badges do.
+     · if the lessons are ALREADY on, it only walks the card to the arming
+       lesson: they asked for this, so do not re-announce it, just answer
+       the question they are standing in front of. */
+function tutorArmTip(){
+  if(TUTOR.tipped) return;
+  TUTOR.tipped = true;
+  const L = tutorList();
+  const i = L.findIndex(l=>l.id === 'arm');
+  if(i < 0) return;                       // no arming lesson on this profile
+  if(!TUTOR.on){
+    if(Object.keys(TUTOR.done).length) return;   // not a first run — leave them alone
+    setTutor(true);
+  }
+  TUTOR.i = i;
+  TUTOR.flash = 1.6;
   buildTutor(); tutorHud();
 }
 
@@ -207,16 +252,30 @@ function tutorHud(){
 function buildTutor(){
   const host = $('tutorHost'); if(!host) return;
   host.innerHTML = '';
+  const L = tutorList(), p = tutorProgress();
   /* v1.57.0 — the whole thing IS written down, and this is the tab somebody
      opens once they have decided they need help. It goes above the lessons
-     rather than below them: thirteen lessons teach you to drive, the manual
-     covers the other twenty chapters. app/manual.js owns the URL. */
+     rather than below them. app/manual.js owns the URL.
+
+     THE NUMBERS COME OFF THE LIST (2026-08-22, UX review). This one screen
+     used to carry four counts for two things: "the thirteen lessons below",
+     the section's own "N of M" beside it, the stage card's "N/M", and
+     "21 chapters" — and 13 + 20 is not 21. LESSONS has thirteen ENTRIES but
+     tutorList() filters by profile, so what is actually below this line is
+     eleven on mod2026 and twelve on either Maestro sketch; the literal was
+     never right on any of them. p.total is that list's own length, which is
+     what the other two counts already used.
+
+     The chapter count is NOT restated here either. manualCard() puts
+     "21 chapters · 8 clips" in its own section header two lines below, from
+     app/manual.js, which owns that document — a second number here could
+     only ever be a copy waiting to go stale, which is precisely what "the
+     other twenty chapters" was. */
   if(typeof manualCard === 'function')
     manualCard(host, {id:'btnManualLearn', note:false,
-      blurb:'The thirteen lessons below teach you to <b>drive</b> it. The manual is the other twenty chapters — '
+      blurb:'The ' + p.total + ' lessons below teach you to <b>drive</b> it. The manual is the rest of the story — '
           + 'the setup questions, <b>a rack of servos</b> to try a sequence on, finding your servo end stops, '
           + 'bricks, live drive, and what to do when nothing moves.'});
-  const L = tutorList(), p = tutorProgress();
 
   const s = sect(host, 'Lessons', p.done+' of '+p.total);
   const bar = el('div','conbar');

@@ -145,10 +145,43 @@ function blkSnap(ms){ return Math.round(ms/50)*50; }
 function blkSnapThreshold(){ return 12 / BLK.pxms; }
 function blkTotal(seq){ return Math.max(4000, blockEnd(seq) + 2000); }
 
+/* ------------------------------------------------- ONE WORD, ONE NUMBER
+   (2026-08-22, cold-start walkthrough)
+
+   "1 bricks" and "1 frames" appeared wherever a count was pasted next to a
+   hard-coded plural, which was everywhere: the header, the library chip
+   tooltips, the description card. blkPlural() is the one place that decides,
+   and it is deliberately dumb — every word this pane counts takes a bare 's'.
+
+   The LENGTH was worse, because the two readouts did not merely look
+   different, they disagreed. The header printed seqTotal() (the sum of the
+   COMPILED frames) and the inspector's summary printed blockEnd() (the end
+   of the last brick on the timeline), forty pixels apart. Those are two
+   different truths the moment a routine holds an unwired brick: the compiler
+   skips it BY NAME (blockEndCompiled, blocks.js) while the timeline still has
+   to draw it, so a two-brick routine read "1.0s" in one place and "3.0s" in
+   the other. The one this desk is about is the EDITING length — what the ruler
+   spans and what a drag can reach — so blockEnd() wins for a routine, and a
+   hand-made frame list, which has no bricks at all, keeps seqTotal(). */
+function blkPlural(n, word){ return n + ' ' + word + (n === 1 ? '' : 's'); }
+function blkLengthMs(seq){
+  if(!seq) return 0;
+  return blockIsRoutine(seq) ? blockEnd(seq) : (typeof seqTotal === 'function' ? seqTotal(seq) : 0);
+}
+
 /* ============================================================= the pane */
 function buildBlocks(){
   const host = $('seqblocks'); if(!host) return;
   blkUndoRedoSync();          // before the early returns — the buttons live in #seqtop
+  /* WHERE THE TIMELINE WAS LOOKING (2026-08-22). This function replaces the
+     whole pane, so both scrollers come back at 0,0 and blkScrollToSel() then
+     re-centred on the selected brick. Committing a drag ends in exactly this
+     rebuild, so the brick you had just moved was put back under the pointer
+     and the timeline slid beneath it: the brick appeared not to have moved
+     while the inspector said 2.40 s → 1.95 s, and the only way to know the
+     edit had worked was to read the number. The view is not part of the edit,
+     so it is carried across the rebuild instead. */
+  const keep = blkScrollKeep(host);
   host.innerHTML = '';
   const seq = blkSeq();
   blkConvCheckSeq(seq);       // a pending conversion belongs to ONE routine (v1.49.0)
@@ -163,7 +196,7 @@ function buildBlocks(){
   }
   if(seq && !blockIsRoutine(seq)){
     const n = el('div','note');
-    n.innerHTML = '<b>“'+xmlEsc(seq.name)+'” is a hand-made frame list</b> ('+seq.frames.length+' frames) — '
+    n.innerHTML = '<b>“'+xmlEsc(seq.name)+'” is a hand-made frame list</b> ('+blkPlural(seq.frames.length,'frame')+') — '
       + 'a Pololu file carries poses and nothing else, so there are no bricks in it to read. '
       + 'You can keep editing it under <b>Frames</b>, work out the bricks behind it, or start again from empty.';
     const bar = el('div','conbar');
@@ -197,8 +230,28 @@ function buildBlocks(){
   blkUnwiredBanner(host, seq);
   host.appendChild(blkActionLib(seq));
   blkInspectorRender(seq);
+  blkScrollRestore(host, keep);
   blkScrollToSel();
+  blkLibMoreSync();
   blkPlayheadPlace();
+}
+
+/* the two scrollers this pane owns, read and written by position only —
+   nothing here knows what is in them */
+function blkScrollKeep(host){
+  const o = {};
+  ['.tlouter', '.blklib'].forEach(sel=>{
+    const n = host.querySelector(sel);
+    if(n) o[sel] = {x:n.scrollLeft, y:n.scrollTop};
+  });
+  return o;
+}
+function blkScrollRestore(host, keep){
+  if(!keep) return;
+  Object.keys(keep).forEach(sel=>{
+    const n = host.querySelector(sel);
+    if(n){ n.scrollLeft = keep[sel].x; n.scrollTop = keep[sel].y; }
+  });
 }
 
 /* ---------------------------------------------------------- the toolbar
@@ -220,10 +273,24 @@ function blkToolbar(){
     return w;
   };
 
-  bar.appendChild(slider('Timeline', 0.03, 0.6, 0.005, BLK.pxms,
+  const zoom = slider('Timeline', 0.03, 0.6, 0.005, BLK.pxms,
     'stretch or squeeze the timeline — this is a view setting, no timing changes',
     v=>(v/0.14).toFixed(1)+'×',
-    v=>{ BLK.pxms = v; blkZoomApply(); }));
+    v=>{ BLK.pxms = v; blkZoomApply(); });
+  /* FIT TAKES THE WIDTH THE SLIDER GIVES UP (2026-08-22). The two controls do
+     the same job — Fit is the one value of this slider that puts the whole
+     routine on screen — so they share the space the slider had, and the
+     toolbar keeps the same number of wrapped rows it always had. It matters:
+     .blktools is flex-wrap, .tlouter takes what is left, and an extra toolbar
+     row comes straight out of the lane area that fix 4 is about. */
+  const zi = zoom.querySelector('input');
+  if(zi) zi.style.width = '76px';
+  const fit = el('button','b','Fit');
+  fit.id = 'sqFit';
+  fit.title = 'set the scale so the whole sequence fits the track at once — a view setting, no timing changes';
+  fit.addEventListener('click', ()=>blkFitToContent());
+  zoom.appendChild(fit);
+  bar.appendChild(zoom);
 
   bar.appendChild(slider('Droid', 0.3, 3.0, 0.02, BLK.cam,
     'how close the view sits — click a brick first and it zooms to that part',
@@ -249,7 +316,7 @@ function blkToolbar(){
     };
     sp.appendChild(mk('− Slower', 1.25, 'stretch the sequence by a quarter'));
     sp.appendChild(mk('+ Faster', 0.8,  'tighten the sequence by a fifth — the imported servo speeds still set the floor'));
-    sp.appendChild(el('span','blktoolv', (blockEnd(seq0)/1000).toFixed(1)+'s'));
+    sp.appendChild(el('span','blktoolv', (blkLengthMs(seq0)/1000).toFixed(1)+'s'));
     bar.appendChild(sp);
   }
 
@@ -343,17 +410,46 @@ function blkZoomApply(){
     const f = d.querySelector('.blkfall'); if(f) f.style.width = blkX(er.fall)+'px';
   });
   blkPlayheadPlace();
-  blkScrollToSel();
+  blkScrollToSel(true);       // a zoom is exactly the case that wants re-centring
 }
-/* keep the selected brick in the middle of the view as the scale changes */
-function blkScrollToSel(){
+
+/* ------------------------------------------------------------- FIT
+   (2026-08-22, cold-start walkthrough) A brick stretched to 3.95 s ran off
+   the right-hand edge of a 541 px track and there was nothing on screen that
+   said so: the scroller has no arrows, and at 0.14 px/ms the routine simply
+   ended somewhere out of sight. The Timeline slider could always have found
+   the scale by hand — this is the same slider, told the one value that makes
+   the whole routine visible at once, which is the value somebody dragging it
+   is hunting for. A VIEW setting, like the slider: blkX/blkMs are the only
+   readers of BLK.pxms and no timing is touched. */
+function blkFitToContent(){
+  const seq = blkSeq(); if(!seq) return 0;
+  const sc = document.querySelector('#seqblocks .tlouter'); if(!sc) return 0;
+  const room = sc.clientWidth - 118 - 6;      // the sticky lane column, and a hair
+  const total = blkTotal(seq);
+  if(room <= 0 || !total) return 0;
+  BLK.pxms = Math.max(0.03, Math.min(0.6, room/total));
+  buildSequencer();                            // the slider has to show what it now is
+  const sc2 = document.querySelector('#seqblocks .tlouter');
+  if(sc2) sc2.scrollLeft = 0;
+  return BLK.pxms;
+}
+/* keep the selected brick in the middle of the view as the scale changes.
+   FORCE is what a zoom wants — the brick stays centred while the ruler
+   stretches around it. A plain rebuild does NOT: re-centring after every
+   edit is what made a moved brick look stationary (see blkScrollKeep), so
+   without force this only scrolls when the brick is not on screen at all,
+   which is the case a rebuild genuinely has to answer — undo restoring a
+   brick off to the right, or "jump to this issue". */
+function blkScrollToSel(force){
   const host = $('seqblocks'); if(!host) return;
   const seq = blkSeq();
   const b = (seq && BLK.sel) ? blockFind(seq, BLK.sel) : null;
   if(!b) return;
-  const x = blkX(b.t0 + b.dur/2);
+  const x0 = blkX(b.t0), x1 = blkX(b.t0 + b.dur);
   host.querySelectorAll('.blkscroll').forEach(sc=>{
-    sc.scrollLeft = Math.max(0, x - sc.clientWidth/2);
+    if(!force && x0 >= sc.scrollLeft && x1 <= sc.scrollLeft + sc.clientWidth) return;
+    sc.scrollLeft = Math.max(0, (x0 + x1)/2 - sc.clientWidth/2);
   });
 }
 /* point the camera at the part the selected brick moves — "Zoom to this
@@ -384,6 +480,19 @@ function blkTimeline(seq){
   const inner = el('div','tlinner');
   const lanes = blockLanes(seq);
   const total = blkTotal(seq);
+
+  /* THE LANE AREA GROWS WITH THE LANES (2026-08-22). .tlouter takes the
+     spare height as a flex item (F8, 09-sequencer.css) with a flat 140 px
+     floor, which was fine while a routine had two or three lanes and wrong
+     the moment it had seven: a Mexican Wave showed 4 of its 6 parts and the
+     rest were behind a scroll nobody had been told about. The floor is the
+     routine's own size now — one row per lane plus the ruler — and it is
+     CAPPED, because a twenty-lane routine that pushed the parts library and
+     the sequence library off the bottom of the screen would trade this
+     problem for the one fix 1 is about. Past the cap .tlouter scrolls as it
+     always did. Written as a property so the fallback stays in the
+     stylesheet with the rest of the layout. */
+  outer.style.setProperty('--tlmin', Math.min(lanes.length * (BLK.laneH + 1) + 30, 460)+'px');
 
   /* ruler — time ticks plus the beat grid when music is loaded.
      The corner cell IS the snap picker (Mike, 2026-08-18: "there should be
@@ -642,7 +751,20 @@ function blkActionLib(seq){
   const host = el('div','blklib');
   const head = el('div','blklibhead');
   head.appendChild(el('b',null,'Parts'));
-  head.appendChild(el('span','blklibhint','drag one onto the timeline · then stretch its edges · each part has its own colour'));
+  /* THE GESTURE THAT ALWAYS WORKS IS NAMED FIRST (2026-08-22)
+     This caption said "drag one onto the timeline" and nothing else, and a
+     builder's two careful drags produced nothing at all — blkChipDrag needs
+     5 px of movement before it arms a ghost, and a slow, deliberate press
+     that lands back near where it started reads as a click. The click path
+     has always worked and always appended a brick at the end; it was simply
+     never mentioned, so the reliable gesture was the undocumented one and
+     the documented one was the fragile one. Both are named now, cheapest
+     first — and the chips carry the same sentence in their tooltip and a
+     hover tail (09-sequencer.css) saying where a plain click will land, so
+     that clicking a chip to find out what "Panel13" IS cannot be a silent
+     edit somebody has to notice and undo. */
+  head.appendChild(el('span','blklibhint',
+    'click a part to add it at the end, or drag it where you want it · then stretch its edges'));
   host.appendChild(head);
 
   const row = el('div','blkchips');
@@ -669,7 +791,7 @@ function blkActionLib(seq){
     const c = el('div','blkchip pc', a.label);
     c.style.setProperty('--pc', blkColor(a.act));
     c.title = a.act+' · '+a.sub+'\nthis colour is this part, everywhere in the sequencer'
-            + '\ndrag me onto the timeline';
+            + '\nclick me to add a brick at the end, or drag me onto the timeline where you want it';
     c.dataset.act = a.act;
     chipDrop(c, a.act, a.label);
     row.appendChild(c);
@@ -705,8 +827,9 @@ function blkActionLib(seq){
   off.forEach(m=>{
     const c = el('div','blkchip off unconf', m.label);
     c.dataset.act = m.act;
-    c.title = m.label + ' has no servo channel yet — drag it in anyway and the brick stays grey '
-            + 'until you map it; it moves the model in previews but compiles to nothing until then.'
+    c.title = m.label + ' has no servo channel yet — click it to add a brick at the end, or drag it '
+            + 'where you want it, and the brick stays grey until you map it; it moves the model in '
+            + 'previews but compiles to nothing until then.'
             + (m.lit ? '\nprinted droid lists this one as ' + m.lit + ' rather than a servo; plenty of builds differ.' : '')
             + (m.cad ? '\nCAD: ' + m.cad : '');
     chipDrop(c, m.act, m.label);
@@ -751,7 +874,67 @@ function blkActionLib(seq){
     });
     host.appendChild(row2);
   }
+  blkLibMore(host, groups.length);
   return host;
+}
+
+/* ===================================================== THE CLIPPED EDGE
+   (2026-08-22, cold-start walkthrough)
+
+   At 1440×900 this panel is 200 px tall against 325 px of content, and what
+   it clipped was the middle of a sentence — the top halves of the letters of
+   the line about panels with no servo channel. A half-line of type reads as
+   the BOTTOM OF THE PANEL, not as "there is more below", so the whole
+   READY-MADE row underneath it — the group picker and six shape buttons, one
+   click of which builds an entire seven-brick dome wave — was invisible. It
+   took the builder twenty-five minutes to find the one control that does the
+   thing they had come to do.
+
+   NOT A REORDER. Whether READY-MADE belongs above the part chips is a layout
+   decision the owner has not made, and moving it would answer a different
+   question than the one asked. What is wrong here is only that the clip is
+   silent, so the clip is what changes: the panel now says it is a scroller
+   (scrollbar-color, 09-sequencer.css), fades out under a sticky bar rather
+   than stopping at a hard edge, and the bar NAMES what is below and takes you
+   there. It fades out again once you are at the bottom, because a bar that
+   claims there is more when there is not is the same lie in the other
+   direction.
+
+   It stays IN FLOW when it is not showing (opacity, never display) — a
+   sticky footer that appears and disappears from layout changes scrollHeight,
+   which is the very number blkLibMoreSync() measures, and that oscillates. */
+function blkLibMore(host, hasReadyMade){
+  const more = el('div','blkmore');
+  more.id = 'sqLibMore';
+  const b = el('button','b', hasReadyMade
+    ? '▾ more below — READY-MADE builds a whole figure in one click'
+    : '▾ more below');
+  b.title = 'scroll the rest of this panel into view';
+  b.addEventListener('click',()=>{
+    const lib = document.querySelector('#seqblocks .blklib'); if(!lib) return;
+    const rm = Array.from(lib.querySelectorAll('.blklibhead'))
+                    .find(h=>/Ready-made/i.test(h.textContent));
+    lib.scrollTop = rm
+      ? lib.scrollTop + (rm.getBoundingClientRect().top - lib.getBoundingClientRect().top)
+      : lib.scrollHeight;
+    blkLibMoreSync();
+  });
+  const skin = el('i');            // the bar hangs off a zero-height sticky box
+  skin.appendChild(b);
+  more.appendChild(skin);
+  host.appendChild(more);
+}
+/* is there anything still below the fold? Cheap enough to run on every
+   rebuild and on every scroll — three layout reads and a class toggle. */
+function blkLibMoreSync(){
+  const lib = document.querySelector('#seqblocks .blklib');
+  const more = lib && lib.querySelector('.blkmore');
+  if(!more) return;
+  if(!lib._blkMoreBound){
+    lib._blkMoreBound = true;
+    lib.addEventListener('scroll', blkLibMoreSync, {passive:true});
+  }
+  more.classList.toggle('on', lib.scrollHeight - lib.clientHeight - lib.scrollTop > 4);
 }
 
 /* ------------------------------------------------- the unwired warning
@@ -1145,7 +1328,7 @@ function blkInspector(seq){
         r.appendChild(el('span','blkval', val));
         host.appendChild(r);
       };
-      fact('Length', (blockEnd(seq)/1000).toFixed(1)+'s');
+      fact('Length', (blkLengthMs(seq)/1000).toFixed(1)+'s');   // the same number the header prints
       fact('Bricks', String(bricks.length));
 
       /* the parts it moves, wearing the same colours as their lanes */
@@ -1591,6 +1774,14 @@ function buildSeqLib(){
   top.appendChild(el('b',null,'Sequence library'));
   const search = document.createElement('input');
   search.type='search'; search.className='libsearch'; search.placeholder='search sequences…';
+  /* THE FILTER IS THIS SITTING'S, NOT THIS BUILD'S (2026-08-22). BLK.libq is
+     deliberately in-memory — nothing in this file writes it to PREFS or the
+     servo store — but a text field the app never names is one the BROWSER
+     will happily hand back on the next load from its own form restoration,
+     and a restored filter is indistinguishable from a library that has lost
+     nineteen sequences. autocomplete=off is the only thing that closes that
+     door, and it belongs next to the value assignment it protects. */
+  search.setAttribute('autocomplete','off');
   search.value = BLK.libq;
   search.addEventListener('input',()=>{
     BLK.libq = search.value;
@@ -1602,6 +1793,15 @@ function buildSeqLib(){
     }
   });
   top.appendChild(search);
+  /* …and while it IS filtering, the way out is beside the box rather than
+     "select the text and delete it", which is the gesture somebody who has
+     not noticed they are filtering will never think to make. */
+  if(BLK.libq.trim()){
+    const bClr = el('button','b libclear','clear filter');
+    bClr.title = 'show the whole library again';
+    bClr.addEventListener('click',()=>{ BLK.libq = ''; buildSeqLib(); });
+    top.appendChild(bClr);
+  }
   top.appendChild(el('span','blklibhint','click for details · drag onto the timeline'));
 
   const bNew = el('button','b','＋ New sequence');
@@ -1684,6 +1884,14 @@ function buildSeqLib(){
 
   const q = BLK.libq.trim().toLowerCase();
   const groups = {};   // name -> [{s, i}]
+  /* A FILTERED COUNT IS NOT A COUNT (2026-08-22). The heading printed the
+     number of chips it was about to draw — "MY SEQUENCES (2)" after typing
+     "Convention" over a library of twenty-one — which is true of the list and
+     false of the library, and reads as nineteen routines lost. The group's
+     real size is counted first, unfiltered, so the heading can say what the
+     number is a count OF. */
+  const total = {};
+  MSTR.sequences.forEach(s=>{ const g = blkLibGroupOf(s); total[g] = (total[g]||0) + 1; });
   MSTR.sequences.forEach((s,i)=>{
     if(q && s.name.toLowerCase().indexOf(q) < 0) return;
     const g = blkLibGroupOf(s);
@@ -1695,12 +1903,13 @@ function buildSeqLib(){
   }
   names.forEach(gname=>{
     const grp = el('div','libgrp');
-    if(names.length > 1 || q) grp.appendChild(el('div','libgrph', gname+'  ('+groups[gname].length+')'));
+    if(names.length > 1 || q) grp.appendChild(el('div','libgrph', gname + '  ('
+      + (q ? groups[gname].length + ' of ' + total[gname] : groups[gname].length) + ')'));
     const row = el('div','blkchips');
     groups[gname].forEach(({s,i})=>{
       const onBoard = (typeof loadoutIndex === 'function') ? loadoutIndex(s.name) : i;
       const c = el('div','blkchip seq'+(i===EDIT.seq?' act':'')+(onBoard<0?' off':''), s.name);
-      c.title = s.frames.length+' frames · '+seqTotal(s)+' ms'+(blockIsRoutine(s)?'  (built from bricks)':'')
+      c.title = blkPlural(s.frames.length,'frame')+' · '+seqTotal(s)+' ms'+(blockIsRoutine(s)?'  (built from bricks)':'')
         + (onBoard>=0 ? '\non the board as subroutine '+onBoard
                       : '\nnot on the board — Build your Maestro puts it there')
         + '\nclick for details, drag onto the timeline to explode it into bricks';
@@ -1759,8 +1968,8 @@ function blkLibPreview(i, anchor){
   card.appendChild(el('h5',null,s.name));
   const onBoard = (typeof loadoutIndex === 'function') ? loadoutIndex(s.name) : -1;
   card.appendChild(el('div','meta',
-    s.frames.length+' frames · '+(seqTotal(s)/1000).toFixed(1)+'s'
-    + (blockIsRoutine(s) ? ' · '+blockList(s).length+' bricks' : ' · hand-made frames')
+    blkPlural(s.frames.length,'frame')+' · '+(blkLengthMs(s)/1000).toFixed(1)+'s'
+    + (blockIsRoutine(s) ? ' · '+blkPlural(blockList(s).length,'brick') : ' · hand-made frames')
     + (onBoard>=0 ? ' · on the board as sub '+onBoard : ' · not on the board')));
 
   /* which parts it moves, with their colours */
@@ -1823,6 +2032,26 @@ function blkLibPreview(i, anchor){
   bar.appendChild(bOpen); bar.appendChild(bPrev); bar.appendChild(bIns); bar.appendChild(bInsOne);
   card.appendChild(bar);
 
+  /* THE LIBRARY WAS WRITE-ONLY (2026-08-22). Every ＋ New sequence committed a
+     permanent entry, empty ones included, and this card — the only place a
+     sequence describes itself — offered Open, Preview, Insert, Insert as one
+     brick and a group field. There was nothing here that could take one back
+     out, so one walkthrough finished holding twenty-one routines, among them
+     Sequence 9, Sequence 10 and Sequence 21, and the only door out was the
+     Maestro pane, which acts on whichever sequence happens to be open rather
+     than on the one you are looking at. The two verbs go where the naming
+     already is. WHEN a new sequence is committed is untouched — whether an
+     empty one should exist at all is the owner's call and has not been made. */
+  const bar2 = el('div','conbar');
+  const bRen = el('button','b','Rename…');
+  bRen.title = 'give this sequence another name — the board slot and any brick that plays it follow along';
+  bRen.addEventListener('click',()=>blkLibRename(i));
+  const bDel = el('button','b danger','Delete');
+  bDel.title = 'take this sequence out of your library — asks first, and there is no undo behind it';
+  bDel.addEventListener('click',()=>blkLibDelete(i));
+  bar2.appendChild(bRen); bar2.appendChild(bDel);
+  card.appendChild(bar2);
+
   const catRow = el('div','catrow');
   catRow.appendChild(el('span',null,'group'));
   const cat = document.createElement('input');
@@ -1842,4 +2071,122 @@ function blkLibPreview(i, anchor){
   card.style.left = Math.min(r.left, window.innerWidth - 264)+'px';
   card.style.top  = Math.max(8, r.top - card.offsetHeight - 6)+'px';
   setTimeout(()=>window.addEventListener('pointerdown', blkLibPreviewAway, true), 0);
+}
+
+/* ============================ RENAME AND DELETE, FROM THE CARD (2026-08-22)
+
+   Both of these already exist in the Maestro pane's sequence list, and both
+   of them there act on MSTR.sequences[EDIT.seq] — the sequence that happens
+   to be OPEN, not the one you are pointing at. From the sequencer that is the
+   wrong target: you are looking at a description card for "Sequence 14" while
+   editing something else entirely. So these take an index, and everything
+   else they need they CALL rather than copy.
+
+   In particular they call paneSeqRefs() (ui-pane.js), which v1.70.0 wrote to
+   answer exactly the question these two have to ask — which whole-sequence
+   bricks, in which routines, name this sequence. A second scanner here would
+   be a second thing to keep true; typeof-guarded like every other
+   cross-module call in this file, so a build without the pane degrades to
+   "no warning" rather than to a thrown error. */
+function blkLibRefs(name){
+  return (typeof paneSeqRefs === 'function') ? paneSeqRefs(name) : [];
+}
+async function blkLibRename(i){
+  const s = MSTR.sequences[i]; if(!s) return false;
+  const v = (typeof appPrompt === 'function')
+    ? await appPrompt('Sequence name (becomes the sub name):',
+        {title:'Rename “'+s.name+'”', value:s.name, yes:'Rename'})
+    : null;
+  if(v === null || v === undefined) return false;          // cancel keeps the old name
+  const n = String(v).trim();
+  if(!n || n === s.name) return false;
+  /* A NAME IS AN ADDRESS (seqUniqueName, blocks.js): two sequences sharing one
+     makes the second unreachable from the board while a slot fires the first.
+     Renaming ONTO a name in use is refused rather than silently uniquified —
+     the person typing it meant that name, and they should be told it is taken
+     rather than handed "Wave 2" they did not ask for. */
+  if(MSTR.sequences.some(x=>x !== s && x.name === n)){
+    if(typeof toast === 'function')
+      toast('Not renamed — “'+n+'” already belongs to another sequence. A name is how the board finds it, so two cannot share one.','warn');
+    return false;
+  }
+  const was = s.name;
+  if(typeof loadoutRename === 'function') loadoutRename(was, n);
+  s.name = n;
+  /* the same re-pointing the pane's Rename does, for the same reason: a brick
+     holding the old string finds nothing on its next compile and plays silence */
+  const hits = blkLibRefs(was);
+  hits.forEach(h=>{ h.b.ref = n; });
+  const held = [];
+  hits.forEach(h=>{ if(held.indexOf(h.seq) < 0) held.push(h.seq); });
+  if(typeof blockSync === 'function') held.forEach(x=>blockSync(x));
+  if(typeof reindexSubs === 'function') reindexSubs();
+  blkLibPreviewClose();
+  lg('mae','renamed “'+was+'” → “'+n+'”'
+    + (hits.length ? ' — '+blkPlural(hits.length,'brick')+' in '+blkPlural(held.length,'other routine')
+                     +' re-pointed and recompiled: '+held.map(x=>x.name).join(', ') : ''));
+  buildSequencer();
+  if(typeof buildMaestroPane === 'function') buildMaestroPane();
+  return true;
+}
+async function blkLibDelete(i){
+  const s = MSTR.sequences[i]; if(!s) return false;
+  /* the same floor the pane keeps: the library is never empty, because
+     EDIT.seq is a position in it and there would be nothing to open */
+  if(MSTR.sequences.length <= 1){
+    if(typeof toast === 'function')
+      toast('“'+s.name+'” is the only sequence you have — 🗑 Clear all empties it without taking it away.','warn');
+    return false;
+  }
+  /* WHAT ELSE PLAYS IT. A rename can be followed through; a deletion cannot,
+     because there is no name left to point at (v1.69.1, ui-pane.js). */
+  const hits = blkLibRefs(s.name);
+  const held = [];
+  hits.forEach(h=>{ if(h.seq !== s && held.indexOf(h.seq.name) < 0) held.push(h.seq.name); });
+  const slot = (typeof loadoutIndex === 'function') ? loadoutIndex(s.name) : -1;
+  const what = blockIsRoutine(s) ? blkPlural(blockList(s).length,'brick')
+                                 : blkPlural(s.frames.length,'frame');
+  /* CLEAR EVERY BRICK? is the shape: name the count, name the target, say what
+     survives, and label the buttons with the verbs rather than Yes/No. */
+  const msg =
+      'This takes “' + s.name + '” — ' + what + ', ' + (blkLengthMs(s)/1000).toFixed(1) + 's — '
+    + 'out of your library, and there is no undo behind it.\n\n'
+    + (held.length
+        ? blkPlural(hits.length,'brick') + ' in ' + blkPlural(held.length,'other routine') + ' — '
+          + held.join(', ') + ' — play' + (hits.length===1?'s':'') + ' it. Those bricks stay on their '
+          + 'timelines, keeping their length and their labels, and compile to a held pose instead of '
+          + 'the moves they play now. Rename it instead and they follow it.\n\n'
+        : '')
+    + (slot >= 0 ? 'It is on the board as sub ' + slot + '; that slot is given up, and ⚙ '
+                   + ((typeof bldTitle === 'function') ? bldTitle() : 'Build your Maestro')
+                   + ' fills it with whatever you put there next.\n\n' : '')
+    + 'The other ' + blkPlural(MSTR.sequences.length - 1, 'sequence') + ' in your library are '
+    + 'untouched, and so is the routine you have open on the timeline'
+    + (i === EDIT.seq ? ' — which is this one, so the library opens the sequence before it instead.' : '.');
+  const yes = (typeof appConfirm === 'function')
+    ? await appConfirm(msg, {title:'Delete “'+s.name+'”?', yes:'Delete it', no:'Keep it', danger:true})
+    : true;
+  if(!yes) return false;
+
+  /* a review pending on the sequence being deleted has nothing left to be a
+     review OF — drop it before the splice, while its copy is still findable */
+  if(BLK.conv && BLK.conv.seq === s){ const c = BLK.conv; BLK.conv = null; blkConvDropKept(c); }
+  if(typeof loadoutDrop === 'function') loadoutDrop(s.name);
+  const at = MSTR.sequences.indexOf(s);
+  MSTR.sequences.splice(at, 1);
+  /* EDIT.seq is a POSITION in that array, so it moves with the splice — and if
+     what went was the sequence open on the timeline, the desk lands on its
+     neighbour rather than on whatever slid into the hole. */
+  if(EDIT.seq === at){ EDIT.seq = Math.max(0, at - 1); EDIT.frame = -1; BLK.sel = null; blkSelClear(); }
+  else if(EDIT.seq > at) EDIT.seq--;
+  if(typeof reindexSubs === 'function') reindexSubs();
+  blkLibPreviewClose();
+  lg('mae','deleted “'+s.name+'” from the library'
+    + (held.length ? ' — '+blkPlural(hits.length,'brick')+' in '+held.join(', ')
+                     +' now name a sequence that is not there and compile to a held pose' : ''));
+  if(held.length && typeof toast === 'function')
+    toast('Deleted “'+s.name+'” — '+blkPlural(hits.length,'brick')+' in '+held.join(', ')+' now play a held pose.','warn');
+  buildSequencer();
+  if(typeof buildMaestroPane === 'function') buildMaestroPane();
+  return true;
 }

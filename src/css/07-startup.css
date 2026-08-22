@@ -52,6 +52,23 @@ body.wizsplit #main{
   grid-template-columns:minmax(0,1fr) 0 0;
   margin-left:calc(100vw - var(--wizRight));
 }
+/* ONE HEADER AT A TIME (2026-08-22). Giving the right of the window to the
+   droid also left the whole APP header exposed and live across the top of
+   it: a second row of controls inches from this overlay's own
+   📖 MANUAL | DARK | LIGHT | CLOSE, with the DRIVE tab guillotined to "VE"
+   by the overlay's edge (measured at 1440×900: the overlay ends at x=893,
+   the tab runs 859→917). Two headers, both clickable, one of them lying
+   about what it says.
+   So the app header stands down for as long as a setup job holds the
+   split. Its plate stays — the frame still reads as an app, and the band
+   above the stage is not a hole — and everything inside it goes.
+   VISIBILITY, not display: nothing moves, so the canvas does not resize
+   twice, and main.js can still MEASURE the chips it sheds words from
+   (syncHeaderFit reads scrollWidth, which a display:none header reports as
+   0 — it would settle on the widest tier and stay there after the job
+   closed, because the fit is only re-measured when its key changes). */
+body.wizsplit header{pointer-events:none}
+body.wizsplit header > *{visibility:hidden}
 body.wizsplit #side,body.wizsplit #splitV{display:none}
 body.wizsplit #left{grid-template-rows:minmax(0,1fr)}
 body.wizsplit #padwrap,body.wizsplit #splitH{display:none}

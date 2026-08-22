@@ -80,6 +80,49 @@ async function paneStarterConfirm(what){
      yes:'Replace it all', no:'Keep what I have', danger:true});
 }
 
+/* ============================== WHICH FIRMWARE FILE IS *THIS* BUILD'S
+   (v1.70.1)
+
+   A walkthrough on a Mini 24 build was handed a PCA9685 header whose
+   comments described expander wiring it did not have. Both firmware
+   exports sat side by side in one collapsed row with nothing but their
+   labels to fork the road, so the file you got was the button you happened
+   to press.
+
+   The build already knows. buildMaestroBoard() answers "which board does
+   the host speak the Maestro protocol to", dome first, and it returns a
+   BOARD id — which for a MaestroPCA co-processor is a `pca*` one. That is
+   exactly the distinction that matters here and the one a plain "does this
+   build talk to a Maestro?" test gets wrong: a co-processor answers
+   restartScript(n) precisely as a Maestro does, which is its whole point,
+   and it is still FLASHED with sequences.h. So the question asked is
+   boardIsPca() of that board, not maestroProtocol.
+
+   A build with a Pololu at one end and PCA9685s at the other lands on
+   .mstr, because it has a Pololu in it and that is the file only a Pololu
+   can read; the header is one click away in Advanced where a migration
+   needs it.
+
+   UNDECIDED / UNKNOWN. There is no "not yet" answer to the servo question
+   today (bodyDrive has one — see BUILD_OPTIONS — and this reads the same
+   way if servoDevice ever gains one), but buildGet() can be absent in a
+   host that embeds this pane, and a build can name a board this app has
+   no option for. Neither is a reason to guess loudly: fall back to what
+   the app is actually HOLDING — the loaded config's own board — and to the
+   .mstr only when there is nothing to go on, which is where servoFamily()
+   and MSTR default anyway. `why` carries which of the three answered, so
+   the button can say so rather than asserting a build nobody chose. */
+function paneFirmwareRoute(){
+  const b = (typeof buildGet === 'function') ? buildGet() : null;
+  if(b){
+    const board = (typeof buildMaestroBoard === 'function') ? buildMaestroBoard(b) : null;
+    if(board) return {pca: !!(typeof boardIsPca === 'function' && boardIsPca(board)), why:'build'};
+    if(typeof buildUsesPCA === 'function' && buildUsesPCA(b)) return {pca:true, why:'build'};
+  }
+  if(MSTR.loaded && typeof boardIsPca === 'function') return {pca: boardIsPca(MSTR.board), why:'loaded'};
+  return {pca:false, why:'default'};
+}
+
 /* ------------------------------------------------- sidebar Maestro pane */
 function buildMaestroPane(){
   const host=$('maeHost'); if(!host) return;
@@ -442,10 +485,91 @@ function buildMaestroPane(){
   doorHint.innerHTML = '<b>' + xmlEsc(IO_FORMATS_SENTENCE) + '</b>';
   s0.appendChild(doorHint);
 
+  /* ================ THREE FRONT OF HOUSE (v1.70.1)
+     v1.70.0 gave every button in the collapsed row a line naming its file
+     and deliberately left open which of them deserve to be OUT of the row.
+     The owner has answered: three, and the middle one follows the build.
+
+       1. Save my setup — the whole configuration. It is the answer to
+          "save my work", it was only in Menu → Setup file → Save & load,
+          and a walkthrough never found it. Nothing else on this screen
+          saves everything: the servo config is travel, the choreography
+          is routines, the .mstr is a Pololu's own file.
+       2. the firmware file FOR THIS BUILD (paneFirmwareRoute) — never
+          both. The other one is in the row below, not disabled and not
+          removed, because a migration needs it and tests/pcaseq.test.js
+          pins #btnExpPca as ENABLED on a maestro25 build. Behind a
+          disclosure is a place; it is still enabled and still found by $().
+       3. the wiring sheet — the thing you print and take to the bench.
+          It moved UP here from the Outputs section rather than being
+          copied, so there is one of it, and it is now reachable before a
+          config is loaded like the other two.
+
+     Everything else is behind the disclosure this pane already has
+     (#maeAdvIO) — no second Advanced switch was invented. */
+  const front = el('div','conbar');
+  front.id = 'maeFileFront';
+
+  const bSave = el('button','b','Save my setup (.json)');
+  bSave.id = 'btnSaveSetup';
+  bSave.title = 'writes R2-setup-….json — the whole configuration in one file: your build answers, the '
+              + 'channel table, the sequences, the loadout, the panel mapping, the paint and the scene. '
+              + 'This is "save my work"; every other export on this screen is one slice of it.';
+  bSave.disabled = (typeof setupExport !== 'function');
+  bSave.addEventListener('click',()=>{
+    if(typeof setupExport !== 'function') return;
+    const f = setupExport();
+    const m=$('maeMsg'); if(m) m.textContent='Saved '+f+' — the whole configuration in one file. '
+      + 'Drop it back on the window to restore it.';
+  });
+
+  const route = paneFirmwareRoute();
+  const bFw   = route.pca ? bExpH : bExp;
+  /* say WHY this one is here, in its own tooltip — a build-dependent
+     control that does not name the answer it followed is a control the
+     reader has to reverse-engineer */
+  bFw.title += route.why === 'build'
+      ? '\n\nThis is the firmware file your build needs — the servo hardware you answered in Setup '
+        + (route.pca ? 'is on PCA9685s.' : 'is a Pololu Maestro.')
+        + ' The other format is in the file row below.'
+    : route.why === 'loaded'
+      ? '\n\nYour build has not said which servo controller it has, so this follows the config that is '
+        + 'loaded (' + boardById(MSTR.board).label + '). Both formats are in the file row below.'
+      : '\n\nYour build has not said which servo controller it has yet — answer the servo hardware '
+        + 'question in Setup and this button follows it. Both formats are in the file row below.';
+
+  const bWire=el('button','b','Wiring sheet');
+  bWire.title='writes R2-wiring-….html — a printable table: actuator, CAD part name, position on the '
+            + 'droid, and the channel it is on. The one to take to the bench.';
+  bWire.addEventListener('click',()=>{ const f=downloadWiring('html');
+    const m=$('maeMsg'); if(m) m.textContent='Saved '+f+' — open it and print, or keep it on a tablet at the bench.'; });
+  const bWireC=el('button','b','…as CSV');
+  bWireC.title='the same wiring table as R2-wiring-….csv, for a spreadsheet rather than a printer';
+  bWireC.addEventListener('click',()=>{ const f=downloadWiring('csv');
+    const m=$('maeMsg'); if(m) m.textContent='Saved '+f+'.'; });
+
+  front.appendChild(bSave); front.appendChild(bFw); front.appendChild(bWire);
+  s0.appendChild(front);
+
+  /* THE ROUTINES HAD NO BUTTON HERE (v1.70.1). paneStarterConfirm() tells
+     you "the choreography .json saves the routines" over a dialog that is
+     about to discard them, and the only door to it was inside the job
+     wizard. It belongs in the row with the other exports. */
+  const bSeqX = el('button','b','Export choreography .json');
+  bSeqX.title = 'writes R2-choreography-….json — your routines and the loadout, and nothing about '
+              + 'servo travel. The backup to keep before a starter replaces the library, and the file '
+              + 'to send another builder so your moves play through THEIR endpoints.';
+  bSeqX.disabled = (typeof seqLibExport !== 'function') || !(MSTR.sequences||[]).length;
+  bSeqX.addEventListener('click',()=>{ if(typeof seqLibExport==='function') seqLibExport(); });
+
   if(isMaestroBuild) bar.appendChild(bImp);
   bar.appendChild(bCfg); bar.appendChild(bCfgX); bar.appendChild(bMap);
   if(!isMaestroBuild) bar.appendChild(bImp);
-  bar.appendChild(bGen); bar.appendChild(bGenD); bar.appendChild(bGenA); bar.appendChild(bExp); bar.appendChild(bExpH);
+  bar.appendChild(bGen); bar.appendChild(bGenD); bar.appendChild(bGenA);
+  /* whichever firmware file is NOT this build's, plus the specialist
+     shapes of the two that are: the choreography and the CSV */
+  bar.appendChild(route.pca ? bExp : bExpH);
+  bar.appendChild(bSeqX); bar.appendChild(bWireC);
   bar.appendChild(fin); bar.appendChild(seqOnly);
   const advIO = document.createElement('details');
   advIO.className = 'advio';
@@ -729,16 +853,11 @@ function buildChannelMap(host){
     host.appendChild(r);
   });
 
-  const wbar=el('div','conbar');
-  const bWire=el('button','b','Wiring sheet');
-  bWire.title='A printable table: actuator, CAD part name, position on the droid, and the channel it is on';
-  bWire.addEventListener('click',()=>{ const f=downloadWiring('html');
-    const m=$('maeMsg'); if(m) m.textContent='Saved '+f+' — open it and print, or keep it on a tablet at the bench.'; });
-  const bWireC=el('button','b','…as CSV');
-  bWireC.addEventListener('click',()=>{ const f=downloadWiring('csv');
-    const m=$('maeMsg'); if(m) m.textContent='Saved '+f+'.'; });
-  wbar.appendChild(bWire); wbar.appendChild(bWireC);
-  host.appendChild(wbar);
+  /* v1.70.1 — the two wiring buttons were here and are now in the file
+     section at the top of the pane: the sheet front of house, the CSV in
+     the row. One of each, and both reachable before a config is loaded —
+     this table only exists once one is. The sentence below still points at
+     the sheet by name, which is the whole reason it is worth naming. */
 
   const mapped = MSTR.channels.filter(c=>c.act).length;
   const h=el('div','hint prose');

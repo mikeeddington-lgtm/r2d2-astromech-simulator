@@ -664,7 +664,7 @@ const near=(a,b,t)=>Math.abs(a-b)<=t;
      v1.45.0 — the five things Mike asked the Builder to grow.
      ===================================================================== */
 
-  console.log('\n════ instructions: the short version, collapsed, not hidden ════');
+  console.log('\n════ instructions: the short version, open on a first visit ════');
   const help = await ev(()=>{
     modelSet('builder', {frame:false});
     MB.parts.slice().forEach(p=>mbDeletePart(p.id));
@@ -686,7 +686,12 @@ const near=(a,b,t)=>Math.abs(a-b)<=t;
     };
   });
   ok('the pane explains itself — a collapsible block with a summary', help.present && help.hasSummary, JSON.stringify(help));
-  ok('…collapsed by default, so it cannot push the parts bin off the screen', help.collapsed && help.binFirst);
+  /* v1.70.0 — it used to be shut by default, and the one sentence that says
+     what the "0 OF 12" in the bin header counts was inside it. On an empty
+     bin (a first visit) it now stands open; the bin still comes first, so
+     nothing is pushed off the screen. */
+  ok('…open on a first visit, with the parts bin still first', !help.collapsed && help.binFirst,
+     JSON.stringify({collapsed:help.collapsed, binFirst:help.binFirst}));
   ok('…it says ATTACH TO is the point', help.attach);
   ok('…that a joint costs a channel', help.channel);
   ok('…that the 50 mm grid is the only grid', help.grid);
@@ -1184,6 +1189,237 @@ const near=(a,b,t)=>Math.abs(a-b)<=t;
      Math.abs(repick.dist-3.21)<1e-9 && Math.abs(repick.theta-1.11)<1e-9, JSON.stringify(repick));
   ok('…and it still answers with the model on the stage', repick.again==='frik', repick.again);
   ok('…while picking a DIFFERENT model still applies it in full', repick.gone && repick.model==='droid');
+
+  /* =====================================================================
+     v1.70.0 — what a cold-start walkthrough found. Six sections, one per
+     complaint, each written to FAIL against the module as it stood.
+     ===================================================================== */
+
+  console.log('\n════ (1.70) the Builder arrives framed, on a grid that is drawn ════');
+  /* THE GREY SLAB. modelFrame() (scene/models.js) parks the camera 0.85 m
+     from the origin — closer than the 600 mm base plate needs — so switching
+     to the Builder filled the stage with one untextured grey polygon and no
+     sign of the "50 mm grid" the blurb promises. Both halves are pinned here:
+     every corner of the plate has to be inside the frustum, and the grid has
+     to be a real object with one line per 50 mm cell. */
+  const framed = await ev(()=>{
+    modelSet('droid', {frame:false});
+    modelSet('builder');                       // the ordinary model change, framing and all
+    if(typeof updateCamera === 'function') updateCamera();
+    camera.updateMatrixWorld(true);
+    MB.root.updateMatrixWorld(true);
+    const size = (typeof MB_BASE_SIZE !== 'undefined') ? MB_BASE_SIZE : 0.6;
+    const h = size / 2;
+    const corners = [[-h,0,-h],[h,0,-h],[h,0,h],[-h,0,h]]
+      .map(c => new THREE.Vector3(c[0], c[1], c[2]).project(camera));
+    const inShot = corners.every(p => Math.abs(p.x) <= 1 && Math.abs(p.y) <= 1);
+    const g = MB.base.grid;
+    const cells = Math.round(size / MB_GRID);
+    const grid = {
+      present: !!g,
+      onPlate: !!g && g.parent === MB.base.group,
+      verts: (g && g.geometry && g.geometry.attributes.position) ? g.geometry.attributes.position.count : 0,
+      want: (cells + 1) * 4,
+      lifted: !!g && g.position.y > 0
+    };
+    /* AND EVERY PART ON THE BENCH IS REACHABLE FROM IT. This is the half of
+       "framed" that an eyeball cannot check: at the droid's own 24° eye-line
+       a flat plate is nearly edge-on, and a disc one cell behind a beam is
+       simply BEHIND it — mbPickAt() at the disc's own centre returns the
+       beam, so it can never be selected or dragged. */
+    MB.parts.slice().forEach(p=>mbDeletePart(p.id));
+    const beam = mbAddPart('beam'), disc = mbAddPart('disc');
+    modelSet('droid', {frame:false});
+    modelSet('builder');                       // arrive again, framed
+    if(typeof updateCamera === 'function') updateCamera();
+    camera.updateMatrixWorld(true);
+    MB.root.updateMatrixWorld(true);
+    const cv = $('stage').querySelector('canvas'), cr = cv.getBoundingClientRect();
+    const hitOf = rec => {
+      const v = rec.group.getWorldPosition(new THREE.Vector3()).project(camera);
+      return mbPickAt(cr.left + (v.x*0.5+0.5)*cr.width, cr.top + (-v.y*0.5+0.5)*cr.height);
+    };
+    const reach = {beam: hitOf(beam), disc: hitOf(disc), ids:[beam.id, disc.id]};
+
+    /* …while {frame:false} is still a promise not to touch the camera */
+    modelSet('droid', {frame:false});
+    CAM.dist = 4.2; CAM.theta = 0.31;
+    modelSet('builder', {frame:false});
+    const held = Math.abs(CAM.dist - 4.2) < 1e-9 && Math.abs(CAM.theta - 0.31) < 1e-9;
+    MB.parts.slice().forEach(p=>mbDeletePart(p.id));
+    modelSet('droid', {frame:false});
+    return {inShot, grid, held, reach, corners: corners.map(p=>[+p.x.toFixed(2), +p.y.toFixed(2)])};
+  });
+  ok('switching to the Builder puts the WHOLE base plate in shot', framed.inShot, JSON.stringify(framed.corners));
+  ok('…the 50 mm grid the blurb promises is actually drawn, on the plate',
+     framed.grid.present && framed.grid.onPlate, JSON.stringify(framed.grid));
+  ok('…one line per 50 mm cell, right across it',
+     framed.grid.verts === framed.grid.want && framed.grid.want > 4, JSON.stringify(framed.grid));
+  ok('…sitting above the plate’s top face rather than fighting it', framed.grid.lifted);
+  ok('…every part standing on it can still be clicked, none hidden behind another',
+     framed.reach.beam === framed.reach.ids[0] && framed.reach.disc === framed.reach.ids[1],
+     JSON.stringify(framed.reach));
+  ok('…and a {frame:false} apply still leaves the camera exactly where it was', framed.held);
+
+  console.log('\n════ (1.70) the second wall names a real tab, and opens it ════');
+  /* The mod2026 wall hands over OPEN THE SETUP — FIRMWARE. Taking its advice
+     and switching to a Maestro hit a second wall — "generate or import a
+     .mstr on the Servo tab" — with no button and naming a tab that does not
+     exist anywhere in the app. The channel table is generated and imported on
+     Board ▸ Servo / Sequence config (#pMae). */
+  const svDoor = await ev(()=>{
+    const wasFw = SIM.profile, wasLoaded = MSTR.loaded;
+    modelSet('droid', {frame:false});
+    loadProfile('maestro25');                  // hasServos:false, hasMaestro:true
+    MSTR.loaded = false;                       // …and nothing generated or imported yet
+    modelSet('builder', {frame:false});
+    MB.parts.slice().forEach(p=>mbDeletePart(p.id));
+    const h = mbAddPart('hinge');
+    mbSelect(h.id);
+    document.querySelector('#tabs button[data-p="pCad"]').click();
+    buildCadPane();
+    const text = $('cadHost').textContent;
+    const out = {
+      ghost: /Servo tab/.test(text),
+      names: /Servo\s*\/\s*Sequence config/.test(text),
+      hasBtn: !!$('btnMbServoDoor'),
+      label: $('btnMbServoDoor') ? $('btnMbServoDoor').textContent : ''
+    };
+    if(out.hasBtn){
+      $('btnMbServoDoor').click();
+      out.ws = wsGet();
+      out.tab = $('pMae').classList.contains('act');
+    }
+    MSTR.loaded = wasLoaded;
+    MB.parts.slice().forEach(p=>mbDeletePart(p.id));
+    modelSet('droid', {frame:false});
+    loadProfile(wasFw);
+    return out;
+  });
+  ok('the second wall no longer names a "Servo tab" that does not exist', !svDoor.ghost, JSON.stringify(svDoor));
+  ok('…it names the tab that really holds the channel table', svDoor.names, JSON.stringify(svDoor));
+  ok('…and hands over a jump button, like the firmware wall above it', svDoor.hasBtn, svDoor.label);
+  ok('…which lands on Board ▸ Servo / Sequence config', svDoor.ws==='bench' && svDoor.tab, JSON.stringify(svDoor));
+
+  console.log('\n════ (1.70) millimetres everywhere, and the preview slider says what it is ════');
+  /* The blurb promises a 50 mm grid; the Position fields answered "0.05 m"
+     and the preview slider showed a bare "0.50" with no unit at all. */
+  const units = await ev(()=>{
+    modelSet('builder', {frame:false});
+    MB.parts.slice().forEach(p=>mbDeletePart(p.id));
+    const h = mbAddPart('hinge');
+    mbMovePart(h.id, 'x', MB_GRID * 2);        // 100 mm out
+    mbSelect(h.id);
+    document.querySelector('#tabs button[data-p="pCad"]').click();
+    buildCadPane();
+    const rows = Array.from($('cadHost').querySelectorAll('.mbpane .selrow'));
+    const posRow = rows.find(r => /^Position/.test(r.textContent));
+    const posVals = posRow ? Array.from(posRow.querySelectorAll('.mbval')).map(v=>v.textContent.trim()) : [];
+    const prevRow = rows.find(r => /Preview/i.test(r.textContent));
+    const prevLab = prevRow ? (prevRow.querySelector('label')||{}).textContent || '' : '';
+    const prevOut = prevRow ? ((prevRow.querySelector('.mbval')||{}).textContent || '').trim() : '';
+    MB.parts.slice().forEach(p=>mbDeletePart(p.id));
+    modelSet('droid', {frame:false});
+    return {posVals, prevLab, prevOut,
+            mm: posVals.length===3 && posVals.every(v=>/\smm$/.test(v)),
+            metres: posVals.some(v=>/\dm$|\sm$/.test(v)),
+            x: posVals[0] || ''};
+  });
+  ok('Position reads in millimetres, the unit the blurb promises', units.mm, JSON.stringify(units.posVals));
+  ok('…and no field is still in metres', !units.metres, JSON.stringify(units.posVals));
+  ok('…two cells out is 100 mm, not 0.10', units.x === '100 mm', units.x);
+  ok('the preview slider says what it moves — travel', /travel/i.test(units.prevLab), units.prevLab);
+  ok('…and its readout carries a unit, 0–100%', /%$/.test(units.prevOut), units.prevOut);
+
+  console.log('\n════ (1.70) the parts-bin count says what it counts ════');
+  /* "0 OF 12" with no noun, and the one sentence that explains the 12 sat
+     inside a collapsed disclosure BELOW the bin it explains. */
+  const bin = await ev(()=>{
+    modelSet('builder', {frame:false});
+    MB.parts.slice().forEach(p=>mbDeletePart(p.id));
+    MB.helpOpen = null;                        // a first visit
+    document.querySelector('#tabs button[data-p="pCad"]').click();
+    buildCadPane();
+    const host = $('cadHost');
+    const h3 = Array.from(host.querySelectorAll('.sect h3')).find(x=>/Parts bin/.test(x.textContent));
+    const right = h3 && h3.querySelector('span') ? h3.querySelector('span').textContent : '';
+    const openFirst = !!host.querySelector('details.mbhelp') && host.querySelector('details.mbhelp').open;
+    mbAddPart('beam');
+    buildCadPane();
+    const d1 = $('cadHost').querySelector('details.mbhelp');
+    const shutWithParts = !!d1 && !d1.open;
+    d1.open = true; d1.dispatchEvent(new Event('toggle'));   // the reader's own choice
+    buildCadPane();
+    const remembered = $('cadHost').querySelector('details.mbhelp').open;
+    MB.helpOpen = null;
+    MB.parts.slice().forEach(p=>mbDeletePart(p.id));
+    modelSet('droid', {frame:false});
+    return {right, openFirst, shutWithParts, remembered};
+  });
+  ok('the Parts bin header says what the 12 counts', /part/i.test(bin.right), bin.right);
+  ok('…and the how-this-works block is open on a first visit', bin.openFirst);
+  ok('…shut once there is something in the bin', bin.shutWithParts);
+  ok('…and a reader who opens it keeps it open', bin.remembered);
+
+  console.log('\n════ (1.70) a hinge’s attach points are named after a hinge ════');
+  /* "flag" and "flag tip" are modelling words for the paddle on the pivot,
+     defined nowhere in the app. The socket IDS are saved in every model file,
+     so only the LABELS may move. */
+  const leaf = await ev(()=>{
+    modelSet('builder', {frame:false});
+    MB.parts.slice().forEach(p=>mbDeletePart(p.id));
+    const h = mbAddPart('hinge');
+    const bm = mbAddPart('beam');
+    mbSetAttach(bm.id, h.id);
+    mbSelect(bm.id);
+    document.querySelector('#tabs button[data-p="pCad"]').click();
+    buildCadPane();
+    const rows = Array.from($('cadHost').querySelectorAll('.mbpane .selrow'));
+    const r = rows.find(x => /^Attach point/.test(x.textContent));
+    const opts = r ? Array.from(r.querySelectorAll('option')).map(o=>o.textContent) : [];
+    const out = {ids:(h.sockets||[]).map(s=>s.id).join(), labels:(h.sockets||[]).map(s=>s.label), opts};
+    MB.parts.slice().forEach(p=>mbDeletePart(p.id));
+    modelSet('droid', {frame:false});
+    return out;
+  });
+  ok('no attach point on a hinge is called a "flag" any more',
+     !leaf.labels.some(l=>/flag/i.test(l)), leaf.labels.join(' | '));
+  ok('…they are the hinge’s own parts: a moving leaf, its end, and the fixed side',
+     /moving leaf/i.test(leaf.labels[0]||'') && /end of leaf/i.test(leaf.labels[1]||'')
+     && /fixed side/i.test(leaf.labels[2]||''), leaf.labels.join(' | '));
+  ok('…while the socket IDs are untouched, so every saved model still finds its point',
+     leaf.ids === 'flag,tip,body', leaf.ids);
+  ok('…and the new words are what the ATTACH POINT dropdown offers',
+     leaf.opts.length === 3 && !leaf.opts.some(t=>/flag/i.test(t)), leaf.opts.join(' | '));
+
+  console.log('\n════ (1.70) the servo gauges number a channel once ════');
+  /* Every tile read "ch 0 / Servo 1" — the board's own 0-based number and the
+     rack starter's 1-based name, one above the other. The app is 0-based
+     everywhere else (the Board table, the bench, app/boards.js's chLabel), so
+     that is the scheme that stays. app/servos.js draws these. */
+  const gauge = await ev(()=>{
+    setBoard('mini24'); makeStarter('rack','mini24');
+    modelSet('droid', {frame:false}); modelSet('servos', {frame:false});
+    const q = i => document.querySelector('#svGrid .svtile[data-ch="'+i+'"]');
+    const txt = (t,c) => (t && t.querySelector(c)) ? t.querySelector(c).textContent.trim() : '';
+    const out = {stored: MSTR.channels[0].name,
+                 num: txt(q(0),'.svn'),   name: txt(q(0),'.svname'),
+                 num23: txt(q(23),'.svn'), name23: txt(q(23),'.svname')};
+    MSTR.channels[1].name = 'Left eyebrow';    // a name that says something real
+    buildServos();
+    out.real = txt(q(1),'.svname');
+    MSTR.channels[1].name = 'Servo 2';
+    buildServos();
+    modelSet('droid', {frame:false});
+    return out;
+  });
+  ok('the rack starter really does name channel 0 "Servo 1"', gauge.stored === 'Servo 1', gauge.stored);
+  ok('a gauge tile carries the board’s own 0-based number', gauge.num === 'ch 0' && gauge.num23 === 'ch 23',
+     JSON.stringify(gauge));
+  ok('…and no second, 1-based number beside it',
+     !/^servo\s*\d+$/i.test(gauge.name) && !/^servo\s*\d+$/i.test(gauge.name23), JSON.stringify(gauge));
+  ok('…while a name that says something the number does not is still shown',
+     gauge.real === 'Left eyebrow', gauge.real);
 
   console.log('\n════ nothing leaked into the droid ════');
   ok('the builder owns no droid actuator keys', await ev(()=>

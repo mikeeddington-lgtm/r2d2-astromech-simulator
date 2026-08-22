@@ -8,7 +8,12 @@ const PROFILE_MOD2026 = {
   id:'mod2026',
   name:'padawan360 mod2026',
   short:'mod2026',
-  file:'padawan_secure _mode.ino',
+  /* the name a checkout actually has — the stray space in
+     `padawan_secure _mode.ino` was carried into the wiring diagram's
+     subtitle and the exported sheet's header, which are the two copies a
+     builder reads away from this app. config/hardware.js fixed the same
+     typo in the firmware ANSWER; this is the profile's own copy of it. */
+  file:'padawan_secure_mode.ino',
   repo:'sel-uis/Astromech-padawan360-mod2026',
   audio:'MD-YX5300',
   swapsStickButtons:true,

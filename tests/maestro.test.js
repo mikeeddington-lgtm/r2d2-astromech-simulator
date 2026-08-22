@@ -276,13 +276,18 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
         && labels.indexOf('Export .mstr')>=0 && labels.indexOf('Export servo config')>=0
         && labels.indexOf('Body starter')>=0 && labels.indexOf('Dome starter')>=0;
   }));
+  /* v1.70.1 — "at most two clicks" now has a shorter case in it: the
+     firmware file for THIS build is front of house, so #btnExpPca is one
+     click on a PCA build and two on a Maestro one. Both are inside the
+     pane and neither is disabled; what this pins is that nothing needs
+     more than the disclosure plus the button. */
   ok('...and each of them is at most two clicks away', await ev(()=>{
-    const d = $('maeAdvIO');
-    if(!d) return false;
+    const d = $('maeAdvIO'), f = $('maeFileFront');
+    if(!d || !f) return false;
     const wasOpen = d.open;
     d.open = true;                                   // click one: the disclosure
     const reachable = ['btnCfgImport','btnAssignPanels','btnExpPca']
-      .every(id=>{ const b=$(id); return b && d.contains(b); });
+      .every(id=>{ const b=$(id); return b && (d.contains(b) || f.contains(b)); });
     d.open = wasOpen;
     return reachable;
   }));
@@ -641,7 +646,10 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
             starter: t('Dome starter'),
             pca: pca ? {label:pca.textContent, title:pca.title} : null};
   });
-  ok('every one of the nine buttons in the collapsed row carries a line of its own',
+  /* v1.70.1 — the row is no longer exactly nine: one firmware file was
+     promoted front of house and the choreography .json and the wiring CSV
+     joined the row. The rule is per-button, not a count. */
+  ok('every button in the collapsed row carries a line of its own',
      !fileBtns.missing && fileBtns.untitled.length===0,
      fileBtns.untitled ? JSON.stringify(fileBtns.untitled) : 'no #maeAdvIO');
   ok('the servo-config pair names R2-servos-*.json and says it is travel only',
@@ -664,6 +672,142 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
      fileBtns.pca && /PCA/i.test(fileBtns.pca.label) && /sequences\.h/i.test(fileBtns.pca.label)
      && /not (the|a) .*maestro|instead of a Maestro/i.test(fileBtns.pca.title||''),
      fileBtns.pca ? fileBtns.pca.label+' — '+fileBtns.pca.title : 'missing');
+
+  /* =================================================================
+     v1.70.1 — THREE FRONT OF HOUSE, AND THE SECOND FOLLOWS THE BUILD
+
+     v1.70.0 gave all nine file buttons a line of their own and left the
+     question of WHICH deserve promoting out of the disclosure open. The
+     owner has answered it: three visible — "save my work", the firmware
+     file for THIS build, and the wiring sheet — and everything else
+     behind the Advanced switch the pane already has.
+
+     The middle one is the one that had been getting it wrong: a
+     walkthrough on a Mini 24 build was handed a PCA9685 header full of
+     expander wiring it did not have. A Maestro builder is never offered
+     the PCA file front of house and a PCA builder is never offered the
+     .mstr — but neither goes away, because a migration needs the other
+     one, and tests/pcaseq.test.js pins #btnExpPca as ENABLED on a
+     maestro25 build. It is in the disclosure there, which is a place,
+     not a disabling.
+     ================================================================= */
+  console.log('\n════ three file buttons front of house, the second one build-aware ════');
+  const foh = await ev(()=>{
+    const read = ()=>{
+      const f = $('maeFileFront'), d = $('maeAdvIO');
+      const names = h => h ? Array.from(h.querySelectorAll('button')).map(b=>b.textContent) : null;
+      return {front:names(f), adv:names(d), all:names($('maeHost')),
+              pcaEnabled: $('btnExpPca') ? !$('btnExpPca').disabled : null,
+              pcaInAdv:   !!(d && $('btnExpPca') && d.contains($('btnExpPca'))),
+              untitledFront: f ? Array.from(f.querySelectorAll('button'))
+                                      .filter(b=>!(b.title||'').trim()).map(b=>b.textContent) : null};
+    };
+    const out = {};
+    loadProfile('maestro25'); buildFwSelector();
+    setBoard('mini24'); makeStarter('body','mini24'); CFG.maestroSource='imported';
+    buildSet('domeServo','mini24'); buildSet('bodyServo','mini12');
+    rebuildMaestroUI();
+    out.maestro = read();
+    buildSet('domeServo','mod2026'); buildSet('bodyServo','mod2026');
+    rebuildMaestroUI();
+    out.pca = read();
+    /* a co-processor speaks the Maestro protocol but is flashed with the
+       header, not a .mstr — the case the family test gets right and a
+       "does it talk to a Maestro?" test would not */
+    buildSet('domeServo','mpca32'); buildSet('bodyServo','mpca32');
+    rebuildMaestroUI();
+    out.coproc = read();
+    return out;
+  });
+  ok('exactly three buttons are front of house', foh.maestro.front && foh.maestro.front.length===3,
+     JSON.stringify(foh.maestro.front));
+  ok('...and they are save-my-work, the firmware file, and the wiring sheet',
+     foh.maestro.front && /Save my setup/.test(foh.maestro.front[0])
+     && /\.json/.test(foh.maestro.front[0])
+     && foh.maestro.front[1]==='Export .mstr'
+     && /Wiring sheet/.test(foh.maestro.front[2]),
+     JSON.stringify(foh.maestro.front));
+  ok('a Maestro builder is never offered the PCA header front of house',
+     foh.maestro.front && foh.maestro.front.every(t=>!/sequences\.h/.test(t))
+     && foh.maestro.adv.some(t=>/sequences\.h/.test(t)),
+     JSON.stringify(foh.maestro.adv));
+  ok('...and pcaseq.test.js still finds #btnExpPca enabled on that build',
+     foh.maestro.pcaEnabled===true && foh.maestro.pcaInAdv===true,
+     JSON.stringify({enabled:foh.maestro.pcaEnabled, inAdv:foh.maestro.pcaInAdv}));
+  ok('a PCA builder gets sequences.h in the same slot, and the .mstr goes behind Advanced',
+     foh.pca.front && foh.pca.front.length===3 && /sequences\.h/.test(foh.pca.front[1])
+     && foh.pca.front.every(t=>t!=='Export .mstr')
+     && foh.pca.adv.indexOf('Export .mstr')>=0,
+     JSON.stringify(foh.pca.front));
+  ok('a co-processor build is a PCA build for this purpose — it is flashed with the header',
+     foh.coproc.front && /sequences\.h/.test(foh.coproc.front[1]),
+     JSON.stringify(foh.coproc.front));
+  ok('every front-of-house button says what its file is, like the row does',
+     foh.maestro.untitledFront && foh.maestro.untitledFront.length===0,
+     JSON.stringify(foh.maestro.untitledFront));
+  /* the import button has always worn a build-dependent label (v1.39.1) —
+     "Import your config…" on a Maestro, "Maestro sequences…" on a PCA */
+  const NINE = ['Import servo config…','Export servo config','Assign panels…',
+                'Body starter','Dome starter','Frik head starter','Export .mstr',
+                'Export sequences.h (PCA9685)'];
+  const allNine = st => !!st.front && !!st.adv && NINE.every(n=>st.all.indexOf(n)>=0)
+    && (st.all.indexOf('Import your config…')>=0 || st.all.indexOf('Maestro sequences…')>=0);
+  ok('nothing became unreachable — all nine of the old row survive on every build',
+     allNine(foh.maestro) && allNine(foh.pca) && allNine(foh.coproc),
+     JSON.stringify(foh.pca.all));
+
+  /* =================================================================
+     v1.70.1 — ERRORS 0, AND NO BUTTON PLAYS YOUR SHOW
+
+     Eight stock routines fill slots 0-7 and your own lands at slot 8.
+     The validate panel said SLOTS USED 9 / ERRORS 0, the fine print
+     elsewhere said the sketches call restartScript(0)-(7) from the
+     d-pad, and nothing joined the two up: you flash the droid and the
+     one routine you wrote is the one nothing fires.
+
+     It is a WARNING and not an error on purpose — slot 8 is perfectly
+     valid for anything calling restartScript(n) directly (a brick, the
+     serial console, your own sketch), and this app advises rather than
+     refuses. What it has to do is NAME the routine and the slot,
+     because "the loadout has 9 sequences" is a number, not an address.
+     ================================================================= */
+  console.log('\n════ a routine past slot 7 is a warning that names itself ════');
+  const slots = await ev(()=>{
+    setBoard('mini24'); makeStarter('body','mini24');
+    loadoutReset();
+    const eight = lintMaestro();
+    MSTR.sequences.push({name:'My Show', frames:[
+      {name:'f0', duration:400, targets:MSTR.channels.map(c=>/^servo/i.test(c.mode)?c.home:0)}]});
+    loadoutReset(); reindexSubs();
+    const rep = lintMaestro();
+    const hits = rep.items.filter(i=>i.code === 'slot-nodpad');
+    return {
+      cleanAt8: eight.items.filter(i=>i.code === 'slot-nodpad').length,
+      load: loadoutNames().length,
+      err: rep.counts.err,
+      n: hits.length,
+      level: hits[0] ? hits[0].level : null,
+      msg: hits[0] ? hits[0].msg : '',
+      fix: hits[0] ? hits[0].fix : '',
+      slot: hits[0] ? hits[0].slot : null,
+      /* the old rule counted and did not name — it must not double up */
+      oldRule: rep.items.filter(i=>i.code === 'slots').length
+    };
+  });
+  ok('eight routines on the board raise nothing', slots.cleanAt8===0 && slots.load===9,
+     slots.cleanAt8+' at 8 · '+slots.load+' loaded');
+  ok('a ninth routine is flagged — once, as a warning, not an error',
+     slots.n===1 && slots.level==='warn' && slots.err===0,
+     JSON.stringify({n:slots.n, level:slots.level, err:slots.err}));
+  ok('...and the line names the routine and the slot it landed on',
+     /My Show/.test(slots.msg) && /\b8\b/.test(slots.msg) && /d-pad|restartScript\(0\)/.test(slots.msg+slots.fix),
+     slots.msg);
+  ok('...and says it still plays, just not from a button',
+     /restartScript\(8\)/.test(slots.fix), slots.fix);
+  ok('the item carries the slot as a field, the way v1.70.0 gave items a ch',
+     slots.slot===8, String(slots.slot));
+  ok('the old count-only rule is gone rather than doubled up', slots.oldRule===0,
+     slots.oldRule+' × "slots"');
 
   // leave it in a sane state
   await ev(()=>{ makeStarter(); CFG.maestroSource='imported'; rebuildMaestroUI(); });

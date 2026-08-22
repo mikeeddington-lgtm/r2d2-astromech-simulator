@@ -570,6 +570,293 @@ const ok = (n,c,x='') => { c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+' 
   ok('…and the name it reads is the one pcaCommentSafe would have written',
      meta.dirty === meta.clean && meta.dirty === meta.written, JSON.stringify(meta));
 
+  /* ═══════════════════════════════════════════════════════════════════
+     THE SAFE RANGE THE PANEL NAMED AND DID NOT DEFEND  (v1.70.1)
+
+     A walkthrough typed 2700 into Set MAX and 2600 into Set MIN. Nothing
+     turned red, nothing warned, `save servo setting` took it, and what came
+     out was a channel whose centre sits outside its own min–max —
+     `shut 2600 · centre 1000 · open 2700`, exported as min="10400"
+     max="10800" home="4000". The panel above the dial had been saying
+     `safe range · 1000–2000 µs` the whole time, and a red chip appeared
+     afterwards, at the top of the table, off-screen, counting against a
+     THIRD pair of numbers.
+
+     Mike's ruling: "500 – 2500 but warn when outside of 1000–2000". Two
+     bands and one policy, everywhere. The outer band is a REFUSAL and not
+     another note, because a horn held against a hard stop strips its gears
+     in seconds and does it quietly; the inner one is a warning and must
+     stay possible, because "I know, my servo takes this" is a real answer.
+
+     Everything below is asserted at the POINT OF ENTRY. A number that only
+     goes red after it has been saved is the fault, not the fix.
+     ═══════════════════════════════════════════════════════════════════ */
+  console.log('\n════ the two bands are one source, everywhere they are quoted ════');
+  await ev(()=>{
+    setupGo(SETUP_STEPS.findIndex(x=>x.key === 'channels'));
+    setupUse(9, true);
+    const c = HW.channels()[9];
+    c.min = 4000; c.max = 8000; c.home = 6000; c.calibrated = false;
+    HW.save(); HW.rebuild(true);
+    SETUP.sel = 9; SETUP.cal = null; setupRender();
+  });
+  await page.waitForTimeout(150);
+  const src = await ev(()=>{
+    const S = (typeof PW_STD === 'undefined') ? null : PW_STD;
+    const A = (typeof PW_ABS === 'undefined') ? null : PW_ABS;
+    const safe = (typeof CAL_SAFE === 'undefined') ? null : CAL_SAFE;
+    const full = (typeof CAL_FULL === 'undefined') ? null : CAL_FULL;
+    const ap = (typeof setupApplyDef === 'function') ? setupApplyDef('maxUs') : {};
+    const box = document.querySelector('#chCfg [data-k=maxUs]');
+    const dial = $('calLmax');
+    return {
+      std: S && [S.lo, S.hi], abs: A && [A.lo, A.hi],
+      safe: safe && [safe.lo, safe.hi], full: full && [full.lo, full.hi],
+      /* the same OBJECT, not a second pair that happens to agree today */
+      same: (safe === S) && (full === A),
+      apply: [ap.min, ap.max],
+      panelBox: box ? [box.getAttribute('min'), box.getAttribute('max')] : null,
+      dialBox:  dial ? [dial.getAttribute('min'), dial.getAttribute('max')] : null
+    };
+  });
+  console.log('  ' + JSON.stringify(src));
+  ok('the dial’s cautious sweep IS the standard band, not a copy of it',
+     src.same && JSON.stringify(src.safe) === JSON.stringify(src.std), JSON.stringify([src.safe, src.std]));
+  ok('…and its full sweep IS the absolute band — the same object, not a second pair',
+     src.same && JSON.stringify(src.full) === JSON.stringify(src.abs), JSON.stringify([src.full, src.abs]));
+  ok('the apply bar’s µs fields stop at the same edge, not at 400–2600',
+     src.apply[0] === 500 && src.apply[1] === 2500, JSON.stringify(src.apply));
+  ok('the panel’s own boxes do too, not 300–2700',
+     JSON.stringify(src.panelBox) === '["500","2500"]', JSON.stringify(src.panelBox));
+  ok('…and so do the dial’s three end boxes',
+     JSON.stringify(src.dialBox) === '["500","2500"]', JSON.stringify(src.dialBox));
+
+  console.log('\n════ outside 500–2500 is refused where it is typed ════');
+  const refused = await ev(()=>{
+    SETUP.sel = 9; SETUP.cal = null; setupRender();
+    const box = $('calLmax');
+    box.value = '2700';
+    box.dispatchEvent(new Event('change', {bubbles:true}));
+    const say = $('calSay');
+    return {
+      staged: SETUP.cal ? SETUP.cal.max : -1,
+      chan: HW.channels()[9].max,
+      cls: box.className,
+      border: getComputedStyle(box).borderColor,
+      clean: getComputedStyle($('calLctr')).borderColor,
+      why: say ? say.textContent.replace(/\s+/g,' ').trim() : '(no message at the control)',
+      saveOff: !!(document.querySelector('[data-cal=ok]') || {}).disabled
+    };
+  });
+  console.log('  ' + JSON.stringify(refused));
+  ok('2700 µs never reaches the dial’s staged end', refused.staged === 8000, String(refused.staged));
+  ok('…nor the channel', refused.chan === 8000, String(refused.chan));
+  ok('…the box you typed it into goes red', refused.cls === 'bad', refused.cls);
+  ok('…and red is a colour, not just a class name',
+     refused.border !== refused.clean && refused.border !== '', refused.border+' vs '+refused.clean);
+  ok('…and the reason is on screen AT THE CONTROL, with both numbers in it',
+     /500/.test(refused.why) && /2500/.test(refused.why), refused.why);
+  /* and save is dead while it stands there. A save that succeeded with
+     2700 in the box would report "saved: 1000–2000 µs" and be read as
+     having taken the 2700 — the number on screen has to be one that could
+     be saved before saving is offered. */
+  ok('…and save is blocked while the refused number is still in the box',
+     refused.saveOff, String(refused.saveOff));
+  const cleared = await ev(()=>{
+    const box = $('calLmax');
+    box.value = '1950';
+    box.dispatchEvent(new Event('change', {bubbles:true}));
+    return {off: !!(document.querySelector('[data-cal=ok]')||{}).disabled,
+            cls: ($('calLmax')||{}).className,
+            why: (($('calSay')||{textContent:''}).textContent).trim()};
+  });
+  ok('…and comes back the moment a width that fits is typed',
+     !cleared.off && cleared.cls === '' && cleared.why === '', JSON.stringify(cleared));
+
+  console.log('\n════ save is blocked while an end is out of band ════');
+  const blocked = await ev(()=>{
+    /* as an imported .mstr or an older calibration arrives — past every
+       control, straight onto the staged trio */
+    SETUP.cal.max = 10800;
+    if(typeof calPaint === 'function') calPaint();
+    const btn = document.querySelector('[data-cal=ok]');
+    const off = !!btn.disabled;
+    btn.click();
+    const say = $('calSay');
+    return {off, chan: HW.channels()[9].max, open: !!SETUP.cal,
+            why: say ? say.textContent.replace(/\s+/g,' ').trim() : '(no message)'};
+  });
+  console.log('  ' + JSON.stringify(blocked));
+  ok('save servo setting does not write it', blocked.chan !== 10800, String(blocked.chan));
+  ok('…the button says it is blocked before you press it', blocked.off, String(blocked.off));
+  ok('…and the reason is still at the control', /500/.test(blocked.why) && /2500/.test(blocked.why), blocked.why);
+
+  console.log('\n════ between the bands is legitimate: accepted, and warned ════');
+  const warned = await ev(()=>{
+    SETUP.cal.max = 8000; if(typeof calPaint === 'function') calPaint();
+    const box = $('calLmax');
+    box.value = '2200';
+    box.dispatchEvent(new Event('change', {bubbles:true}));
+    const say = $('calSay');
+    /* re-queried: an accepted width past the cautious sweep unlocks the
+       full one, which rebuilds the dial — the node typed into is gone */
+    const cls = ($('calLmax')||{}).className;
+    const why = say ? say.textContent.replace(/\s+/g,' ').trim() : '(no message)';
+    const off = !!(document.querySelector('[data-cal=ok]') || {}).disabled;
+    document.querySelector('[data-cal=ok]').click();
+    return {cls, why, off, staged: 8800, chan: HW.channels()[9].max};
+  });
+  console.log('  ' + JSON.stringify(warned));
+  ok('2200 µs is taken — "I know, my servo takes this" stays possible',
+     warned.chan === 8800, String(warned.chan));
+  ok('…save is not blocked by a warning', !warned.off, String(warned.off));
+  ok('…the box is amber, not red', warned.cls === 'warn', warned.cls);
+  ok('…and it says which band it is outside', /1000/.test(warned.why) && /2000/.test(warned.why), warned.why);
+
+  console.log('\n════ inside 1000–2000 there is no decoration at all ════');
+  const silent = await ev(()=>{
+    const box = $('calLmax');
+    box.value = '1900';
+    box.dispatchEvent(new Event('change', {bubbles:true}));
+    const say = $('calSay');
+    return {cls: box.className, why: say ? say.textContent.trim() : '',
+            panel: (document.querySelector('#chCfg [data-k=maxUs]')||{}).className};
+  });
+  ok('a width inside the standard band decorates nothing',
+     silent.cls === '' && silent.why === '', JSON.stringify(silent));
+
+  console.log('\n════ a centre outside its own min–max is refused, in its own words ════');
+  const centre = await ev(()=>{
+    SETUP.sel = 9; SETUP.cal = null; setupRender();
+    /* a legitimately wide pair — both ends inside 500–2500 — with a centre
+       that is nowhere between them */
+    SETUP.cal.min = 8800; SETUP.cal.max = 9600; SETUP.cal.home = 4000;
+    if(typeof calPaint === 'function') calPaint();
+    const before = HW.channels()[9].home;
+    const off = !!(document.querySelector('[data-cal=ok]') || {}).disabled;
+    document.querySelector('[data-cal=ok]').click();
+    const say = $('calSay');
+    return {before, off, home: HW.channels()[9].home,
+            ctrCls: ($('calLctr')||{}).className,
+            why: say ? say.textContent.replace(/\s+/g,' ').trim() : '(no message)'};
+  });
+  console.log('  ' + JSON.stringify(centre));
+  ok('a centre outside the pair cannot be saved', centre.home !== 4000, String(centre.home));
+  ok('…the centre box is the one that goes red', centre.ctrCls === 'bad', centre.ctrCls);
+  ok('…and it reads differently from an out-of-band end',
+     /centre/i.test(centre.why) && !/500–2500/.test(centre.why), centre.why);
+  const typedCtr = await ev(()=>{
+    SETUP.sel = 9; SETUP.cal = null; setupRender();
+    const box = $('calLctr');
+    box.value = '2400';                       // outside shut 1000 – open 2000
+    box.dispatchEvent(new Event('change', {bubbles:true}));
+    return {staged: SETUP.cal.home, cls: ($('calLctr')||{}).className,
+            why: (($('calSay')||{textContent:''}).textContent).replace(/\s+/g,' ').trim()};
+  });
+  ok('a centre TYPED outside the travel is refused where it is typed',
+     typedCtr.staged !== 9600 && typedCtr.cls === 'bad', JSON.stringify(typedCtr));
+
+  /* THE OTHER HALF OF THE SAME RULE, and the reason it is not just "refuse
+     anything that leaves a stray centre". Moving an END is the ordinary
+     way round the dial — shut, then open, then centre — and a channel that
+     arrives with its centre sitting on its shut end (every starter does)
+     would otherwise refuse the very first number you typed. The end is
+     what you touched, so the end wins and the centre comes with it; what
+     must never happen is that the pair is written with the centre left
+     outside, and it is not. */
+  const follow = await ev(()=>{
+    const c = HW.channels()[9];
+    c.min = 4000; c.max = 8000; c.home = 4000;   // centre sitting on the shut end
+    HW.save(); HW.rebuild(true); SETUP.cal = null; SETUP.sel = 9; setupRender();
+    const box = $('calLmin');
+    box.value = '1100';                           // tighten shut past the centre
+    box.dispatchEvent(new Event('change', {bubbles:true}));
+    const staged = {min: SETUP.cal.min, home: SETUP.cal.home};
+    const off = !!(document.querySelector('[data-cal=ok]')||{}).disabled;
+    document.querySelector('[data-cal=ok]').click();
+    const now = HW.channels()[9];
+    return {staged, off, min: now.min, home: now.home};
+  });
+  console.log('  ' + JSON.stringify(follow));
+  ok('an end that swallows the centre brings the centre with it',
+     follow.staged.min === 4400 && follow.staged.home === 4400, JSON.stringify(follow.staged));
+  ok('…so the end you typed is the one that lands, and saves',
+     !follow.off && follow.min === 4400 && follow.home === 4400, JSON.stringify(follow));
+  /* and the same for the gesture this dial is actually FOR: turn to the
+     shut end, press Set MIN, on a channel whose centre arrived on its old
+     shut end. If that were a refusal, the button in the middle of the
+     screen would refuse the first press of a normal calibration. */
+  const captured = await ev(()=>{
+    const c = HW.channels()[9];
+    c.min = 4000; c.max = 8000; c.home = 4000; HW.save(); HW.rebuild(true);
+    SETUP.cal = null; SETUP.sel = 9; setupRender();
+    calSet(4800);                                  // turn the dial to 1200 µs
+    document.querySelector('[data-cap=min]').click();
+    return {min: SETUP.cal.min, home: SETUP.cal.home,
+            off: !!(document.querySelector('[data-cal=ok]')||{}).disabled};
+  });
+  ok('capturing MIN past the centre is not a refusal either',
+     captured.min === 4800 && captured.home === 4800 && !captured.off, JSON.stringify(captured));
+
+  console.log('\n════ the walkthrough itself, typed in the same order ════');
+  const walk = await ev(()=>{
+    const c = HW.channels()[9];
+    c.min = 4000; c.max = 8000; c.home = 6000; HW.save(); HW.rebuild(true);
+    SETUP.cal = null; SETUP.sel = 9; setupRender();
+    const type = (id, v)=>{ const b = $(id); b.value = String(v);
+                            b.dispatchEvent(new Event('change', {bubbles:true})); };
+    type('calLmax', 2700);
+    type('calLmin', 2600);
+    type('calLctr', 1000);
+    const btn = document.querySelector('[data-cal=ok]'); btn.click();
+    const now = HW.channels()[9];
+    return {min: now.min, home: now.home, max: now.max,
+            words: (($('calSay')||{textContent:''}).textContent).replace(/\s+/g,' ').trim()};
+  });
+  console.log('  ' + JSON.stringify(walk));
+  ok('shut 2600 · centre 1000 · open 2700 is impossible to save',
+     !(walk.min === 10400 && walk.max === 10800 && walk.home === 4000), JSON.stringify(walk));
+  ok('…the channel keeps the ends it had', walk.min === 4000 && walk.max === 8000, JSON.stringify(walk));
+
+  console.log('\n════ the gate and calDrive() stay apart ════');
+  const drove = await ev(()=>{
+    const c = HW.channels()[9];
+    c.min = 4532; c.max = 7292; c.home = 6000; HW.save(); HW.rebuild(true);
+    SETUP.cal = null; SETUP.sel = 9; setupRender();
+    SETUP.cal.wide = true; setupCalRender();
+    calSet(9600);                       // 2400 µs: past the stored stops, inside 500–2500
+    return {min: c.min, max: c.max, target: HW.engine().st[9].target, pos: SETUP.cal.pos,
+            staged: [SETUP.cal.min, SETUP.cal.max]};
+  });
+  console.log('  ' + JSON.stringify(drove));
+  ok('the dial still reaches past the stored stops while you measure',
+     drove.target === 9600 && drove.pos === 9600, JSON.stringify(drove));
+  ok('…and the one-call widening is not mistaken for an end being set',
+     drove.min === 4532 && drove.max === 7292
+     && drove.staged[0] === 4532 && drove.staged[1] === 7292, JSON.stringify(drove));
+
+  console.log('\n════ the chip at the top of the table agrees with the control ════');
+  const chip = await ev(()=>{
+    const c = HW.channels()[9];
+    c.min = 10400; c.max = 10800; c.home = 4000;   // as a file would carry it
+    HW.save(); HW.rebuild(true); SETUP.cal = null; setupRender();
+    const f = document.querySelector('.pwflag.bad');
+    const say = $('calSay');
+    return {chip: f ? f.textContent.replace(/\s+/g,' ').trim() : '(no chip)',
+            title: f ? (f.getAttribute('title')||'') : '',
+            why: say ? say.textContent.replace(/\s+/g,' ').trim() : '(no message)'};
+  });
+  console.log('  ' + JSON.stringify(chip));
+  ok('the chip still counts what a FILE can still carry in', /channel/.test(chip.chip), chip.chip);
+  ok('…quoting the same band the control quotes',
+     /500/.test(chip.chip) && /2500/.test(chip.chip) && /500/.test(chip.why), chip.chip+' | '+chip.why);
+  ok('…and saying it cannot have been typed here', /file|import|older/i.test(chip.title), chip.title);
+  await ev(()=>{
+    const c = HW.channels()[9];
+    c.min = 4000; c.max = 8000; c.home = 6000; HW.save(); HW.rebuild(true);
+    SETUP.cal = null; setupRender();
+  });
+
   console.log('\n════ no page errors ════');
   ok('nothing threw', errs.length === 0, errs.slice(0,3).join(' | '));
 

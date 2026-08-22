@@ -73,9 +73,17 @@ $('sqVFull').addEventListener('click',()=>viewFrame('full'));
 function buildSequencer(){
   const seq = MSTR.loaded ? MSTR.sequences[EDIT.seq] : null;
   sqStepSync();                       /* the ramp step belongs to the ROUTINE (v1.66.0) */
+  /* THE HEADER AND THE SUMMARY PANEL ARE ONE READOUT (2026-08-22). This line
+     counted with a hard-coded 's' — "1 bricks", "1 frames" — and printed
+     seqTotal(), the sum of the COMPILED frames, while the inspector's summary
+     forty pixels away printed blockEnd(), the end of the last brick. On a
+     routine holding an unwired brick those are different numbers for the same
+     sequence: 1.0s here and 3.0s there. blkPlural() and blkLengthMs()
+     (blocks-ui.js) are now the single source of both. */
   $('seqName').textContent = seq
-    ? (seq.name + '  ·  ' + (blockIsRoutine(seq) ? blockList(seq).length+' bricks' : seq.frames.length+' frames')
-       + '  ·  ' + (seqTotal(seq)/1000).toFixed(1) + 's'
+    ? (seq.name + '  ·  ' + (blockIsRoutine(seq) ? blkPlural(blockList(seq).length,'brick')
+                                                 : blkPlural(seq.frames.length,'frame'))
+       + '  ·  ' + (blkLengthMs(seq)/1000).toFixed(1) + 's'
        + (BLK.adv ? '  ·  sub ' + scriptSubNameFor(seq) : ''))
     : 'no settings file — the Maestro tab can generate a starter';
   /* the snap picker is built by blkTimeline() into the ruler's corner cell

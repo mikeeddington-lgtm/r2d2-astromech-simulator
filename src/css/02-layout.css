@@ -217,13 +217,35 @@ select.msel:focus{outline:none;border-color:var(--cta)}
    resizes. Sizes persist in PREFS; double-click a handle to reset it. */
 #main{display:grid;grid-template-columns:minmax(0,1fr) 5px var(--sideW,372px);min-height:0}
 #left{display:grid;grid-template-rows:minmax(0,1fr) 5px var(--padH,258px);min-width:0;min-height:0}
+/* ---------- what a dragged edge may do to the text behind it ----------
+   SPLIT_LIMITS (app/splitters.js) keeps every pane big enough to be worth
+   having; this is the other half of that contract. A sketch name is longer
+   than any minimum can promise — Padawan360_body_mega_maestro_DY5_
+   audioplayer_BETA.ino is 52 characters — so when it must clip it has to
+   END, not be guillotined. Measured at the old sideW minimum of 260: the
+   name overhung #side's right edge by 27px and read
+   `Padawan360_mega_maestro_DYSV5W_PWM.`, which is a filename that does not
+   exist. It is a nowrap <code> in a prose paragraph, so it needs a box of
+   its own before text-overflow means anything. */
+#hwBlurb{min-width:0}
+#hwBlurb code{
+  display:inline-block;max-width:100%;vertical-align:bottom;
+  overflow:hidden;text-overflow:ellipsis;
+}
+
 .split{background:var(--line);position:relative;z-index:8;touch-action:none}
 .split:hover,.split.drag{background:var(--cta)}
 /* a 5px bar is a poor target — widen the hit area without moving the layout */
 .split::after{content:'';position:absolute;inset:-4px}
 #splitV{cursor:col-resize}
 #splitH{cursor:row-resize}
-#stage{position:relative;min-height:0;background:radial-gradient(ellipse at 50% 42%,var(--stageA) 0%,var(--stageB) 68%);min-width:0;min-height:0;overflow:hidden}
+/* container-type makes #stage a QUERY container (named `stagebox`) for the
+   overlays inside it. The stage's width is not the window's — body.seqbig
+   hands it --seqW, body.wizsplit hands it what the overlay leaves over — so
+   a media query is the wrong instrument twice over: it reads the window,
+   and applyUiScale()'s body{zoom} makes even that reading a lie. Everything
+   below that changes with how much stage there IS asks the stage. */
+#stage{position:relative;min-height:0;background:radial-gradient(ellipse at 50% 42%,var(--stageA) 0%,var(--stageB) 68%);min-width:0;min-height:0;overflow:hidden;container:stagebox / inline-size}
 /* the canvas must NOT contribute intrinsic size, or the grid column can
    never shrink when the window does — absolute-position it instead */
 #stage canvas{display:block;position:absolute;left:0;top:0;width:100%;height:100%;z-index:0}
@@ -241,7 +263,50 @@ select.msel:focus{outline:none;border-color:var(--cta)}
 .hudrow .v.gn{color:var(--gn)}
 .bar{width:74px;height:5px;background:var(--track);border-radius:3px;overflow:hidden;position:relative}
 .bar i{position:absolute;top:0;bottom:0;left:50%;background:var(--cy);transition:none}
-#stageTools{position:absolute;bottom:10px;right:12px;display:flex;gap:6px;pointer-events:auto;z-index:6}
+/* ---------- the stage toolbar (2026-08-22) ----------
+   Follow / Grid / Reset pose are the only way back when the orbit camera
+   loses the droid — which it does on the first successful drive — and they
+   were leaving the building. The row was `bottom:10px; right:12px` with no
+   left edge and no width: a shrink-to-fit box is FLOORED at its min-content
+   width, so the moment the nine buttons stopped fitting it kept its right
+   edge and grew LEFTWARDS, out of #stage and under whatever sits beside it.
+   Measured before this rule: at 800×600 Follow rendered at x=-161 with
+   body.scrollWidth === clientWidth === 800, so nothing scrolled it back; in
+   the SEQUENCE workspace at the default 1440×900 — no resizing at all —
+   Follow was at x=856 against a stage starting at x=950, i.e. 94px inside
+   the sequencer pane, invisible and unclickable.
+
+   max-width is the fix, and it is the whole fix: the box still hugs the
+   buttons while they fit (so it does not eat orbit drags across the width
+   of the stage), and it can never exceed the stage's own box less its
+   margins. The overflow then belongs to this row, which scrolls, instead of
+   to the stage, which loses it. flex:0 0 auto stops the buttons giving
+   ground instead — squashed to min-content, `Reset pose` wrapped onto two
+   lines and the row grew from 30px tall to 38 (the 1024×700 report). */
+#stageTools{
+  position:absolute;bottom:10px;right:12px;max-width:calc(100% - 24px);
+  display:flex;gap:6px;pointer-events:auto;z-index:6;
+  overflow-x:auto;overflow-y:hidden;overscroll-behavior-x:contain;
+  scrollbar-width:thin;scrollbar-color:var(--line2) transparent;
+}
+#stageTools > *{flex:0 0 auto}
+/* Below ~1000px of STAGE the row needs the whole bottom band: at its
+   natural 660px it reaches the orbit hint (12 + 305 + 12 + 660 ≈ 1000), and
+   two texts printed through each other is worse than one of them missing.
+   The hint is a first-run nicety and it is in the manual; the toolbar is
+   the recovery path, so the hint stands down. */
+@container stagebox (max-width:1000px){
+  #hudBL{display:none}
+}
+/* …and below 900 the row genuinely cannot hold every button at once, so it
+   SAYS so rather than quietly hiding four of them: a permanent thin
+   scrollbar under a tightened row. (A "…" overflow menu would be the
+   richer affordance, but it needs a button that does not exist in
+   body.html — see the hand-off note in the delivery.) */
+@container stagebox (max-width:900px){
+  #stageTools{overflow-x:scroll;padding-bottom:2px}
+  #stageTools .sbtn{padding:5px 7px;letter-spacing:.05em}
+}
 .sbtn{
   font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;
   /* was a hard-coded dark rgba, which in light mode put dark text on a dark

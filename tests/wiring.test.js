@@ -220,6 +220,167 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
     ['doorRL','doorRR','smallDoor','drawer'].includes(r.act)).every(r=>!r.board));
 
   /* ================================================================
+     ONE CHANNEL MAP (2026-08-22 — UX review §3.1 and the rest of §2.12)
+
+     Three surfaces answered "which servo is on which channel" at the same
+     moment, differently: the Board channel table (dome pies ch0-5, dome
+     panels ch6-19), the OUTPUTS tab (`PCA9685 @ 0x41 · BODY` with body
+     doors, `@ 0x42 · DOME PIES` with eleven pies) and the wiring sheet
+     (19 driven channels, dome only, plus ten body actuators in red).
+
+     The ruling: MSTR.channels — the table the bench edits, the engine
+     drives and the exporter writes — is the truth. OUTPUTS is allowed to
+     show what a sketch WOULD drive, but it has to say that in its heading
+     instead of printing it under one that reads as fact; and the sheet
+     has to read the table wherever one is loaded.
+     ================================================================ */
+  console.log('\n════ Outputs says whether it is the board table or a plan ════');
+  const outLive = await ev(()=>{
+    buildSet('domeServo','mod2026'); buildSet('bodyServo','mod2026');
+    buildSet('sound','mdyx5300'); buildSet('firmware','mod2026'); buildApply();
+    loadProfile('mod2026'); buildOutputs();
+    return {hasServos:PROFILE.hasServos,
+            heads:[...$('outHost').querySelectorAll('.sect > h3')].map(h=>h.textContent)
+                    .filter(t=>/PCA9685/.test(t))};
+  });
+  console.log('      ' + JSON.stringify(outLive.heads));
+  ok('the all-PCA9685 build really is running the PCA sketch', outLive.hasServos);
+  ok('the headings name the addresses the sketch itself uses — 0x40 and 0x41',
+     outLive.heads.some(t=>/0x40/.test(t)) && outLive.heads.some(t=>/0x41/.test(t))
+     && !outLive.heads.some(t=>/0x42/.test(t)), outLive.heads.join(' | '));
+  ok('…and both say they ARE this build\'s channel table',
+     outLive.heads.length===2 && outLive.heads.every(t=>/board table/i.test(t)),
+     outLive.heads.join(' | '));
+
+  const outPlan = await ev(()=>{
+    buildSet('domeServo','mini24'); buildSet('bodyServo','mod2026');
+    buildSet('firmware','mod2026'); buildApply(); loadProfile('mod2026'); buildOutputs();
+    return [...$('outHost').querySelectorAll('.sect > h3')].map(h=>h.textContent)
+             .filter(t=>/PCA9685/.test(t));
+  });
+  console.log('      ' + JSON.stringify(outPlan));
+  ok('a Maestro dome makes the dome PCA table a PLAN, and the heading says so',
+     outPlan.some(t=>/dome/i.test(t) && /planned/i.test(t)), outPlan.join(' | '));
+  ok('…while the body board this build really has still reads as the table',
+     outPlan.some(t=>/body/i.test(t) && !/planned/i.test(t)), outPlan.join(' | '));
+
+  console.log('\n════ the wiring sheet reads the Board channel table ════');
+  const tbl = await ev(()=>{
+    setBoard('mini24'); makeStarter('dome','mini24');
+    /* move pie0 where the PLANNED layout would never put it, name it, and
+       give it measured ends — reversed, so INV has something to say */
+    MSTR.channels.forEach(c=>{ if(c && c.act==='pie0') c.act=''; });
+    const c = MSTR.channels[21];
+    c.mode='Servo'; c.act='pie0'; c.name='Top left pie';
+    c.min=7600; c.max=5200; c.invert=false;          // min is shut, max is open
+    const r = wiringRows().find(x=>x.act==='pie0') || {};
+    return {ch:r.ch, chName:r.chName, travel:r.travel, invert:r.invert,
+            board:r.board, planned:r.planned,
+            stillSaysSetOnTheBoard: wiringRows().filter(x=>/set on the board/.test(x.travel||'')).length};
+  });
+  console.log('      ' + JSON.stringify(tbl));
+  ok('a channel moved on the board moves on the sheet', tbl.ch===21, JSON.stringify(tbl));
+  ok('…under the name the board table carries', tbl.chName==='Top left pie', String(tbl.chName));
+  ok('TRAVEL is that channel\'s own endpoints, shut → open',
+     /^1900–1300 µs$/.test(tbl.travel||''), String(tbl.travel));
+  ok('INV says so when the open end is the lower number', tbl.invert==='yes', String(tbl.invert));
+  ok('no channel on a loaded board still says "set on the board"',
+     tbl.stillSaysSetOnTheBoard===0, tbl.stillSaysSetOnTheBoard+' rows');
+  ok('a board with NO table loaded is marked planned rather than stated', await ev(()=>{
+    buildSet('domeServo','mini24'); buildSet('bodyServo','mini12');
+    buildSet('firmware','mod2026'); buildApply(); loadProfile('mod2026');
+    setBoard('mini24');                       // the table is the DOME's, not the body's
+    const rows = wiringRows().filter(r=>r.board);
+    const dome = rows.filter(r=>/dome/.test(r.board)), body = rows.filter(r=>/body/.test(r.board));
+    return dome.length && body.length && dome.every(r=>!r.planned) && body.every(r=>r.planned)
+        && /planned/i.test(wiringHtml());
+  }), await ev(()=>Array.from(new Set(wiringRows().filter(r=>r.board).map(r=>r.board+(r.planned?' [planned]':'')))).join(' + ')));
+
+  console.log('\n════ the undriven count is on screen, before the export ════');
+  /* the build the walkthrough had: ten of twenty-nine rigged actuators with
+     no channel at all, and the only way to learn that was to download the
+     sheet and read a red column */
+  await ev(()=>{
+    buildSet('domeServo','mod2026'); buildSet('bodyServo','mod2026');
+    buildSet('firmware','mod2026'); buildApply(); loadProfile('mod2026');
+    wizOpen(wizSteps().findIndex(s=>s.key==='_wiring'));
+  });
+  await page.waitForTimeout(300);
+  const cnt = await ev(()=>{
+    const bar = [...$('startupBody').querySelectorAll('.conbar')]
+      .find(b=>[...b.querySelectorAll('button')].some(x=>/wiring sheet/i.test(x.textContent)));
+    const note = bar ? bar.parentNode.querySelector('.wirecount') : null;
+    const rows = wiringRows();
+    const out = {bar:!!bar, text:note?note.textContent:'',
+                 undriven:rows.filter(r=>!r.board).length, total:rows.length};
+    closeStartup();
+    return out;
+  });
+  console.log('      ' + JSON.stringify(cnt));
+  ok('the wiring step still offers the export', cnt.bar);
+  ok('this build really does have parts nothing drives', cnt.undriven>0, cnt.undriven+' of '+cnt.total);
+  ok('the count of parts nothing drives is beside the button, before you export',
+     !!cnt.text, cnt.text);
+  ok('…and it is the same number the sheet prints',
+     cnt.text.indexOf(String(cnt.undriven))>=0 && cnt.text.indexOf(String(cnt.total))>=0,
+     cnt.undriven+' of '+cnt.total+' — bar says "'+cnt.text+'"');
+
+  /* ================================================================
+     v1.70.0 — Q7 gained a THIRD answer, "Not decided yet", and its own
+     option note promises "it is on the wiring sheet as undecided so the
+     loom does not get drawn round a guess". It fell through the
+     `pwm ? FSESC : Sabertooth` ternary and drew a Sabertooth.
+     ================================================================ */
+  console.log('\n════ undecided feet are drawn as undecided ════');
+  const feet = await ev(()=>{
+    CFG.FOOT_CONTROLLER = 1;                    // the worst case: a stale constant
+    buildSet('bodyDrive','undecided'); buildApply();
+    const L = systemLinks().filter(k=>k.sub==='foot drive');
+    return {n:L.length, names:L.map(k=>k.name), live:L.map(k=>!!k.live),
+            why:L.map(k=>k.why||'').join(' ')};
+  });
+  console.log('      ' + JSON.stringify(feet));
+  ok('the loom does not guess a Sabertooth — or a hub ESC',
+     !feet.names.some(n=>/Sabertooth|FSESC/.test(n)), JSON.stringify(feet.names));
+  ok('it draws one undecided foot-drive row instead, not driven',
+     feet.n===1 && /not decided|undecided|not chosen/i.test(feet.names[0]) && feet.live[0]===false,
+     JSON.stringify(feet));
+  ok('…and says why, so the row is an open question and not an omission',
+     /decid|chos/i.test(feet.why), feet.why);
+  await ev(()=>{ CFG.FOOT_CONTROLLER = 0; buildSet('bodyDrive','sabertooth'); buildApply(); });
+
+  console.log('\n════ the sketch filename the sheet prints ════');
+  ok('no profile carries a stray space in its .ino name', await ev(()=>
+    PROFILE_ORDER.every(id=>!/\s/.test(PROFILES[id].file))),
+    await ev(()=>PROFILE_ORDER.map(id=>PROFILES[id].file).join(' | ')));
+  ok('mod2026 is padawan_secure_mode.ino, the name a checkout actually has', await ev(()=>
+    PROFILES.mod2026.file === 'padawan_secure_mode.ino'), await ev(()=>PROFILES.mod2026.file));
+
+  /* ================================================================
+     §3.4 — "NOT SET UP YET" printed over a complete list of the answers.
+     buildConfigured() is PREFS.build.done, which only the Finish job
+     sets; the predicate is deliberately left alone (it guards the boot
+     wizard), so the HEADING gains the middle state it was missing.
+     ================================================================ */
+  console.log('\n════ Configure does not deny nine answers it is printing ════');
+  const cfgHead = await ev(()=>{
+    const b = buildGet(), done0 = b.done, seen0 = PREFS.seenStartup;
+    const read = ()=>{ buildConfig(); const h = $('cfgHost').querySelector('.sect h3'); return h?h.textContent:''; };
+    b.done = false; PREFS.seenStartup = false; const fresh    = read();
+    b.done = false; PREFS.seenStartup = true;  const answered = read();
+    b.done = true;                             const done     = read();
+    b.done = done0; PREFS.seenStartup = seen0; buildConfig();
+    return {fresh, answered, done, rows: buildSummaryRows().length};
+  });
+  console.log('      ' + JSON.stringify(cfgHead));
+  ok('a droid nobody has answered for still says so', /not set up yet/i.test(cfgHead.fresh), cfgHead.fresh);
+  ok('answers given but never finished read as answered, not as nothing',
+     /answered, not finished/i.test(cfgHead.answered) && !/not set up yet/i.test(cfgHead.answered),
+     cfgHead.answered);
+  ok('…and a finished setup still reads configured', /configured/i.test(cfgHead.done)
+     && !/not set up yet/i.test(cfgHead.done), cfgHead.done);
+
+  /* ================================================================
      ONE CLOCK ON THE SHEET
 
      The filename comes from fileStamp() (core/util.js), whose contract is

@@ -79,8 +79,55 @@ function selectRepaint(){
    exactly this as the fifth guard; the droid's own is the sixth.
    deselectPart() is deliberately NOT guarded: it only ever closes, and
    kioskEnter() calls it on the way in. */
-function selectPart(name){
+
+/* =================== IS A PARTS PANE OPEN? (v1.70.1)
+
+   The second guard, and it is about the OTHER way this card arrives
+   unasked. Kiosk is a stranger at a show; this is the owner, on their own
+   laptop, clicking the canvas to give the stage keyboard focus before
+   pressing a key — and getting #selcard on whichever panel the ray hit.
+   The card is not a hover tooltip: it is the part's whole configuration
+   (rename, colour, groups, pivot/travel, and the Maestro channel re-map
+   that rewrites MSTR.channels[n].act). A pointing device should not open
+   an editor for something you were not editing.
+
+   The owner's ruling is a PLACE, not a modifier: the plain click keeps
+   working where you are already doing part work, and does nothing on the
+   Drive screen. Two places qualify and the app already says both of them
+   out loud, so nothing new has to be tracked:
+
+     · Configure → Model (#pCad) — the pane this card IS. Every editor on
+       the card has its twin in there, so a click that opens it is a click
+       into the pane you are looking at. `.act` is app/panels.js's own tab
+       state, and applyWs() keeps it honest when a workspace change hides
+       the tab, so this answers "open" rather than "exists".
+
+     · the setup's Panels step — '_panels' is in WIZ_SPLIT (config/
+       wizard.js), the list of steps that give up half the window to the
+       stage PRECISELY so you can click the part you are assigning. The
+       overlay owns the window while it is up, so it is asked first and it
+       answers for the whole app: any other step of it is not part work.
+
+   Deliberately NOT a workspace test. 'config' also holds the Config tab,
+   which is sketch constants, and the two legitimate non-pointer callers
+   (config/tab.js's assign-row Test, app/panels.js's Outputs row) sit in
+   panes this returns false for — the Outputs table is a DRIVE pane. They
+   pass no `from`, so they are unaffected: this gates the pointer path,
+   not the card. */
+function selPartsPaneOpen(){
+  const su = $('startup');
+  if(su && su.classList.contains('on')){
+    if(typeof wizSteps !== 'function' || typeof WIZ === 'undefined') return false;
+    const st = wizSteps()[WIZ.i];
+    return !!(st && st.key === '_panels');
+  }
+  const p = $('pCad');
+  return !!(p && p.classList.contains('act'));
+}
+
+function selectPart(name, from){
   if(typeof kioskOn === 'function' && kioskOn()) return;
+  if(from === 'stage' && !selPartsPaneOpen()) return;
   SEL.name = name;
   applyPaint();                                    // repaints all, then selectRepaint() highlights
   buildSelCard();
@@ -420,8 +467,13 @@ function initSelect(){
     const dt = performance.now()-d0.t;
     d0=null;
     if(moved>6 || dt>500) return;                  // that was an orbit drag
+    /* v1.70.1 — "does nothing on the Drive screen" includes the miss: a
+       click on empty stage used to deselect, which would shut a card the
+       Outputs row had just opened. So the whole pick is skipped, and
+       selectPart()'s own guard below stands behind it. */
+    if(!selPartsPaneOpen()) return;
     const name = pickAt(e.clientX, e.clientY);
-    if(name) selectPart(name);
+    if(name) selectPart(name, 'stage');
     else deselectPart();
   });
   window.addEventListener('keydown', e=>{
