@@ -31,10 +31,30 @@ g++ -std=c++11 -O1 -Wall -Wno-unused-variable \
 timeout 30 /tmp/maestrotracks_test
 
 echo
-echo "== engine: the ESP32's direct-pin backend (peripheral faked) =="
+echo "== engine: the ESP32's direct-pin backend, on BOTH arduino-esp32 cores =="
+# TWICE, and that is the point. 2.x makes you pick an LEDC CHANNEL and hang
+# a pin on it; 3.x hides channels and addresses everything by pin. Until
+# v1.68.0 only the 3.x spelling had ever been compiled by anything, and the
+# 2.x branch used the GPIO NUMBER as the channel — so twelve of the sixteen
+# default servo pins asked for channels that do not exist, the writes went
+# to a channel with no pin on it, and not one servo would have moved. The
+# fake peripheral refuses exactly what the silicon refuses, so the same
+# assertions run through both and neither can drift.
+for core in 3 2; do
+  g++ -std=c++11 -O1 -Wall -Wno-unused-variable \
+      -I shim -I . -DMPCA_TEST_CORE=$core \
+      ledc_test.cpp ../src/MaestroPCA.cpp -o /tmp/maestroledc_test_$core
+  echo "   -- arduino-esp32 core $core --"
+  timeout 30 /tmp/maestroledc_test_$core
+done
+
+echo
+echo "== what the SERVO is shown: LEDC vs PCA9685, and a blocked loop =="
+# Not a unit test — a measurement, kept because the answer is the reason
+# Esp32Droid ships with its radio off. See the header of ripple_test.cpp.
 g++ -std=c++11 -O1 -Wall -Wno-unused-variable \
-    -I shim ledc_test.cpp ../src/MaestroPCA.cpp -o /tmp/maestroledc_test
-timeout 30 /tmp/maestroledc_test
+    -I shim -I . ripple_test.cpp ../src/MaestroPCA.cpp -o /tmp/maestroripple_test
+timeout 90 /tmp/maestroripple_test
 
 echo
 echo "== engine: split across two boards, one down a wire =="
@@ -67,16 +87,22 @@ echo "== the droid sketch carries its own copy of the library =="
 # they are not, this says which file and how to fix it — because a drifted
 # copy in the sketch that ends up in the droid is the worst place for one.
 SKETCH=../examples/MaestroReplacement
+BENCH=../../bench-sketches/R2_Bench_Console
+E32=../examples/Esp32Droid
 COPIES="MpcaScan.h MaestroPCA.h MaestroPCA.cpp MaestroLink.h MaestroLink.cpp"
 # R2_Bench_Console carries the same five, and is checked for the same reason —
 # it was found MISSING MpcaScan.h entirely, which is the failure this guard is
 # for: not a copy that drifted, a copy that was never there. The sketch
 # compiled anyway for as long as the library happened to be installed, and
 # stopped the moment it was not.
-BENCH=../../bench-sketches/R2_Bench_Console
+#
+# MpcaEsp32.h is carried ONLY by the two that include it — the bench console
+# on BT_LEDC and Esp32Droid. MaestroReplacement neither includes nor carries
+# it, deliberately: a copy nobody compiles is a copy that rots unnoticed.
 drift=0
-for d in "$SKETCH" "$BENCH"; do
-  for f in $COPIES; do
+check_copies(){
+  d=$1; shift
+  for f in "$@"; do
     if [ ! -f "$d/$f" ]; then
       echo "  FAIL  $(basename $d)/$f is MISSING            —   cp ../src/$f $d/$f"
       drift=1
@@ -87,12 +113,19 @@ for d in "$SKETCH" "$BENCH"; do
       drift=1
     fi
   done
-done
+}
+check_copies "$SKETCH" $COPIES
+check_copies "$BENCH"  $COPIES MpcaEsp32.h
+check_copies "$E32"    $COPIES MpcaEsp32.h
+
 # and every one of our includes must be QUOTED: an <angled> include is only
-# found on the LIBRARY path, so a folder carrying its own copies cannot use it
-for d in "$SKETCH" "$BENCH"; do
+# found on the LIBRARY path, so a folder carrying its own copies cannot use
+# it. MpcaEsp32 was added to this list in v1.68.0 — it had been missing from
+# it since the guard was written, and BOTH ESP sketches were including it
+# with angles the whole time, in front of a green suite.
+for d in "$SKETCH" "$BENCH" "$E32"; do
   for f in "$d"/*.ino; do
-    bad=$(grep -n '#include *<\(MaestroPCA\|MaestroLink\|MpcaScan\)\.h>' "$f" || true)
+    bad=$(grep -n '#include *<\(MaestroPCA\|MaestroLink\|MpcaScan\|MpcaEsp32\)\.h>' "$f" || true)
     if [ -n "$bad" ]; then
       echo "  FAIL  $(basename $f) includes ours with <angles>, which the sketch folder is not searched for:"
       echo "$bad" | sed 's/^/          /'
@@ -159,19 +192,57 @@ echo "== the ESP32 sketches compile (against a faked ESP32) =="
 # compile check that had stopped working the moment it was written (v1.33.0
 # added it, v1.53.0 found it): the only symptom of a broken step was a step
 # that printed no PASS, which is exactly what a silent step looks like.
-g++ -std=c++11 -O0 -w \
-    -I shim -I esp32shim -I ../src \
-    esp32shim/compile_esp32.cpp ../src/MaestroPCA.cpp ../src/MaestroLink.cpp \
-    -o /tmp/maestroesp32_compile
-timeout 30 /tmp/maestroesp32_compile
-g++ -std=c++11 -O0 -w \
-    -I shim -I esp32shim -I ../src \
-    esp32shim/compile_esp32_slave.cpp ../src/MaestroPCA.cpp ../src/MaestroLink.cpp \
-    -o /tmp/maestroesp32slave_compile
-timeout 30 /tmp/maestroesp32slave_compile
+#
+# Esp32Droid is now built FROM ITS OWN FOLDER, with no -I at ../src — the
+# route a builder takes with the pack. And on every combination that
+# changes which code is compiled: two cores x radio on/off x pins/expander.
+# Each one is reached by editing a COPY of Config.h, because that is how a
+# user reaches it; a -D flag would test a route nobody takes.
+for core in 3 2; do
+  for wifi in 0 1; do
+    for direct in 1 0; do
+      rm -rf /tmp/e32pack
+      cp -r ../examples/Esp32Droid /tmp/e32pack
+      sed -i "s/^#define ESP_WIFI           0/#define ESP_WIFI           $wifi/" /tmp/e32pack/Config.h
+      sed -i "s/^#define MPCA_DIRECT_PINS   1/#define MPCA_DIRECT_PINS   $direct/" /tmp/e32pack/Config.h
+      grep -q "^#define ESP_WIFI           $wifi" /tmp/e32pack/Config.h || {
+        echo "  FAIL  could not switch ESP_WIFI in Config.h — has the line moved?"; exit 1; }
+      grep -q "^#define MPCA_DIRECT_PINS   $direct" /tmp/e32pack/Config.h || {
+        echo "  FAIL  could not switch MPCA_DIRECT_PINS in Config.h — has the line moved?"; exit 1; }
+      g++ -std=c++11 -O0 -w \
+          -I shim -I esp32shim -I /tmp/e32pack \
+          -DMPCA_SHIM_CORE=$core -DESP32_INO='"/tmp/e32pack/Esp32Droid.ino"' \
+          esp32shim/compile_esp32.cpp /tmp/e32pack/MaestroPCA.cpp /tmp/e32pack/MaestroLink.cpp \
+          -o /tmp/maestroesp32_compile
+      printf "   core %s · ESP_WIFI %s · MPCA_DIRECT_PINS %s   " "$core" "$wifi" "$direct"
+      timeout 30 /tmp/maestroesp32_compile
+    done
+  done
+  g++ -std=c++11 -O0 -w \
+      -I shim -I esp32shim -I ../src -DMPCA_SHIM_CORE=$core \
+      esp32shim/compile_esp32_slave.cpp ../src/MaestroPCA.cpp ../src/MaestroLink.cpp \
+      -o /tmp/maestroesp32slave_compile
+  printf "   core %s   " "$core"
+  timeout 30 /tmp/maestroesp32slave_compile
+done
+
+# THE CEILING IS A COMPILE ERROR, not a comment. Sixteen is the LEDC
+# peripheral's channel count; a bigger table used to leave the top channels
+# quietly dead with only a runtime warning nobody reads on a droid with no
+# serial monitor attached. Asserted to FIRE, because a guard that has
+# stopped working looks exactly like a guard that is not needed.
+rm -rf /tmp/e32big && cp -r ../examples/Esp32Droid /tmp/e32big
+sed -i 's/^#define MPCA_CHANNELS  8/#define MPCA_CHANNELS  24/' /tmp/e32big/sequences.h
+if g++ -std=c++11 -O0 -w -I shim -I esp32shim -I /tmp/e32big \
+       -DESP32_INO='"/tmp/e32big/Esp32Droid.ino"' esp32shim/compile_esp32.cpp -fsyntax-only 2>/dev/null; then
+  echo "  FAIL  a 24-channel table on ESP32 pins BUILT — the ceiling guard is not working"
+  exit 1
+else
+  echo "  PASS  a table bigger than LEDC can drive refuses to build"
+fi
 
 echo
-echo "== the bench console compiles, on BOTH back ends =="
+echo "== the bench console compiles, on ALL THREE back ends =="
 # The sketch a human types at with a droid on the bench, compiled against
 # Pololu's REAL library rather than a stand-in for it. It had no compile
 # check at all until v1.67.0 — and it is the sketch that was found missing
@@ -183,18 +254,42 @@ g++ -std=c++11 -O0 -w \
     compile_bench_console.cpp "$POLOLU/PololuMaestro.cpp" -o /tmp/bench_maestro
 timeout 30 /tmp/bench_maestro
 
-# The OTHER back end, reached the way a user reaches it: copy the folder,
+# The OTHER back ends, reached the way a user reaches them: copy the folder,
 # edit BENCH_TARGET in Config.h. A -D flag would test a route nobody takes.
-rm -rf /tmp/bench_pca
-cp -r ../../bench-sketches/R2_Bench_Console /tmp/bench_pca
-sed -i 's/^#define BENCH_TARGET   BT_MAESTRO/#define BENCH_TARGET   BT_PCA/' /tmp/bench_pca/Config.h
-grep -q '^#define BENCH_TARGET   BT_PCA' /tmp/bench_pca/Config.h || {
-  echo "  FAIL  could not switch BENCH_TARGET in Config.h — has the line moved?"; exit 1; }
-g++ -std=c++11 -O0 -w \
-    -I shim -I . -I "$POLOLU" -I /tmp/bench_pca -DBENCH_INO='"/tmp/bench_pca/R2_Bench_Console.ino"' \
-    compile_bench_console.cpp /tmp/bench_pca/MaestroPCA.cpp /tmp/bench_pca/MaestroLink.cpp \
-    -o /tmp/bench_pca_bin
-timeout 30 /tmp/bench_pca_bin
+#
+# BT_LEDC had NO compile check of any kind until v1.68.0 — "BOTH back ends"
+# meant BT_MAESTRO and BT_PCA, and the third was the one carrying an
+# <angled> include of a header that lives beside the sketch.
+bench_backend(){                 # $1 = BT_*, $2 = extra g++ flags, $3 = label
+  rm -rf /tmp/bench_alt
+  cp -r ../../bench-sketches/R2_Bench_Console /tmp/bench_alt
+  sed -i "s/^#define BENCH_TARGET   BT_MAESTRO/#define BENCH_TARGET   $1/" /tmp/bench_alt/Config.h
+  grep -q "^#define BENCH_TARGET   $1" /tmp/bench_alt/Config.h || {
+    echo "  FAIL  could not switch BENCH_TARGET to $1 in Config.h — has the line moved?"; exit 1; }
+  g++ -std=c++11 -O0 -w \
+      -I shim -I . -I "$POLOLU" -I /tmp/bench_alt $2 \
+      -DBENCH_INO='"/tmp/bench_alt/R2_Bench_Console.ino"' \
+      compile_bench_console.cpp /tmp/bench_alt/MaestroPCA.cpp /tmp/bench_alt/MaestroLink.cpp \
+      -o /tmp/bench_alt_bin
+  printf "%s" "${3:-}"
+  timeout 30 /tmp/bench_alt_bin
+}
+bench_backend BT_PCA  ""                                  ""
+bench_backend BT_LEDC "-DBENCH_LEDC -DMPCA_SHIM_CORE=3"   "   core 3 "
+bench_backend BT_LEDC "-DBENCH_LEDC -DMPCA_SHIM_CORE=2"   "   core 2 "
+
+# and the same ceiling, in the console this time
+rm -rf /tmp/bench_big && cp -r ../../bench-sketches/R2_Bench_Console /tmp/bench_big
+sed -i 's/^#define BENCH_TARGET   BT_MAESTRO/#define BENCH_TARGET   BT_LEDC/' /tmp/bench_big/Config.h
+sed -i 's/^#define MPCA_CHANNELS  8/#define MPCA_CHANNELS  32/' /tmp/bench_big/sequences.h
+if g++ -std=c++11 -O0 -w -I shim -I . -I "$POLOLU" -I /tmp/bench_big -DBENCH_LEDC \
+       -DBENCH_INO='"/tmp/bench_big/R2_Bench_Console.ino"' \
+       compile_bench_console.cpp -fsyntax-only 2>/dev/null; then
+  echo "  FAIL  32 channels on BT_LEDC BUILT — the ceiling guard is not working"
+  exit 1
+else
+  echo "  PASS  32 channels on BT_LEDC refuses to build"
+fi
 
 echo
 echo "== the downloadable packs still build =="

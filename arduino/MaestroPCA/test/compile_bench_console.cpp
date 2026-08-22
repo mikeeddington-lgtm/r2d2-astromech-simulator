@@ -58,7 +58,27 @@ FakeSerial Serial1;
 #define HEX 16
 #endif
 
-/* run.sh points this at a temp copy for the second back end. */
+/* BT_LEDC needs to look like an ESP32 to the preprocessor, because that is
+   the only thing that makes MpcaEsp32.h compile to anything at all — on a
+   real build the core defines ESP32 for you. The peripheral underneath is
+   ledcfake.h, which enforces the core's own channel rules rather than
+   swallowing everything; see ledc_test.cpp. MPCA_SHIM_CORE picks 2 or 3.
+
+   Until v1.68.0 this back end had NO compile check of any kind. run.sh
+   said "on BOTH back ends" and meant BT_MAESTRO and BT_PCA — the third
+   was never built by the harness or by CI, and it was the one carrying an
+   <angled> include of a header that lives beside the sketch. */
+#ifdef BENCH_LEDC
+  #define ESP32 1
+  #ifndef MPCA_SHIM_CORE
+  #define MPCA_SHIM_CORE 3
+  #endif
+  #define ESP_ARDUINO_VERSION_MAJOR MPCA_SHIM_CORE
+  #define MPCA_FAKE_CORE MPCA_SHIM_CORE
+  #include "esp32shim/ledcfake.h"
+#endif
+
+/* run.sh points this at a temp copy for the second and third back ends. */
 #ifndef BENCH_INO
 #define BENCH_INO "../../bench-sketches/R2_Bench_Console/R2_Bench_Console.ino"
 #endif
@@ -86,7 +106,11 @@ int main(){
                    "  (%d channels, %d slots, no null rows)\n",
                    (int)chanCount(), (int)SLOT_COUNT);
 #else
-  if(!fail) printf("  PASS  R2_Bench_Console.ino compiles and boots on the PCA back end\n");
+  /* BACKEND_NAME is the sketch's own word for what it is driving, so a run
+     that quietly compiled the wrong back end says so instead of printing a
+     line that fits either. That has happened once already — the console sat
+     pointed at the wrong target for an evening. */
+  if(!fail) printf("  PASS  R2_Bench_Console.ino compiles and boots on %s\n", BACKEND_NAME);
 #endif
   return fail;
 }

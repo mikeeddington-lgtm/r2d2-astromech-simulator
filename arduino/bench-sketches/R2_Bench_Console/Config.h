@@ -154,6 +154,16 @@
 #define PCA_OSC_HZ      25000000UL   /* trim only after measuring a pulse */
 #define PCA_SERVO_HZ    50.0f
 
+/* BT_LEDC only — the GPIO for each CHANNEL, in channel order, so
+   LEDC_PINS_LIST[i] is where channel i comes out. Sixteen max: that is
+   the LEDC peripheral's channel count, not a setting.
+
+   Avoid 6-11 (wired to the flash chip), 34-39 (input only) and 0/2/12/15
+   (strapping pins — they decide how the chip boots) unless you know what
+   a servo holding that line at power-up will do. */
+#define LEDC_PINS_LIST  13, 14, 27, 26, 25, 33, 32,  4, \
+                        16, 17,  5, 18, 19, 21, 22, 23
+
 /* How long to wait for a board that may not be wired to answer. Raise it
    if you are on a long or slow link; a silent board is REPORTED silent
    rather than hanging the sketch, which is most of why this exists. */

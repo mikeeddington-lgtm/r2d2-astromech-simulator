@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =====================================================================
-#  Build the two ready-to-run sketch packs the README links to.
+#  Build the ready-to-run sketch packs the README links to.
 #
 #  A pack is ONE FOLDER a stranger unzips into Documents\Arduino\, opens,
 #  edits Config.h in, and uploads. One library from Library Manager and
@@ -28,21 +28,31 @@ SRC=../MaestroPCA/src
 OUT=dist
 COPIES="MpcaScan.h MaestroPCA.h MaestroPCA.cpp MaestroLink.h MaestroLink.cpp"
 
-PACKS="R2_Bench_Console:../bench-sketches/R2_Bench_Console
-MaestroReplacement:../MaestroPCA/examples/MaestroReplacement"
+# name : folder : any EXTRA library files that folder needs beyond $COPIES.
+#
+# MpcaEsp32.h is carried only by the two sketches that actually include it.
+# MaestroReplacement does not, and deliberately does not carry it: a copy
+# nobody compiles is a copy that rots without anything noticing, which is
+# the whole reason these are checked byte-for-byte rather than trusted.
+PACKS="R2_Bench_Console:../bench-sketches/R2_Bench_Console:MpcaEsp32.h
+MaestroReplacement:../MaestroPCA/examples/MaestroReplacement:
+Esp32Droid:../MaestroPCA/examples/Esp32Droid:MpcaEsp32.h"
 
 rm -rf "$OUT"; mkdir -p "$OUT"
 fail=0
 
 for entry in $PACKS; do
   name=${entry%%:*}
-  dir=${entry#*:}
+  rest=${entry#*:}
+  dir=${rest%%:*}
+  extras=${rest#*:}
+  packcopies="$COPIES $extras"
 
   echo "── $name  ($dir)"
 
   # ---- a pack that is missing a file is worse than no pack at all: it
   #      fails on the stranger's machine, with an error about OUR header.
-  for f in $COPIES; do
+  for f in $packcopies; do
     if [ ! -f "$dir/$f" ]; then
       echo "   FAIL  $f is missing          —   cp $SRC/$f $dir/$f"; fail=1
     elif ! cmp -s "$SRC/$f" "$dir/$f"; then
@@ -62,7 +72,7 @@ for entry in $PACKS; do
   #      scratch — sequencesold.h sat beside the sketch for four days —
   #      and a glob ships it to strangers. Name what goes in; anything else
   #      stays behind.
-  MANIFEST="$name.ino Config.h sequences.h README.md $COPIES"
+  MANIFEST="$name.ino Config.h sequences.h README.md $packcopies"
   for f in $MANIFEST; do
     [ -f "$dir/$f" ] || { echo "   FAIL  $f is missing from $dir"; fail=1; }
   done
@@ -73,7 +83,7 @@ for entry in $PACKS; do
   #      bench session already.
   for f in $MANIFEST; do
     [ -f "$dir/$f" ] || continue
-    if grep -q '#include *<\(MaestroPCA\|MaestroLink\|MpcaScan\)\.h>' "$dir/$f"; then
+    if grep -q '#include *<\(MaestroPCA\|MaestroLink\|MpcaScan\|MpcaEsp32\)\.h>' "$dir/$f"; then
       echo "   FAIL  $name/$f includes ours with <angles>"; fail=1
     fi
   done

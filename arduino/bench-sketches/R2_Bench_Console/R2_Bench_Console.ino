@@ -164,10 +164,13 @@
 
 #if BENCH_TARGET == BT_LEDC
   /* LEDC_PINS[i] is the GPIO for CHANNEL i - the `pin` column of the
-     table indexes THIS array. Avoid the strapping pins (0, 2, 12, 15)
-     if a servo can hold a line at boot; they are left out here. */
-  static const uint8_t LEDC_PINS[] = { 13, 14, 27, 26, 25, 33, 32, 4,
-                                       16, 17,  5, 18, 19, 21, 22, 23 };
+     table indexes THIS array. The list itself is in Config.h, with the
+     rest of the settings; the COUNT is derived from it here so the two
+     can never be edited apart. */
+  static const uint8_t LEDC_PINS[] = { LEDC_PINS_LIST };
+  /* the channel-count guard lives with the rig below, NOT here: sequences.h
+     has not been included yet at this point, so MPCA_CHANNELS is undefined
+     and `#if MPCA_CHANNELS > 16` would quietly read it as zero and pass. */
 #endif
 
 
@@ -210,7 +213,13 @@
                        MPCA_CHANNEL_TABLE, MPCA_CHANNELS,
                        MPCA_SEQ_TABLE, MPCA_SEQUENCES);
   #else
-    #include <MpcaEsp32.h>
+    #include "MpcaEsp32.h"
+    /* Sixteen is the LEDC peripheral's channel count, not a setting. The
+       runtime warning in setup() stays as well — it catches the other
+       direction, a table SMALLER than the pin list. */
+    #if MPCA_CHANNELS > 16
+      #error "BT_LEDC drives at most 16 channels - that is the ESP32's LEDC channel count, not a setting. Your sequences.h declares more. Use BT_PCA with PCA9685 boards, or export a smaller table."
+    #endif
     MpcaLedcOutput ledcOut(LEDC_PINS, sizeof(LEDC_PINS));
     MaestroPCA maestro(ledcOut,
                        MPCA_CHANNEL_TABLE, MPCA_CHANNELS,

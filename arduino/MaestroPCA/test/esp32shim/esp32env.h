@@ -4,19 +4,29 @@
    installing a 2 GB toolchain, and without waiting for Mike to find them
    with a board in his hand.
 
-   What this canNOT tell you: whether ledcWrite does the right thing, or
-   whether the WiFi joins. Those need silicon. */
+   What this canNOT tell you: whether the silicon then emits the pulse, or
+   whether the WiFi joins. Those need a board.
+
+   MPCA_SHIM_CORE picks which arduino-esp32 API the sketch is compiled
+   against — 2 or 3. run.sh builds both, because the two address the LEDC
+   peripheral completely differently and until v1.68.0 only the 3.x branch
+   had ever been compiled by anything. */
 #pragma once
 #include <string>
 #include <cstdint>
 #include <cstdio>
 
 #define ESP32 1
-#define ESP_ARDUINO_VERSION_MAJOR 3
+#ifndef MPCA_SHIM_CORE
+#define MPCA_SHIM_CORE 3
+#endif
+#define ESP_ARDUINO_VERSION_MAJOR MPCA_SHIM_CORE
 
-/* --- the LEDC peripheral, recorded rather than performed --- */
-inline void ledcAttach(uint8_t pin, uint32_t hz, uint8_t bits){ (void)pin;(void)hz;(void)bits; }
-inline void ledcWrite(uint8_t pin, uint32_t duty){ (void)pin;(void)duty; }
+/* --- the LEDC peripheral. Not a no-op: ledcfake.h enforces the core's
+   own rules, so a sketch that confuses a GPIO with a channel is caught
+   here rather than on a bench. --- */
+#define MPCA_FAKE_CORE MPCA_SHIM_CORE
+#include "ledcfake.h"
 
 /* --- String, the one Arduino type this sketch really uses --- */
 class String : public std::string {

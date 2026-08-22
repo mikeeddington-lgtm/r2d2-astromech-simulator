@@ -15,14 +15,21 @@
 #include <cstdio>
 #include <cstring>
 
-/* the fake peripheral — recorded, then asserted */
-struct LedcCall { uint8_t gpio, idx; uint16_t duty; };
-static LedcCall g_last[32];
-static int g_calls = 0;
-static void mpcaLedcFake(uint8_t gpio, uint8_t idx, uint16_t duty){
-  if(idx < 32){ g_last[idx].gpio = gpio; g_last[idx].idx = idx; g_last[idx].duty = duty; }
-  g_calls++;
-}
+/* The fake peripheral enforces the core's own rules — an out-of-range
+   channel, an unconfigured channel and an unattached write are all
+   REFUSED and counted, rather than quietly accepted. See ledcfake.h.
+
+   MPCA_TEST_CORE picks which arduino-esp32 API is under test. run.sh
+   compiles this file TWICE, once as 2 and once as 3, because the two
+   spellings address the peripheral completely differently and only one
+   of them was ever exercised before v1.68.0. */
+#ifndef MPCA_TEST_CORE
+#define MPCA_TEST_CORE 3
+#endif
+#define MPCA_FAKE_CORE MPCA_TEST_CORE
+#include "esp32shim/ledcfake.h"
+
+#define ESP_ARDUINO_VERSION_MAJOR MPCA_TEST_CORE
 #define MPCA_TEST_LEDC 1
 #include "../src/MpcaEsp32.h"
 
@@ -87,41 +94,81 @@ int main(){
 
   printf("\n==== the engine drives it, knowing nothing about ESP32s ====\n");
   {
-    g_calls = 0;
-    memset(g_last, 0, sizeof(g_last));
+    mpcaFakeReset();
     MpcaLedcOutput out(PINS, NCH);
     MaestroPCA m(out, TABLE, NCH, SEQ, 1);
     m.begin(25000000UL, 50.0f);
-    ok("homing writes the home pose as duty counts", g_last[0].duty == 4915,
-       numf("ch0 duty %ld", (long)g_last[0].duty));
-    ok("  to the GPIO the pin array names, not the channel number", g_last[0].gpio == 13);
-    ok("a homemode-Off channel is left with no pulse", g_last[2].duty == 0);
+    ok("homing writes the home pose as duty counts", mpcaFakeDuty(13) == 4915,
+       numf("GPIO 13 duty %ld", (long)mpcaFakeDuty(13)));
+    ok("  to the GPIO the pin array names, not the channel number", mpcaFakeLive(13));
+    ok("a homemode-Off channel is left with no pulse", mpcaFakeDuty(14) == 0);
 
     m.setTarget(1, 8000);
     adv(m, 200);
-    ok("a move reaches the right channel's GPIO", g_last[1].gpio == 12 && g_last[1].duty == out.code(0, 0, 8000),
-       numf("duty %ld", (long)g_last[1].duty));
+    ok("a move reaches the right channel's GPIO", mpcaFakeDuty(12) == out.code(0, 0, 8000),
+       numf("GPIO 12 duty %ld", (long)mpcaFakeDuty(12)));
+    ok("  and disturbs nobody else's", mpcaFakeDuty(13) == 4915);
 
-    int before = g_calls;
+    int before = mpcaFakeWrites();
     adv(m, 500);
-    ok("a settled channel stops writing", g_calls == before);
+    ok("a settled channel stops writing", mpcaFakeWrites() == before);
 
     m.restartScript(0);
     adv(m, 700);
-    ok("sequences run against it unchanged", g_last[0].duty != 4915);
+    ok("sequences run against it unchanged", mpcaFakeDuty(13) != 4915);
     adv(m, 400);
 
     m.setTarget(1, 0);
-    ok("pulses off means duty 0, which is limp", g_last[1].duty == 0);
+    ok("pulses off means duty 0, which is limp", mpcaFakeDuty(12) == 0);
 
     /* the eased channel proves the kinematics is untouched by the backend */
     m.setTarget(3, 8000);
     adv(m, 60);
-    uint16_t mid = g_last[3].duty;
+    uint32_t mid = mpcaFakeDuty(27);
     adv(m, 4000);
     ok("an eased channel ramps rather than jumping",
-       mid > out.code(0, 0, 6000) && mid < out.code(0, 0, 8000) && g_last[3].duty == out.code(0, 0, 8000),
+       mid > out.code(0, 0, 6000) && mid < out.code(0, 0, 8000) && mpcaFakeDuty(27) == out.code(0, 0, 8000),
        numf("mid %ld", (long)mid));
+  }
+
+  printf("\n==== the pin/channel bookkeeping, on core %d ====\n", MPCA_TEST_CORE);
+  {
+    /* THE REGRESSION. Until v1.68.0 the 2.x branch used the GPIO NUMBER as
+       the LEDC channel and then wrote the duty to the array index — so it
+       configured channel 27 (there is no channel 27) and wrote to a channel
+       with no pin on it. Every servo stayed still and nothing said why.
+       These four hold on BOTH branches, which is the point: the caller
+       should not be able to tell which core it compiled against. */
+    mpcaFakeReset();
+    MpcaLedcOutput out(PINS, NCH);
+    MaestroPCA m(out, TABLE, NCH, SEQ, 1);
+    m.begin(25000000UL, 50.0f);
+    ok("the peripheral refused nothing — no bad channel, no stray write",
+       mpcaFakeErrors() == 0, mpcaFakeErrors() ? mpcaFakeLastError() : "");
+    bool allLive = true;
+    for(int i = 0; i < NCH; i++) if(!mpcaFakeLive(PINS[i])) allLive = false;
+    ok("every GPIO in the list is actually driven", allLive);
+
+    /* GPIO 27 is the one that mattered: it is above the 0-15 channel range,
+       so a build that confuses the two numbers falls over exactly here. */
+    m.setTarget(3, 7000);
+    adv(m, 3000);
+    ok("a servo on a GPIO above 15 still moves", mpcaFakeDuty(27) == out.code(0, 0, 7000),
+       numf("GPIO 27 duty %ld", (long)mpcaFakeDuty(27)));
+    ok("  and still nothing was refused", mpcaFakeErrors() == 0,
+       mpcaFakeErrors() ? mpcaFakeLastError() : "");
+
+    /* each channel owns one GPIO and writes to no other */
+    mpcaFakeReset();
+    MpcaLedcOutput o2(PINS, NCH);
+    o2.begin(25000000UL, 50.0f);
+    o2.writeCode(0, 2, 1234);
+    ok("channel 2's duty comes out of GPIO 14 and only there",
+       mpcaFakeDuty(14) == 1234 && mpcaFakeDuty(13) == 0 &&
+       mpcaFakeDuty(12) == 0 && mpcaFakeDuty(27) == 0);
+    o2.writeCode(0, 9, 4321);
+    ok("a channel past the end of the list writes nothing at all",
+       mpcaFakeWrites() == 1 && mpcaFakeErrors() == 0);
   }
 
   printf("\n%d passed, %d failed\n", pass, fail);
