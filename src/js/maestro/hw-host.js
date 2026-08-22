@@ -182,6 +182,20 @@ const HW = {
       for(let i=0;i<Math.min(old.st.length, HWE.st.length);i++){
         const o = old.st[i], s = HWE.st[i];
         if(!o || !s || !s.servo) continue;   /* a hole on either side is not a channel */
+        /* …AND THE OLD ROW HAS TO HAVE BEEN A SERVO TOO (2026-08-22). The
+           guard above asks only what the channel IS, so a channel that was
+           an Input and has just been made a Servo — a bench edit, or the
+           servo-config import that rebuilds after writing the table — had
+           the state pcaCreate's pcaGoHome just gave it overwritten by the
+           old row's zeros: active false, pos256 0, and `known` (not in the
+           copy below) left true, which is `pcaReleased`. It read as sitting
+           at 0 until the next drive+tick put it right.
+           A non-servo row has nothing worth carrying: it has never held a
+           position, and the freshly-homed state IS where that channel now
+           is. This narrows the copy rather than widening it, so it takes
+           nothing away from the `aim` carry below — that is about channels
+           which were servos before this rebuild and still are. */
+        if(!o.servo) continue;
         /* AND `aim` WITH THEM (v1.66.3). `target` is where the channel was
            ASKED to go; `aim` is where pcaStepChannel actually steers — the
            two differ under PCA_EASE_OVERSHOOT, and only aim is read by the

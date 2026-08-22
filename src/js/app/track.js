@@ -785,6 +785,35 @@ function trackGrid(){
   if(R2.root){ R2.root.position.set(R2.pos.x, 0, R2.pos.z); R2.root.rotation.y = R2.yaw; }
   TRACK.prev = null; TRACK.nearI = null;
 }
+
+/* COMPOSE THE OPENING FRAME (v1.71.1). trackGrid() above puts the droid on
+   the grid; this is the half that points the camera at it. A cold-start
+   walkthrough turned Track on and got a picture of empty deck: the grid is
+   metres away across the hangar and the camera was still wherever the last
+   piece of workshop business left it, so the droid was simply off screen —
+   with the feet disarmed and a penalty accruing, the first thirty seconds of
+   the practice circuit were "cannot see it, cannot move it, losing points".
+
+   v1.70.0 gave sim only the same treatment for the same reason, so this is
+   kioskRecentre() (app/kiosk.js) rather than a second opinion about framing:
+   frame whatever model is on the stage — the three are wildly different
+   sizes — and turn Follow ON, which is what keeps it framed once they do
+   start driving. Its Follow lamp bookkeeping comes along for free.
+
+   The one thing added on top is the SNAP. kiosk's droid is at the origin,
+   which is where modelFrame()'s preset points; a circuit's start line is
+   metres from it, and Follow only lerps 12% a frame — so inherited or not,
+   the opening half second would still be a pan across empty floor. driverPos()
+   (scene/mouse.js) is the very target updateCamera() lerps toward, so setting
+   it here is the same frame arriving on frame one instead of frame thirty. */
+function trackFrameStart(){
+  if(typeof CAM === 'undefined') return false;
+  if(typeof kioskRecentre === 'function') kioskRecentre();
+  else CAM.follow = true;
+  CAM.target.copy((typeof driverPos === 'function') ? driverPos() : V3(R2.pos.x, 0.6, R2.pos.z));
+  return true;
+}
+
 function setTrack(on){
   TRACK.on = !!on;
   if(TRACK.on){
@@ -793,6 +822,7 @@ function setTrack(on){
     TRACK.last = null; TRACK.laps = 0; TRACK.times = [];
     trackResetLap();
     trackGrid();
+    trackFrameStart();
     /* the circuit is built for the hangar deck — take the droid there */
     if(typeof envSet === 'function' && typeof envGet === 'function' && envGet() === 'studio') envSet('hangar');
     lg('sys','practice circuit ON ('+((TRACK.layout && TRACK.layout.name) || 'Stock circuit')
@@ -877,10 +907,17 @@ function trackTick(dt){
     R2.pos.z = near.p.z + near.p.nz * side * limit;
     if(R2.root) R2.root.position.set(R2.pos.x, 0, R2.pos.z);
     pos.x = R2.pos.x; pos.z = R2.pos.z;
-    /* one penalty per excursion, not one per frame */
+    /* one penalty per excursion, not one per frame — and NOT BEFORE THE RUN
+       HAS BEGUN (v1.71.1). The wall is physical either way and the droid is
+       pushed back on above, but the 2 s is a LAP TIME penalty, and until gate
+       0 is crossed there is no lap: TRACK.t0 is 0 and the HUD is still asking
+       for the line. A beginner's first wobble off the grid was charging them
+       for a lap that had not started — the clock read "cross the line" and
+       "PEN +2s" at the same time. TRACK.t0 is the run, so it is the gate. */
     if(!TRACK.off){
-      TRACK.off = true; TRACK.penalty += 2000;
-      lg('warn','practice circuit: barrier! +2 s');
+      TRACK.off = true;
+      if(TRACK.t0){ TRACK.penalty += 2000; lg('warn','practice circuit: barrier! +2 s'); }
+      else lg('sys','practice circuit: barrier — no charge, the lap has not started yet');
     }
   }else if(near.dist < limit - Math.min(0.10, limit*0.25)){
     /* the hysteresis has to scale too, or a squeezed limit never clears */
@@ -915,6 +952,23 @@ function trackTick(dt){
     if(h){
       const run = TRACK.t0 ? (performance.now()-TRACK.t0+TRACK.penalty) : null;
       const recent = TRACK.times.slice(-5).reverse();
+      /* THE FEET (v1.71.1). "Holding W does nothing" was a third of the same
+         walkthrough. input/pad-ui.js's driveHintCheck() already says this as
+         a toast, and this is deliberately NOT a second copy of that voice:
+         that one is a MOMENT — it fires on the rising edge of an attempt and
+         fades in 3.5 s — and this is a STATE, on the surface the mode already
+         put in front of the driver. It is the same sentence's advice half, so
+         a person who sees both is told one thing twice, not two things.
+         It clears itself the instant the feet are armed, or it is furniture.
+
+         Same yields as that hint, and for its reason: with the Polar Mouse on
+         the sticks or puppet mode handing the sketch a centred pad, the feet
+         are not what is being driven and arming them would change nothing.
+         Kiosk is NOT excluded — sim only hides the pad's hint surface, not
+         this one, and START is on the visitor's pad. */
+      const disarmed = !FW.isDriveEnabled
+        && !(typeof mouseIsDriving === 'function' && mouseIsDriving())
+        && !(typeof PUPPET !== 'undefined' && PUPPET.on);
       /* every value sits on a .hudrow PLATE (02-layout.css: shadow + border +
          blur), same as the Drive/Loop rows top-left — bare cyan mono straight
          over a bright deck or desert sand was unreadable */
@@ -925,6 +979,8 @@ function trackTick(dt){
         + '<span class="k">BEST</span><span class="v am">'+ trackFmt(PREFS.bestLap||null) +'</span>'
         + (TRACK.penalty ? '<span class="k">PEN</span><span class="v rd">+'+(TRACK.penalty/1000)+'s</span>' : '')
         + '</div>'
+        + (disarmed ? '<div class="hudrow"><span class="k">FEET</span>'
+            + '<span class="v am">disarmed — hold Enter (Start) to arm</span></div>' : '')
         + (recent.length ? '<div class="hudrow"><div class="laplist">' + recent.map(l=>
             '<span class="lapn">lap '+l.n+'</span><span class="lapt'
             + (PREFS.bestLap && Math.round(l.ms)<=PREFS.bestLap ? ' best' : '') + '">'

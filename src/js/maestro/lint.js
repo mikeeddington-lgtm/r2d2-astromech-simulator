@@ -363,6 +363,50 @@ function lintMaestro(opts){
   if(!load.length && (MSTR.sequences||[]).length)
     add('warn','slots-empty','Nothing is in the script loadout, so the exported file would carry no sequence subroutines at all.','Add sequences to the board in the Sequences list.');
 
+  /* ============ A SHOW BUILT ON PARTS THAT WILL NOT MOVE (v1.71.0)
+     Ten movers on the stock droid have no servo channel. The sequencer
+     shows them all, greys them, and INVITES the drag — "You can still drag
+     them in and build the routine now" — which is the right answer to "I am
+     writing the choreography before I have wired the dome". The brick is
+     real, it moves the model in a preview, and it compiles to nothing.
+
+     Nothing said so at the moment it mattered. A whole show can be built
+     out of parts that do nothing on the real droid, and the build dialog
+     reported ERRORS 0 — truthfully, because it is not an error. It is
+     still the one thing you would want said before you flash the board.
+
+     Same shape as slot-nodpad above, and for the same reasons: it NAMES
+     the routine and the bricks rather than counting them, because "3
+     bricks are unwired" is a size and the reader's next question is which
+     ones; and it carries the `slot` when the routine is on the board, so
+     the panel showing this is one field away from the list you would go
+     and look at. WARNING, NOT ERROR — building ahead of your wiring is
+     legitimate and this app advises rather than refuses.
+
+     blockUnwired() (maestro/blocks.js) is the one definition of "no
+     channel behind this brick"; it loads after this file and is only ever
+     reached at call time, so the guard is a typeof, not a load order. */
+  if(typeof blockIsRoutine === 'function' && typeof blockUnwired === 'function'){
+    (MSTR.sequences||[]).forEach(seq=>{
+      if(!seq || !blockIsRoutine(seq)) return;
+      const un = blockUnwired(seq);
+      if(!un.length) return;
+      const names = [];
+      un.forEach(u=>{ if(names.indexOf(u.label) < 0) names.push(u.label); });
+      const slot = load.indexOf(seq.name);
+      add('warn','brick-nochan',
+          '"'+seq.name+'" has '+un.length+' brick'+(un.length===1?'':'s')+' on part'+
+          (names.length===1?'':'s')+' with no servo channel: '+names.join(', ')+'. '+
+          (slot >= 0 ? 'It is on the board as slot '+slot+', so that much of it does nothing on the real droid.'
+                     : 'It is not on the board yet.'),
+          'The bricks are real and they move the model in a preview — they just compile to nothing, so the '
+          + 'panels stay shut when the droid runs it. Give ' + (names.length===1?'it':'them')
+          + ' a channel in the channel map, or take those bricks out. Building the routine before the wiring '
+          + 'is done is fine; this is only so the export cannot be quiet about it.',
+          undefined, slot >= 0 ? slot : undefined);
+    });
+  }
+
   /* ------------------------------------------------------ part mapping */
   const mapped = MSTR.channels.filter(c=>c.act).length;
   const unmapped = servos.filter(c=>!c.act);

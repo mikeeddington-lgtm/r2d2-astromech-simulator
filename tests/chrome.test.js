@@ -762,6 +762,120 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
   await ev(()=>{ FW.isDriveEnabled = false; });
   await ev(()=>{ document.querySelector('#tabs button[data-p="pHelp"]').click(); });
 
+  /* ══════════════════════════════════════════════════════════════════════
+     ONE MARK, ONE MEANING (v1.71.1)
+     A walkthrough read the app menu as SIM ONLY_, CREDITS_, SAVE & LOAD_ and
+     could not tell an ellipsis from a truncation — which matters because the
+     chrome truncates in the same face.
+
+     The glyph is NOT missing. IBM Plex Mono carries U+2026, document.fonts
+     .check() agrees, and the character measures the mono 0.6em advance
+     rather than a fallback's — so no font swap fixes anything. What is
+     missing is PIXELS: at the 10px tracked caps these labels are set in, the
+     ellipsis' three dots are ~1.7px apart and antialias into a single 6×1px
+     bar — the identical box `_` occupies, and the identical box
+     text-overflow:ellipsis paints when a label really is cut off.
+
+     Two facts, one mark. So the mark belongs to the fact the app cannot
+     spell any other way — truncation, which CSS draws and no label can opt
+     out of — and no label prints a literal one. The first assertion is the
+     premise, measured off the button's own computed font: if type ever grows
+     enough for the dots to resolve, it fails and the rule is worth revisiting.
+     ══════════════════════════════════════════════════════════════════════ */
+  console.log('\n════ an ellipsis and a truncation are one mark, so only truncation may use it ════');
+  const ink = await ev(async ()=>{
+    await document.fonts.ready;
+    const cs = getComputedStyle($('btnKiosk'));
+    const W=64, H=48, c=document.createElement('canvas');
+    c.width=W; c.height=H;
+    const x=c.getContext('2d');
+    x.font = cs.fontStyle+' '+cs.fontWeight+' '+cs.fontSize+' '+cs.fontFamily;
+    /* the INK box, not the advance box: how many separate marks the glyph
+       actually leaves on the pixel grid, and how tall they are */
+    const box = ch=>{
+      x.clearRect(0,0,W,H); x.fillStyle='#000'; x.textBaseline='alphabetic';
+      x.fillText(ch, 8, 32);
+      const d = x.getImageData(0,0,W,H).data, col=[], row=[];
+      for(let px=0;px<W;px++){ let a=0; for(let y=0;y<H;y++) a=Math.max(a,d[(y*W+px)*4+3]); col.push(a); }
+      for(let y=0;y<H;y++){ let a=0; for(let px=0;px<W;px++) a=Math.max(a,d[(y*W+px)*4+3]); row.push(a); }
+      let runs=0, on=false;
+      col.forEach(a=>{ if(a>32){ if(!on){ runs++; on=true; } } else on=false; });
+      const ys=row.map((a,i)=>a>32?i:-1).filter(i=>i>=0), xs=col.map((a,i)=>a>32?i:-1).filter(i=>i>=0);
+      return {runs, h: ys.length?ys[ys.length-1]-ys[0]+1:0, w: xs.length?xs[xs.length-1]-xs[0]+1:0,
+              top: ys[0], sized: cs.fontSize};
+    };
+    return {font:x.font, plex: document.fonts.check(cs.fontSize+' "IBM Plex Mono"','…'),
+            ell: box('…'), us: box('_'), M: box('M')};
+  });
+  ok('the mono face HAS the ellipsis — this was never a missing glyph',
+     ink.plex && ink.font.indexOf('IBM Plex Mono') >= 0, JSON.stringify({plex:ink.plex, font:ink.font}));
+  ok('…but at label size it draws one bar, not three dots — the same box "_" fills',
+     ink.M.h >= 5 && ink.ell.runs < 3 && ink.ell.h <= 2
+     && ink.ell.h === ink.us.h && ink.ell.w === ink.us.w && ink.ell.runs === ink.us.runs,
+     JSON.stringify(ink));
+  ok('so no chrome label prints a literal ellipsis — the mark means "cut off" and nothing else',
+     await ev(()=>{
+       const bad = [...document.querySelectorAll('header .hbtn, #appMenu .hbtn, #appMenu .amlbl, .smbtn, .wsbtn, .sbtn')]
+         .filter(e=>e.textContent.indexOf('…') >= 0)
+         .map(e=>(e.id||e.className)+': '+JSON.stringify(e.textContent));
+       window.__ellip = bad;
+       return bad.length === 0;
+     }), await ev(()=>JSON.stringify(window.__ellip)));
+
+  /* ══════════════════════════════════════════════════════════════════════
+     ONE KEYBOARD LEGEND (v1.71.1)
+     #padside printed its own key → control list beside the "?" card's
+     (app/shortcuts.js KBD_COLS). v1.71.0 made the card authoritative — it
+     gained the arming fact and rewrote its driving rows — and this static
+     copy was not rewritten with it, so the app taught two different things
+     depending on which one you happened to read. There is no mechanism that
+     could have kept a hand-written list in body.html in step with a table in
+     a JS file, which is why the answer is one legend and a door, not two
+     legends that agree today.
+     ══════════════════════════════════════════════════════════════════════ */
+  console.log('\n════ one keyboard legend, and a door to it ════');
+  await ev(()=>wsSet('drive'));
+  await page.waitForTimeout(60);
+  ok('the pad strip prints no second key legend', await ev(()=>{
+    const p = $('padside');
+    return !!p && p.querySelectorAll('kbd').length === 0 && p.querySelectorAll('.kbrow').length === 0;
+  }), await ev(()=>{ const p=$('padside'); return p ? p.querySelectorAll('kbd').length+' <kbd>, '
+     +p.querySelectorAll('.kbrow').length+' rows' : 'no #padside'; }));
+  ok('…in fact the closed app holds no key caps at all — there is one legend, and it is the card',
+     await ev(()=>!$('kbdHelp') && document.querySelectorAll('kbd').length === 0),
+     await ev(()=>document.querySelectorAll('kbd').length+' <kbd> in the document'));
+  ok('…and the strip keeps a visible door to it where the list was', await ev(()=>{
+    const b = $('btnPadKbd'), p = $('padside');
+    if(!b || !p || !p.contains(b)) return false;
+    const r = b.getBoundingClientRect();
+    return r.width > 0 && r.height > 0 && getComputedStyle(b).display !== 'none';
+  }));
+  await page.click('#btnPadKbd');
+  ok('…which opens the SAME card the header "?" opens, through kbdHelpToggle()', await ev(()=>
+    !!$('kbdHelp') && !!document.querySelector('#kbdHelp .kovcard')));
+  ok('…the one that carries the arming fact the old list left out', await ev(()=>{
+    const t = $('kbdHelp').textContent;
+    return /boot DISARMED/.test(t) && /HOLD it to arm the feet/.test(t)
+        && /drive \+ turn, once armed/.test(t);
+  }));
+  await page.keyboard.press('Escape');
+  ok('…and Esc folds it away again', await ev(()=>!$('kbdHelp')));
+  /* the strip's door is the ONLY one in sim only — the header, and its "?",
+     are display:none there, and a public terminal is exactly where nobody
+     knows to press a key they were never told about */
+  await ev(()=>kioskEnter(''));
+  await page.waitForTimeout(150);
+  ok('the door survives sim only, where the header "?" does not', await ev(()=>{
+    const hidden = $('btnKbd').getBoundingClientRect().width === 0;
+    const b = $('btnPadKbd').getBoundingClientRect();
+    return hidden && b.width > 0 && b.height > 0;
+  }));
+  await page.click('#btnPadKbd');
+  ok('…and still opens the card there', await ev(()=>!!document.querySelector('#kbdHelp .kovcard')));
+  await page.keyboard.press('Escape');
+  await ev(()=>kioskLeave());
+  await settled();
+
   ok('no page errors', errs.length===0, errs.join(' | '));
 
   console.log(`\n${pass} passed, ${fail} failed`);

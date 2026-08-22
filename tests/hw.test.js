@@ -1162,6 +1162,42 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
      aimKeep.settled === 7000 && aimKeep.settled !== aimKeep.min,
      'settled at '+aimKeep.settled+' (was '+aimKeep.before.pos+')');
 
+  /* THE OTHER SIDE OF THE SAME KEEP-LOOP (2026-08-22). It guarded on the
+     NEW state's `servo` only, so a channel that was an Input a moment ago
+     and has just been made a Servo — a bench edit, or the servo-config
+     import that rebuilds after writing the table — had its freshly-homed
+     state overwritten by the old row's zeros: active false, pos256 0, and
+     `known` (never copied) left true by pcaCreate's own pcaGoHome. There is
+     nothing in a non-servo row worth carrying: it has never held a
+     position, and the home the new row asks for is the truth about where
+     that channel is. It recovered on the next drive+tick, so what this
+     pins is the moment in between — read the engine straight after the
+     rebuild, no tick. */
+  const becameServo = await ev(()=>{
+    const ch = 16;
+    HW.ensure(ch);
+    const c = MSTR.channels[ch];
+    const save = Object.assign({}, c);
+    c.mode='Input'; c.min=4000; c.max=8000; c.home=6000; c.homemode='Off';
+    HW.rebuild(false);                      /* the engine as it was: not a servo */
+    const was = {pos:HW.pos(ch), servo:HW.engine().st[ch].servo};
+    c.mode='Servo'; c.homemode='Goto';      /* what the edit/import writes */
+    HW.rebuild(true);                       /* …and what it ends with */
+    const s = HW.engine().st[ch];
+    const out = {was, pos:HW.pos(ch), aim:s.aim, target:s.target,
+                 active:s.active, known:s.known, home:6000};
+    Object.assign(c, save); HW.rebuild(false);
+    return out;
+  });
+  ok('a channel that was not a servo has nothing to carry over',
+     becameServo.was.servo === false && becameServo.was.pos === 0, JSON.stringify(becameServo.was));
+  ok('…so one that has just BECOME a Servo reports its home, not 0, before any tick',
+     becameServo.pos === becameServo.home && becameServo.active === true,
+     JSON.stringify(becameServo));
+  ok('…with the engine steering there too, and the channel known',
+     becameServo.aim === becameServo.home && becameServo.target === becameServo.home
+     && becameServo.known === true, JSON.stringify(becameServo));
+
   /* HW.drive() clamped into the channel's own min/max on the way to the
      ENGINE and then handed the raw, unclamped number to the wire. Both
      halves looked right — the model, the position bar and the bench all

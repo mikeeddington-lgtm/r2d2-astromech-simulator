@@ -2146,20 +2146,39 @@ function buildStartup(){
    Document CAPTURE + stopPropagation — the app-dialog containment
    pattern, via escGuard (core/dialog.js) — so a swallowed Esc cannot
    fall through to the window-level closeStartup listener in main.js or
-   the part-deselect in select.js. Three guards leave the Esc to whoever
+   the part-deselect in select.js. FOUR guards leave the Esc to whoever
    sits ABOVE the wizard: the confirm dialog (Reset asks from inside the
    review step), a stage picker (reachable while the split layout shows
-   the stage), and the Panels step's dome map (its own document-capture
-   handler, dmapEsc, closes IT rather than the wizard underneath) each
-   contain their own Esc, and all run on this same document node, so
-   returning here is enough. Bound once, at load — this is the
-   "listen permanently, check isOpen" style escGuard also covers,
-   alongside the five overlays' bind-on-open/unbind-on-close. */
+   the stage), the Panels step's dome map (its own document-capture
+   handler, dmapEsc, closes IT rather than the wizard underneath) and the
+   keyboard card (#kbdHelp, app/shortcuts.js) each contain their own Esc,
+   and all run on this same document node, so returning here is enough.
+   Bound once, at load — this is the "listen permanently, check isOpen"
+   style escGuard also covers, alongside the five overlays'
+   bind-on-open/unbind-on-close.
+
+   ------------------------------------- WHY THE CARD IS ON THAT LIST
+   2026-08-22, the residual of v1.70.0's servo-bench fix. Esc belongs to the
+   TOPMOST overlay, and #kbdHelp (z-index 250) is above #startup (120) —
+   so the wizard has to decline while the card is up, and the second Esc
+   is the wizard's. It cannot be arranged the other way round. KBD.onKey
+   calls stopImmediatePropagation(), which stops only listeners registered
+   AFTER it on this node; that is enough for the five bind-on-open guards,
+   because the card refuses to open over any of them (kbdHelpBlocked) and
+   so always registers first. THIS guard is bound at load — always first,
+   never pre-emptable — so it is the one that has to yield, and yielding is
+   what escGuard's isOpen() is for. The general rule, for the next Esc site
+   and for the seventh: a guard that listens PERMANENTLY cannot rely on
+   anyone else's stopImmediatePropagation, and must name in its own isOpen
+   every surface that can be stacked above it. kbdHelpBlocked() is the
+   other direction of the same rule — the card refusing to open over the
+   wizard — and the pair is what keeps one Esc to one overlay. */
 escGuard(
   ()=>{
     const st = $('startup');
     return !!(st && st.classList.contains('on'))
-      && !document.querySelector('.dlgwrap') && !$('stagePick') && !$('dmapWrap');
+      && !document.querySelector('.dlgwrap') && !$('stagePick') && !$('dmapWrap')
+      && !$('kbdHelp');
   },
   ()=>{ if(buildConfigured() || PREFS.seenStartup) closeStartup(); }
 ).bind();

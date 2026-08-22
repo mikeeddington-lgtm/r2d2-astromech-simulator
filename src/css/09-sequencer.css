@@ -185,6 +185,22 @@ body.seqmode #seqblocks .blklib{scrollbar-width:thin;scrollbar-color:var(--line2
 .blkrestore{margin-left:4px}
 #seqinsp .blkfield{grid-template-columns:74px 1fr 52px}
 
+/* ==================================== IT IS ROUND THE BACK (2026-08-22)
+   The selected brick's part is on the far side of the droid from the
+   camera, so pressing ▶ moves something you cannot see. AMBER, the
+   project's warning colour, and DISPLAY-toggled rather than opacity: the
+   test of this line is that it disappears the moment the view is dragged
+   round, and a 0-opacity row that still takes a strip of the inspector is
+   still claiming the part is hidden. blkFarSync() (blocks-ui.js) owns
+   the .on. */
+.blkfar{display:none}
+.blkfar.on{
+  display:flex;align-items:center;flex-wrap:wrap;gap:6px;
+  margin:2px 0 6px;padding:4px 8px;border-radius:5px;
+  font-size:.9em;background:var(--bg2);border:1px solid var(--am);color:var(--am);
+}
+.blkfarwho{flex:1 1 8rem}
+
 /* --- Build your Maestro (full-screen overlay) --- */
 .bldgrid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,1.1fr);gap:12px;min-height:0}
 .bldcol h4{

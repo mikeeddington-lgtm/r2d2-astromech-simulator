@@ -3098,6 +3098,45 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
     (BUILD_OPTIONS.firmware.find(o=>o.id === 'mod2026')||{}).file === 'padawan_secure_mode.ino'),
     await ev(()=>(BUILD_OPTIONS.firmware.find(o=>o.id === 'mod2026')||{}).file));
 
+  /* ================================================================
+     THE OTHER HALF OF THE ESCAPE THE CARD OWNS (2026-08-22, the
+     residual of v1.70.0)
+
+     v1.70.0 kept '?' out from over the servo bench and gave KBD.onKey
+     stopImmediatePropagation(), so one Esc could no longer close the card
+     AND hang up on the board. That reaches every guard that BINDS ON OPEN
+     — the card refuses to open over them (kbdHelpBlocked), so one raised
+     UNDER the card registered after KBD.onKey, and the card's stopImmediate
+     is genuinely ahead of it.
+
+     This wizard's escGuard is bound at LOAD. It is therefore FIRST in
+     registration order, ahead of the card, and nothing the card does can
+     pre-empt it: one Esc closed the card AND the wizard. No hardware sits
+     on this path, but it is the same containment fault, and the fix is the
+     one every site already implements — the guard underneath yields.
+     ================================================================ */
+  console.log('\n════ the card over the wizard is still one Escape, one overlay ════');
+  await clearDlg();
+  await ev(()=>{ if(document.activeElement) document.activeElement.blur();
+                 closeStartup(); });                 /* …which sets seenStartup */
+  await page.keyboard.press('?');
+  ok('with nothing modal up, ? opens the card', await ev(()=>!!$('kbdHelp')));
+  /* the same route the bench had: nothing under the card is inert, so a
+     control still reachable underneath — header Setup, or the undecided
+     foot-drive plate above — can raise the wizard UNDER it */
+  await ev(()=>openStartup());
+  ok('...and the wizard can be standing under it', await ev(()=>
+    !!$('kbdHelp') && $('startup').classList.contains('on')));
+  await page.keyboard.press('Escape');
+  ok('one Escape closes the card and leaves the wizard where it was',
+     await ev(()=>!$('kbdHelp') && $('startup').classList.contains('on')),
+     await ev(()=>JSON.stringify({card:!!$('kbdHelp'), wizard:$('startup').classList.contains('on')})));
+  await page.keyboard.press('Escape');
+  ok('...and the NEXT Escape is the wizard\'s',
+     await ev(()=>!$('kbdHelp') && !$('startup').classList.contains('on')));
+  await ev(()=>{ kbdHelpClose(); closeStartup(); });
+  await clearDlg();
+
   console.log('\n════ no page errors ════');
   ok('nothing threw', errs.length===0, errs.join(' | '));
 

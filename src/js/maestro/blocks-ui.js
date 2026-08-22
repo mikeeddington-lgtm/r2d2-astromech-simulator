@@ -26,12 +26,19 @@
 const BLK = {
   pxms:0.14,        // timeline scale — VIEW ONLY, it never touches a timing
   sel:null, drag:null, laneH:34, seqName:'',
-  cam:0.85,         // how close the droid view sits to the selected part
+  cam:0.85,         // the CLOSEST the droid view will sit to the selected part
   tint:false,       // paint the model in the sequencer's part colours
   snapMode:'auto',  // auto | strong | all | off — restored from PREFS
   adv:false,        // the Advanced switch: per-brick speed overrides
   play:{t:0},       // the playhead, in ms
   raf:0, libq:'',
+  /* the selected brick's part, MARKED on the model (2026-08-22). Adding a
+     brick used to move the camera; it lights the part up instead, and the
+     camera is left alone unless ZOOM TO THIS PART is pressed. Holds a CAD
+     part name, or null. */
+  mark:null,
+  /* what the tint was before a preview borrowed it — see blkPlayTint() */
+  playTint:null,
   /* multi-select (Mike, 2026-08-14): BLK.sel stays the single, scalar
      "primary" id — every existing reader of it keeps working untouched
      (see blkSelIds() below). selSet only ever holds MORE than one id; it
@@ -293,7 +300,8 @@ function blkToolbar(){
   bar.appendChild(zoom);
 
   bar.appendChild(slider('Droid', 0.3, 3.0, 0.02, BLK.cam,
-    'how close the view sits — click a brick first and it zooms to that part',
+    'the CLOSEST the view will sit — “Zoom to this part” pulls further back than this when the '
+    + 'part is big, so you always get the droid around it. Nothing here moves the camera on its own.',
     v=>v.toFixed(2)+'m',
     v=>{ BLK.cam = v; blkFocusApply(true); }));
 
@@ -322,11 +330,17 @@ function blkToolbar(){
 
   const sw = el('label','blkswitch');
   const cb = document.createElement('input'); cb.type='checkbox'; cb.checked = BLK.tint;
+  cb.id = 'sqTint';
   cb.title = 'paint every moving part in its sequencer colour — nothing is saved, '
-           + 'switch it off (or leave the sequencer) and your paint scheme comes straight back';
+           + 'switch it off (or leave the sequencer) and your paint scheme comes straight back.'
+           + '\n▶ switches this on for as long as a preview runs, whatever it is set to here, '
+           + 'and puts your setting back afterwards.';
   cb.addEventListener('change',()=>{
     BLK.tint = cb.checked;
-    if(typeof applyPaint === 'function') applyPaint();
+    /* a deliberate change DURING a preview is the setting to come back to,
+       not the one the preview borrowed over (blkPlayTint) */
+    if(BLK.playTint) BLK.playTint.was = cb.checked;
+    blkMarkApply();
     lg('sys', 'sequencer colours on the model: ' + (BLK.tint ? 'on' : 'off'));
   });
   sw.appendChild(cb);
@@ -381,10 +395,13 @@ function blkToolbar(){
     bar.appendChild(clr);
   }
 
+  /* the camera is no longer moved by a selection (2026-08-22), so this line
+     stopped being true the moment it said "zoomed to" — the part is MARKED
+     on the model and the jump is the inspector's own button. */
   const sel = BLK.sel ? blockFind(blkSeq(), BLK.sel) : null;
   const who = el('div','blktoolwho', sel
-    ? (sel.kind === 'seq' ? 'a whole sequence — nothing to zoom to' : 'zoomed to ' + blkLabel(sel.ref))
-    : 'click a brick to zoom to its part');
+    ? (sel.kind === 'seq' ? 'a whole sequence — no one part to point at' : 'lit up on the model: ' + blkLabel(sel.ref))
+    : 'click a brick to light its part up on the model');
   bar.appendChild(who);
   return bar;
 }
@@ -452,8 +469,144 @@ function blkScrollToSel(force){
     sc.scrollLeft = Math.max(0, (x0 + x1)/2 - sc.clientWidth/2);
   });
 }
+/* =====================================================================
+   WHICH PART IS THIS?  —  MARK IT, DO NOT CHASE IT  (2026-08-22)
+
+   A builder's first brick was on Panel1, on the far side of the dome from
+   the default camera. Dropping it AUTO-ZOOMED: CAM.target jumped to the
+   part and CAM.dist snapped to the "Droid" slider, whatever the part was.
+   Three chips into a show that had moved the view three times and never
+   left a stable picture of the droid — and at the slider's closer end the
+   framing filled the screen with one panel's own skin, which is a
+   featureless grey surface and reads as "nothing happened".
+
+   So the two halves are separated:
+
+     · SELECTING a brick marks its part on the model and touches no camera
+       state at all (blkMarkSel below). Everything that used to call
+       blkFocusApply(true) as a side effect of an edit calls that instead.
+     · JUMPING there is the inspector's own "Zoom to this part" button —
+       an explicit request, and the only thing in this file that still
+       moves the camera on its own.
+   ===================================================================== */
+
+/* the CAD part a brick's actuator drives, or null (a brick can name a part
+   this droid does not have, and a whole-sequence brick names none) */
+function blkPartName(ref){
+  if(typeof CAD === 'undefined' || !CAD.loaded || !CAD.moving) return null;
+  const m = CAD.moving.find(x=>x.act === ref);
+  return m ? m.name : null;
+}
+/* the part's own size, in metres, from the CAD bounding box */
+function blkPartSpan(name){
+  if(typeof CAD === 'undefined' || !CAD.header || !CAD.header.parts) return 0;
+  const hp = CAD.header.parts.find(p=>p.name === name);
+  const b = hp && hp.bbox;
+  if(!b) return 0;
+  return Math.max(b[3]-b[0], b[4]-b[1], b[5]-b[2]);
+}
+/* HOW FAR BACK "ZOOM TO THIS PART" SITS. Not the slider's flat number: a
+   fixed distance frames a pie and a breadpan door completely differently,
+   and on the big movers it filled the frame with the part — no droid
+   around it, nothing to tell you WHERE you are looking. The view spans
+   about three times the part instead, so the part is roughly a third of
+   the picture and the rest is context. BLK.cam stays as the floor, which
+   is what "how close the view sits" now means: the closest it will go. */
+function blkFrameDist(name){
+  const span = blkPartSpan(name);
+  if(!span) return BLK.cam;
+  const fov = (typeof camera !== 'undefined' && camera.fov) ? camera.fov : 38;
+  const d = (span * 3 / 2) / Math.tan(fov * Math.PI / 360);
+  return Math.max(BLK.cam, d);
+}
+
+/* the mark itself. applyPaint() is the base coat AND the eraser — it
+   repaints every part from effectivePartHex(), which is where the last
+   mark gets wiped — so the mark is laid on top of it, every time. */
+function blkMarkPaint(){
+  const n = BLK.mark;
+  if(!n || typeof paintPart !== 'function' || typeof THREE === 'undefined') return;
+  if(typeof CAD === 'undefined' || !CAD.loaded || !CAD.partIndex || !CAD.partIndex[n]) return;
+  const mv = CAD.moving.find(x=>x.name === n);
+  const c = new THREE.Color((mv && mv.act) ? blkColor(mv.act)
+                            : ((typeof effectivePartHex === 'function' && effectivePartHex(n)) || '#9ab'));
+  c.lerp(new THREE.Color(0xffffff), 0.35);        // its own brick colour, lit
+  paintPart(n, '#' + c.getHexString());
+}
+function blkMarkApply(){
+  if(typeof applyPaint !== 'function') return;
+  applyPaint();
+  blkMarkPaint();
+}
+/* mark whatever the selection is now. A no-op when nothing changed, so it
+   is safe on the end of every drag. */
+function blkMarkSel(){
+  const seq = blkSeq();
+  const b = (seq && BLK.sel !== null && BLK.sel !== undefined) ? blockFind(seq, BLK.sel) : null;
+  const want = (b && b.kind !== 'seq') ? blkPartName(b.ref) : null;
+  if(want === BLK.mark) return;
+  BLK.mark = want;
+  blkMarkApply();
+}
+
+/* ============================ IS IT ROUND THE BACK?  (2026-08-22)
+   The honest answer to "I pressed play and nothing moved" is often "it did,
+   behind the dome". Worked out from the camera and the part's own position,
+   both of which are already live: the horizontal bearing of the part from
+   the droid's axis, against the horizontal bearing of the camera from the
+   same axis. Negative dot product = opposite sides.
+
+   Deliberately approximate. It does not know about the shell in between,
+   and it says nothing at all about a part sitting on the droid's axis
+   (there is no side to be on) or when it cannot read a position. Returns
+   null when it cannot measure, so a caller cannot mistake "no" for
+   "don't know". `theta` is the camera azimuth that puts that side in
+   front, which is what the button next to the message uses. */
+function blkFarSide(name){
+  if(!name || typeof camera === 'undefined' || typeof partWorldPos !== 'function') return null;
+  const p = partWorldPos(name);
+  if(!p) return null;
+  const cx = (typeof R2 !== 'undefined' && R2.pos) ? R2.pos.x : 0;
+  const cz = (typeof R2 !== 'undefined' && R2.pos) ? R2.pos.z : 0;
+  const px = p.x - cx, pz = p.z - cz;
+  const pr = Math.hypot(px, pz);
+  if(pr < 0.04) return null;                    // on the axis: no side to be on
+  const vx = camera.position.x - cx, vz = camera.position.z - cz;
+  const vr = Math.hypot(vx, vz);
+  if(vr < 1e-4) return null;
+  const cos = (px*vx + pz*vz) / (pr*vr);
+  /* -0.15 is about 99° off — past square-on, not merely "a bit round the
+     side", so a panel you can still half see does not nag */
+  return { cos, far: cos < -0.15, theta: Math.atan2(px, pz) };
+}
+/* orbit to that side. NOTHING else moves — same distance, same target — so
+   this cannot become the auto-zoom by another name. */
+function blkTurnRound(name){
+  const f = blkFarSide(name);
+  if(!f || typeof CAM === 'undefined') return false;
+  CAM.follow = false;
+  if(typeof syncFollowBtn === 'function') syncFollowBtn();
+  CAM.theta = f.theta;
+  if(typeof updateCamera === 'function') updateCamera();
+  blkFarSync();
+  lg('sys','turned the view round to ' + ((typeof partLabel === 'function') ? partLabel(name) : name));
+  return true;
+}
+/* the message is a snapshot of a thing that changes as the view is dragged,
+   so it is re-asked rather than re-built — blkTick() calls this.
+   NODE is passed by blkInspector, which asks while the row is still
+   DETACHED: an id lookup would miss it (and could answer with the previous
+   build's row, still in the pane until the swap). */
+function blkFarSync(node){
+  const n = node || $('sqFarSide');
+  if(!n) return;
+  const f = blkFarSide(n.dataset.part);
+  n.classList.toggle('on', !!(f && f.far));
+}
+
 /* point the camera at the part the selected brick moves — "Zoom to this
-   part" centres it close enough to inspect (spec, 2026-07-29) */
+   part" frames it IN CONTEXT (2026-08-22; it used to centre it close
+   enough to inspect, spec 2026-07-29) */
 function blkFocusApply(quiet){
   if(typeof CAM === 'undefined') return;
   const seq = blkSeq();
@@ -467,8 +620,10 @@ function blkFocusApply(quiet){
   CAM.follow = false;
   if(typeof syncFollowBtn === 'function') syncFollowBtn();
   CAM.target.copy(p);
-  CAM.dist = BLK.cam;
-  if(!quiet) lg('sys','zoomed to '+partLabel(m.name));
+  CAM.dist = blkFrameDist(m.name);
+  if(typeof updateCamera === 'function') updateCamera();
+  blkFarSync();
+  if(!quiet) lg('sys','zoomed to '+partLabel(m.name)+' — framed with the droid around it');
 }
 
 /* --------------------------------------------------------- the timeline
@@ -687,7 +842,7 @@ function blkDragStart(ev, seq, b, node){
     blockHistCommit(seq, hist0);        // one snapshot per completed drag/resize
     blockSync(seq);
     buildSequencer();
-    blkFocusApply(true);          // the brick you just grabbed is the part you want to see
+    blkMarkSel();                 // the brick you just grabbed lights its part up — the camera stays put
   };
   node.addEventListener('pointermove', move);
   node.addEventListener('pointerup', up);
@@ -782,7 +937,7 @@ function blkActionLib(seq){
       const b = blockList(seq)[blockList(seq).length-1];
       BLK.sel = b.id;
       buildSequencer();
-      blkFocusApply(true);
+      blkMarkSel();               // ADDING A BRICK DOES NOT MOVE THE CAMERA (2026-08-22)
       lg('mae','added '+label+' at '+(at/1000).toFixed(2)+'s'
         + (blockWired(b) ? '' : ' — no channel yet, so it stays grey and compiles to nothing'));
     }));
@@ -1448,11 +1603,31 @@ function blkInspector(seq){
     const fr = el('div','blkfield');
     fr.appendChild(el('label',null,'Find it'));
     const fb = el('button','b','Zoom to this part');
-    fb.title = 'centre this part in the model view, close enough to inspect';
+    fb.title = 'frame this part in the model view — the part with the droid around it, not filling the screen';
     fb.addEventListener('click',()=>blkFocusApply(false));
     fr.appendChild(fb);
     fr.appendChild(el('span',null,''));
     host.appendChild(fr);
+
+    /* …AND WHEN IT IS BEHIND THE DROID, SAY SO (2026-08-22). "I pressed ▶
+       and nothing moved" is usually "it moved, round the back". The line
+       hides itself the instant that stops being true — blkFarSync(), off
+       the follow loop — so it cannot claim a part is hidden while you are
+       looking straight at it. */
+    const pn = blkPartName(b.ref);
+    if(pn){
+      const far = el('div','blkfar');
+      far.id = 'sqFarSide';
+      far.dataset.part = pn;
+      far.appendChild(el('span','blkfarwho', blkLabel(b.ref) + ' is on the far side'));
+      const tb = el('button','b','turn the droid round');
+      tb.title = 'orbit the view to that side of the droid — the same distance, the same target, '
+               + 'nothing else moves';
+      tb.addEventListener('click',()=>blkTurnRound(pn));
+      far.appendChild(tb);
+      host.appendChild(far);
+      blkFarSync(far);               // hidden unless it is true right now
+    }
   }
   num('Runs for', b.dur, 200, 8000, 50, v=>{ b.dur = v; }, 'how long this brick lasts');
 
@@ -1638,10 +1813,65 @@ function blkTick(){
       for(const a in free) ACT_T[a] = free[a];
     }
   }
+  /* both of these ask a question about the CAMERA and the model, which
+     nothing rebuilds the pane for — so they are re-asked per frame rather
+     than drawn once and left to go stale */
+  blkPlayTint(!!(slot && slot.kind === 'seq' && slot.frames));
+  blkFarSync();
   BLK.raf = requestAnimationFrame(blkTick);
 }
 function blkTickStart(){ if(!BLK.raf) BLK.raf = requestAnimationFrame(blkTick); }
-function blkTickStop(){ if(BLK.raf){ cancelAnimationFrame(BLK.raf); BLK.raf = 0; } }
+function blkTickStop(){
+  if(BLK.raf){ cancelAnimationFrame(BLK.raf); BLK.raf = 0; }
+  /* leaving the desk drops the mark and hands the tint back BEFORE
+     setStripMode's own applyPaint() runs — a borrowed setting that
+     outlives the screen it was borrowed on is a setting nobody is
+     watching (same reasoning as the live-drive disarm) */
+  blkPlayTint(false);
+  BLK.mark = null;
+}
+
+/* ============ WHAT IS MOVING, WHILE IT MOVES  (2026-08-22)
+
+   "▶ three times, watched the droid, saw nothing move" — because the one
+   brick was on a panel behind the dome. The sequencer already had the
+   answer: "Colour the model to match" paints every driven part in its own
+   brick colour, and it is off by default.
+
+   Making it the permanent default would overrule somebody who deliberately
+   switched it off, so it is SCOPED TO PLAYBACK: ▶ borrows it for as long
+   as a preview runs and hands their setting straight back when the preview
+   ends. Their own change made DURING a preview wins over the loan (see the
+   checkbox's change handler) — otherwise switching it off mid-play would
+   silently switch back on the next frame.
+
+   Idempotent, and called every frame: `BLK.playTint` is the loan record,
+   so the applyPaint() only happens on the two edges. */
+function blkPlayTint(on){
+  if(on){
+    if(BLK.playTint) return;
+    BLK.playTint = {was: BLK.tint};
+    if(BLK.tint) return;                  // already on: nothing borrowed, nothing to give back
+    BLK.tint = true;
+    blkMarkApply();
+    blkTintBoxSync();
+    lg('sys','preview: the model is coloured to match, so the parts the routine drives show up '
+            + 'wherever the camera is pointing');
+  }else{
+    const loan = BLK.playTint;
+    if(!loan) return;
+    BLK.playTint = null;
+    if(BLK.tint === loan.was) return;
+    BLK.tint = loan.was;
+    blkMarkApply();
+    blkTintBoxSync();
+  }
+}
+/* the checkbox must not say "off" while the model is plainly coloured */
+function blkTintBoxSync(){
+  const cb = $('sqTint');
+  if(cb) cb.checked = BLK.tint;
+}
 
 /* --------------------------------------------------------- undo / redo
    The buttons live in #seqtop (↶ / ↷, before the Bricks/Pose/Frames

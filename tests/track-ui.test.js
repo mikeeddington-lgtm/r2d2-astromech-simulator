@@ -76,6 +76,82 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
   await ev(()=>setTrack(false));
   ok('switching off hides course and HUD', await ev(()=>!TRACK.root.visible && $('hudTrack').style.display==='none'));
 
+  /* ═════════════════════════════════════════════════════════════════════
+     THE FIRST THIRTY SECONDS OF A PRACTICE LAP (cold-start walkthrough)
+
+     Turning Track on used to leave a beginner with: a camera still pointing
+     at wherever the workshop left it — the grid is metres away across the
+     hangar, so the droid was simply off screen — feet disarmed, so holding W
+     did nothing, and a PEN +2 s ticking up for a lap that had not started.
+     Three separate ways to lose, before the first gate.
+
+     Each of these three asserts the state ONE frame after setTrack(true),
+     inside a single evaluate: no rAF can run in the middle of one, so a
+     camera that only converges over the next half second cannot pass. */
+  console.log('\n════ track mode starts you able to see, able to drive, unpenalised ════');
+  const entry = await ev(()=>{
+    modelSet('droid',{frame:false});
+    CAM.follow = false; CAM.dist = 12; CAM.target.set(5.5, 3, -5.5);   // parked in a corner of the deck
+    setTrack(true);
+    const dx = CAM.target.x - R2.pos.x, dz = CAM.target.z - R2.pos.z;
+    return {follow:CAM.follow, dist:Math.hypot(dx,dz), camDist:CAM.dist,
+      onTrack: trackNearest(R2.pos.x, R2.pos.z).dist < TRACK_HALF,
+      lamp: $('btnFollow').classList.contains('act')};
+  });
+  ok('entering Track frames the droid at the start line rather than the last thing you looked at',
+     entry.dist < 0.5 && entry.onTrack && entry.camDist < 6, JSON.stringify(entry));
+  ok('…and turns Follow on, lamp and all, so it stays framed while they drive',
+     entry.follow && entry.lamp, JSON.stringify(entry));
+
+  /* THE PENALTY CLOCK. The barrier is physical and stays physical — the droid
+     is still pushed back onto the ribbon — but a beginner wobbling into a
+     post while the HUD still reads "cross the line" is being charged for a
+     lap that has not begun. TRACK.t0 is the run: nothing is charged until
+     gate 0 has been crossed. */
+  const early = await ev(()=>{
+    setTrack(false); setTrack(true);                 // fresh entry: t0 = 0, nothing started
+    TRACK.uiAcc = 1; trackTick(0.02);                // one tick on the grid, HUD repainted
+    const started = TRACK.t0;
+    R2.pos.x = 0; R2.pos.z = 0; R2.root.position.set(0,0,0);   // the middle of the deck is off-course
+    TRACK.uiAcc = 1; trackTick(0.02);
+    return {t0:started, pen:TRACK.penalty,
+      back: trackNearest(R2.pos.x, R2.pos.z).dist <= TRACK_HALF + 0.17,
+      hud: $('hudTrack').innerHTML};
+  });
+  ok('nothing is charged before the first gate — the clock has not started yet',
+     early.t0 === 0 && early.pen === 0, JSON.stringify({t0:early.t0, pen:early.pen}));
+  ok('…and the HUD does not show a PEN it is not charging', !/PEN/.test(early.hud), early.hud);
+  ok('…but the barrier is still a wall: the droid is put back on the ribbon', early.back);
+
+  /* and the moment the run IS under way, the 2 s is charged exactly as before */
+  const late = await ev(()=>{
+    trackGrid();
+    TRACK.t0 = performance.now(); TRACK.penalty = 0; TRACK.off = false; TRACK.prev = null;
+    trackTick(0.02);
+    R2.pos.x = 0; R2.pos.z = 0; R2.root.position.set(0,0,0);
+    TRACK.uiAcc = 1; trackTick(0.02);
+    return {pen:TRACK.penalty, hud:$('hudTrack').innerHTML};
+  });
+  ok('once the lap is running a barrier still costs +2 s, and the HUD says so',
+     late.pen === 2000 && /PEN/.test(late.hud), JSON.stringify({pen:late.pen}));
+
+  /* THE FEET. Track mode's HUD is a persistent surface for a persistent
+     state, so the reason the droid will not move belongs on it — and it has
+     to clear itself the instant the feet are armed, or it becomes furniture. */
+  const feet = await ev(()=>{
+    setTrack(false); setTrack(true);
+    FW.isDriveEnabled = false; TRACK.uiAcc = 1; trackTick(0.02);
+    const off = $('hudTrack').innerHTML;
+    FW.isDriveEnabled = true;  TRACK.uiAcc = 1; trackTick(0.02);
+    const on = $('hudTrack').innerHTML;
+    FW.isDriveEnabled = false;
+    setTrack(false);
+    return {off, on};
+  });
+  ok('the HUD says the feet are disarmed, and how to arm them',
+     /disarm/i.test(feet.off) && /enter/i.test(feet.off) && /start/i.test(feet.off), feet.off);
+  ok('…and the line clears the moment they are armed', !/disarm/i.test(feet.on), feet.on);
+
   console.log('\n════ model warnings ════');
   /* entering Track with a non-droid model shows a toast once per activation */
   await ev(()=>{ modelSet('mouse',{frame:false}); TRACK.modelWarned=false; });
@@ -1125,6 +1201,93 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
      reloaded.n === 1 && reloaded.name === 'survivor' && reloaded.shapeLen === 5 &&
      reloaded.gates === 2 && reloaded.cones === 1 && reloaded.onStage === 'survivor',
      JSON.stringify(reloaded));
+
+  /* ═════════════════════════════════════════════════════════════════════
+     THE MANUAL IS ONLINE — and says so when it cannot be reached
+
+     📖 MANUAL is the biggest button on the first panel a new user reads, and
+     in a garage with no wifi it opened a tab that never resolved: no error,
+     no fallback, nothing in the app. window.open() does not throw for that —
+     the tab opens perfectly and then fails to LOAD — so the old try/catch
+     could never fire on the failure that actually happens.
+
+     What can be probed from a file:// page is the question the fix turned
+     on: a plain fetch(HEAD) is refused by CORS before it reaches the wire
+     (github.com sends no ACAO for a null origin), so it fails identically
+     online and off and is worthless as a probe. `mode:'no-cors'` is the one
+     that answers: an opaque response means the request reached GitHub, a
+     TypeError means it did not. These two cases pin exactly that, by
+     standing in for the network. */
+  console.log('\n════ the manual is online, and says so when it cannot be reached ════');
+  ok('the header button itself says it needs a connection, not just the sidebar',
+     await ev(()=>{ const b = $('btnManual'); return !!b && /connect/i.test(b.title); }),
+     await ev(()=>{ const b = $('btnManual'); return b ? b.title : 'no #btnManual'; }));
+
+  const unreachable = await ev(async ()=>{
+    const realOpen = window.open, realFetch = window.fetch;
+    const h0 = $('toasts'); if(h0) h0.remove();
+    let opened = 0;
+    window.open  = ()=>{ opened++; return null; };
+    window.fetch = ()=>Promise.reject(new TypeError('Failed to fetch'));
+    const rv = manualOpen();
+    await new Promise(r=>setTimeout(r, 400));
+    window.open = realOpen; window.fetch = realFetch;
+    const card = document.querySelector('.dlgwrap .dlgcard');
+    const said = (card ? card.textContent : '') + ' ' + (($('toasts')||{}).textContent || '');
+    const y = document.querySelector('.dlgwrap .dlgyes'); if(y) y.click();
+    const h = $('toasts'); if(h) h.remove();
+    return {rv, opened, said};
+  });
+  ok('a tab that opens and then cannot load is not silent — the app says so',
+     /\S/.test(unreachable.said) && /(reach|offline|connect)/i.test(unreachable.said),
+     JSON.stringify(unreachable.said.slice(0, 200)));
+  ok('…and says what to do about it: download it once from the Releases page',
+     /release/i.test(unreachable.said) && /download/i.test(unreachable.said) &&
+     /R2D2-Simulator-Manual\.html/.test(unreachable.said),
+     JSON.stringify(unreachable.said.slice(0, 400)));
+  ok('…while still opening the one tab, because a probe is not proof',
+     unreachable.rv === true && unreachable.opened === 1, JSON.stringify(unreachable));
+
+  const reachable = await ev(async ()=>{
+    const realOpen = window.open, realFetch = window.fetch;
+    const h0 = $('toasts'); if(h0) h0.remove();
+    let opened = 0;
+    window.open  = ()=>{ opened++; return null; };
+    window.fetch = ()=>Promise.resolve({type:'opaque', status:0});
+    const rv = manualOpen();
+    await new Promise(r=>setTimeout(r, 400));
+    window.open = realOpen; window.fetch = realFetch;
+    const said = (document.querySelector('.dlgwrap') ? document.querySelector('.dlgwrap').textContent : '')
+               + ' ' + (($('toasts')||{}).textContent || '');
+    const y = document.querySelector('.dlgwrap .dlgyes'); if(y) y.click();
+    const h = $('toasts'); if(h) h.remove();
+    return {rv, opened, said};
+  });
+  ok('and when it IS reachable the app stays quiet — no cry of wolf over a manual that loaded',
+     reachable.rv === true && reachable.opened === 1 && !/manual/i.test(reachable.said),
+     JSON.stringify(reachable));
+
+  /* the honest fallback: a host where nothing can be probed at all must still
+     never leave a blank tab as the only feedback */
+  const unprobeable = await ev(async ()=>{
+    const realOpen = window.open, realFetch = window.fetch;
+    const h0 = $('toasts'); if(h0) h0.remove();
+    let opened = 0;
+    window.open = ()=>{ opened++; return null; };
+    window.fetch = undefined;
+    const rv = manualOpen();
+    await new Promise(r=>setTimeout(r, 200));
+    window.open = realOpen; window.fetch = realFetch;
+    const said = (($('toasts')||{}).textContent || '')
+               + (document.querySelector('.dlgwrap') ? document.querySelector('.dlgwrap').textContent : '');
+    const y = document.querySelector('.dlgwrap .dlgyes'); if(y) y.click();
+    const h = $('toasts'); if(h) h.remove();
+    return {rv, opened, said};
+  });
+  ok('with nothing to probe with, it still says in the app where the manual is and that it needs a connection',
+     unprobeable.opened === 1 && /connect/i.test(unprobeable.said) &&
+     /R2D2-Simulator-Manual\.html/.test(unprobeable.said),
+     JSON.stringify(unprobeable.said.slice(0, 200)));
 
   // leave things clean for whatever runs next
   await ev(()=>{ trackLibReset(); trackDispose(); });

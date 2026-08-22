@@ -41,7 +41,7 @@ Fusion OBJ exports have never been in the repository and stay out of it.
 | | |
 |---|---|
 | Modules | 104 JS, 15 CSS, 1 markup fragment (+ the MaestroPCA Arduino library under `arduino/`) |
-| Tests | **5972 passing** across 36 suites, both builds, zero failures — plus PCA Studio's 86-assertion smoke test (in `./test.sh`) and 169 host-compiled C++ assertions plus **four** sketch-compile checks in `arduino/MaestroPCA/test` (`./run.sh`). v1.45.0 added 227 of them and v1.60.0 carries the gauges' 45, every one written red first |
+| Tests | **6076 passing** across 36 suites, both builds, zero failures — plus PCA Studio's 86-assertion smoke test (in `./test.sh`) and 169 host-compiled C++ assertions plus **four** sketch-compile checks in `arduino/MaestroPCA/test` (`./run.sh`). v1.45.0 added 227 of them and v1.60.0 carries the gauges' 45, every one written red first |
 | Dist size | ≈8.21 MB single self-contained HTML (0.75 MB of it the twenty-one board photos, inlined) |
 | PCA Studio | 0.12.2 — built from `pca-studio/manifest.json` — 20 modules, 12 of them the sim's own |
 | Firmware profiles | 3 hand ports (mod2026, Maestro 2025 PWM, Maestro 2022 BETA) + one per imported `.ino`, side by side |
@@ -1234,6 +1234,87 @@ not missing, it was folded in here (noted 2026-08-17).
   touched it since.
 
 ## 10. Change log
+
+### 2026-08-22 - v1.72.0: the last of the review's interface work
+
+**Why.** The remainder of the "needs no decision" list, once v1.71.0's rulings
+had unblocked the files. Small, and two of them are things the app was actively
+teaching wrong.
+
+**The manual's blank tab, diagnosed rather than guessed.** `manualOpen()`
+caught `window.open` *throwing* - which is not the failure. The failure is the
+tab opening fine and then not loading, i.e. a garage with no wifi, which is
+where a builder is standing. Probing was measured before anything was written:
+a plain `fetch(HEAD)` is worthless here (CORS from a `file://` page: TypeError
+online **and** off, identically), an image probe likewise; `mode:'no-cors'` HEAD
+is the one that answers - opaque means GitHub was reached, TypeError means it
+was not, and HEAD never pulls the 5 MB body. The tab still opens synchronously
+inside the click so popup blockers keep trusting it; a definite failure now
+raises a card naming the cause, the Releases download, the filename and the URL.
+A card rather than a toast **because the new tab takes focus** - a 3.5 s plate
+in the window you just left is the same silence in a different costume. The
+connection caveat also moved into the shared button title, so the header button
+carries it and not only the sidebar.
+
+**Track mode's first thirty seconds** were: cannot see the droid (it starts 5.4 m
+off-frame with Follow off), cannot move it (feet disarmed), and losing points
+for it (a barrier touch charged +2 s while the HUD still read "cross the line"
+and the clock had not started). All three fixed - the camera is framed on the
+start line, the penalty clock is gated on the run having begun, and the HUD
+carries a persistent "feet disarmed" line that clears the moment they are armed.
+That line is deliberately the same *advice* as v1.71.0's stage hint rather than
+a second voice: the hint is a moment, this is a state, and anyone who sees both
+is told one thing twice.
+
+**"Ellipses render as underscores" was wrong, and the measurement is the
+finding.** IBM Plex Mono does carry U+2026 - checked by pulling the woff2 out of
+the stylesheet and reading its cmap. Rendered at the label's own 10px, the three
+dots sit ~1.7 px apart and antialias into a single 6x1 px bar, which is
+pixel-identical to the box `text-overflow:ellipsis` paints on a clipped label.
+So `SIM ONLY...` and a truncation were the same mark. No font swap can fix that
+at 10px, so the rule instead is: **the mark means "cut off" and nothing else.**
+Three chrome labels dropped their literal ellipsis; each already sits beside a
+row naming its door. This matters beyond tidiness - v1.69.0's header chip ladder
+deliberately truncates at small widths, and it cannot communicate if a real
+ellipsis looks the same.
+
+**One keyboard legend, not two.** The always-visible strip panel and the `?`
+card were near-identical lists, and v1.71.0 made the card authoritative (it
+gained the arming lead and rewrote its driving rows) - leaving the *permanently
+visible* one still teaching `Start / Back  ↵ N`, the exact row that hid the
+arming fact through four walkthroughs. Nothing could have kept hand-written
+markup in step with a table in a JS file. The strip now carries a `? Shortcuts`
+door to the one card. It earns its place most in **sim only**, where the header
+and its `?` are hidden and the visitor holding the laptop was never told a key
+exists.
+
+**And the make-or-break moment: "did the thing I made do anything?"** A first
+brick on a panel behind the dome played three times and looked like nothing.
+Adding a brick no longer moves the camera - it lights the part up on the model
+in that brick's own colour, wherever you are looking. `ZOOM TO THIS PART` now
+frames the part *in context* (about three times its size) rather than filling
+the frame with it, which is what put the camera inside the geometry. Pressing
+play borrows "colour the model to match" for the duration and hands the user's
+setting back afterwards. And when the selected brick's part is facing away, the
+inspector says so by name and offers to turn the view round - measured on the
+horizontal bearing of part and camera about the droid's axis, returning *null*
+rather than *false* when it cannot tell, so "don't know" can never be read as
+"no". Separately, a routine built on parts with no servo channel is now a named
+warning at export instead of `ERRORS 0` in silence.
+
+**Two residuals closed.** The startup wizard's Escape still doubled with the
+help card's, because it binds at load and `stopImmediatePropagation` only stops
+listeners registered *after* it - so the wizard's guard now declines while the
+card is up, and the general rule is recorded: **a guard that listens permanently
+cannot rely on anyone else's `stopImmediatePropagation`, and must name in its
+own `isOpen` every surface that can stack above it.** And `HW.rebuild(true)`'s
+keep-loop guarded on the *new* servo flag only, so a channel that had just
+become a Servo had its freshly-homed state overwritten by the old row's zeros;
+the copy is now narrowed rather than widened, so it composes with v1.69.0's
+`aim` fix instead of undoing it.
+
+**Suite: 5972 -> 6076 assertions**, 36 suites x 2 builds plus PCA Studio, green.
+
 
 ### 2026-08-22 - v1.71.0: the interface half of the review
 

@@ -2172,6 +2172,180 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
   ok('the header and the summary panel print the SAME length',
      lens.head && lens.insp && lens.head === lens.insp, JSON.stringify(lens));
 
+  /* =====================================================================
+     "DID THE THING I MADE DO ANYTHING?"  (2026-08-22)
+
+     A builder's first brick was on Panel1, which sits on the far side of
+     the dome from the default camera. They pressed ▶ three times, watched
+     the droid, saw nothing move, and concluded they had failed to make an
+     animation. Four things had to change for the app's answer to that
+     question to be YES, and each has its own section below.
+     ===================================================================== */
+  console.log('\n════ adding a brick marks the part — it does not move the camera ════');
+  const added = await ev(()=>{
+    MSTR.sequences.length = 0; BLK.libq = '';
+    EDIT.seq = blockNewRoutine('Camera hold');
+    CAM.follow = false;
+    viewFrame('head');
+    updateCamera();
+    buildSequencer();
+    const before = {t:[CAM.target.x,CAM.target.y,CAM.target.z], d:CAM.dist, th:CAM.theta};
+    const chip = Array.from(document.querySelectorAll('#seqblocks .blklib .blkchip'))
+                      .find(c=>c.dataset.act === 'panel1');
+    if(!chip) return {no:'no panel1 chip'};
+    const cr = chip.getBoundingClientRect();
+    const at = {bubbles:true, clientX:cr.x+4, clientY:cr.y+4, pointerId:31};
+    chip.dispatchEvent(new PointerEvent('pointerdown', at));
+    window.dispatchEvent(new PointerEvent('pointerup', at));
+    const m = CAD.moving.find(x=>x.act === 'panel1');
+    return {before, after:{t:[CAM.target.x,CAM.target.y,CAM.target.z], d:CAM.dist, th:CAM.theta},
+            bricks: blockList(MSTR.sequences[EDIT.seq]).length, mark: BLK.mark, want: m && m.name};
+  });
+  ok('a chip click still adds the brick', added.bricks === 1, JSON.stringify(added));
+  ok('…and the camera has not moved an inch',
+     JSON.stringify(added.before) === JSON.stringify(added.after), JSON.stringify(added));
+  ok('…the part is marked on the model instead', added.mark && added.mark === added.want,
+     JSON.stringify({mark:added.mark, want:added.want}));
+  ok('…and the mark is a real change to the model, not just a flag', await ev(()=>{
+    const n = BLK.mark; const pi = n && CAD.partIndex[n]; if(!pi) return false;
+    const a = pi.mesh.geometry.getAttribute('color');
+    const base = new THREE.Color(effectivePartHex(n) || '#9ab');
+    return Math.abs(a.getX(pi.vStart)-base.r) + Math.abs(a.getY(pi.vStart)-base.g)
+         + Math.abs(a.getZ(pi.vStart)-base.b) > 0.05;
+  }));
+  const framed = await ev(()=>{
+    /* the biggest mover on the droid is the case that used to fill the frame */
+    const big = CAD.moving.map(m=>{
+      const hp = CAD.header.parts.find(p=>p.name === m.name);
+      const b = hp && hp.bbox;
+      return b ? {act:m.act, name:m.name, span:Math.max(b[3]-b[0], b[4]-b[1], b[5]-b[2])} : null;
+    }).filter(x=>x && x.act).sort((a,b)=>b.span-a.span)[0];
+    const seq = MSTR.sequences[EDIT.seq];
+    blockList(seq).slice().forEach(b=>blockRemove(seq, b.id));
+    const brick = blockAdd(seq, 'act', big.act, 0, {dur:1000});
+    BLK.sel = brick.id; blockSync(seq); buildSequencer();
+    const btn = Array.from($('seqinsp').querySelectorAll('button'))
+                     .find(b=>/Zoom to this part/i.test(b.textContent));
+    if(!btn) return {no:'no zoom button'};
+    btn.click();
+    updateCamera();
+    return {name:big.name, span:big.span, dist:CAM.dist,
+            /* what the view spans, in metres, at the part's own depth */
+            frame: 2*CAM.dist*Math.tan(camera.fov*Math.PI/360)};
+  });
+  ok('ZOOM TO THIS PART frames the part IN CONTEXT — the view spans about three times it',
+     framed.frame >= framed.span*3, JSON.stringify(framed));
+
+  console.log('\n════ ▶ shows what is moving, wherever the camera is looking ════');
+  await ev(()=>{
+    BLK.tint = false;
+    if(typeof applyPaint === 'function') applyPaint();
+    MSTR.sequences.length = 0;
+    EDIT.seq = blockNewRoutine('Behind the dome');
+    const s = MSTR.sequences[EDIT.seq];
+    blockAdd(s, 'act', 'panel1', 0, {dur:2500});
+    blockSync(s); BLK.sel = null; buildSequencer();
+    $('sqPlay').click();
+  });
+  await page.waitForTimeout(400);
+  const playing = await ev(()=>({
+    tint: BLK.tint,
+    box: (document.querySelector('#seqblocks .blkswitch input')||{}).checked,
+    slot: !!(MAESTRO.slot && MAESTRO.slot.edit)
+  }));
+  ok('pressing ▶ colours the model to match while it plays',
+     playing.slot && playing.tint === true, JSON.stringify(playing));
+  ok('…and the checkbox stops lying about what the model is showing',
+     playing.box === true, JSON.stringify(playing));
+  await ev(()=>{ $('sqStop').click(); });
+  await page.waitForTimeout(300);
+  ok('…and their own setting comes back when the preview ends', await ev(()=>
+     BLK.tint === false && !(document.querySelector('#seqblocks .blkswitch input')||{}).checked));
+  await ev(()=>{
+    /* somebody who WANTED the tint keeps it — playback must not switch it off */
+    BLK.tint = true; buildSequencer();
+    $('sqPlay').click();
+  });
+  await page.waitForTimeout(300);
+  await ev(()=>{ $('sqStop').click(); });
+  await page.waitForTimeout(300);
+  ok('…and a tint they turned on themselves survives a preview', await ev(()=>BLK.tint === true));
+  await ev(()=>{ BLK.tint = false; if(typeof applyPaint === 'function') applyPaint(); buildSequencer(); });
+
+  console.log('\n════ a part round the back says so, and offers a way to see it ════');
+  const back = await ev(()=>{
+    MSTR.sequences.length = 0;
+    EDIT.seq = blockNewRoutine('Round the back');
+    const s = MSTR.sequences[EDIT.seq];
+    const b = blockAdd(s, 'act', 'panel1', 0, {dur:1000});
+    BLK.sel = b.id; blockSync(s);
+    const m = CAD.moving.find(x=>x.act === 'panel1');
+    const p = partWorldPos(m.name);
+    CAM.follow = false; CAM.target.set(0, 0.9, 0); CAM.dist = 1.15;
+    CAM.theta = Math.atan2(p.x, p.z) + Math.PI;      // stand behind the droid
+    updateCamera();
+    buildSequencer();
+    const n = $('seqinsp').querySelector('.blkfar');
+    return {has:!!n, shown: n ? getComputedStyle(n).display : 'absent',
+            txt: n ? n.textContent : '', label: blkLabel('panel1')};
+  });
+  ok('the inspector says the selected part is on the far side',
+     back.has && back.shown !== 'none' && /far side/i.test(back.txt), JSON.stringify(back));
+  ok('…and names it, rather than saying "the part"',
+     back.txt.indexOf(back.label) >= 0, JSON.stringify(back));
+  const turned = await ev(()=>{
+    const btn = $('seqinsp').querySelector('.blkfar button');
+    if(!btn) return {no:'no button'};
+    const was = {d:CAM.dist, t:[CAM.target.x,CAM.target.y,CAM.target.z]};
+    btn.click();
+    updateCamera();
+    const p = partWorldPos(CAD.moving.find(x=>x.act === 'panel1').name);
+    const cos = (p.x*camera.position.x + p.z*camera.position.z)
+              / (Math.hypot(p.x,p.z) * Math.hypot(camera.position.x, camera.position.z));
+    return {cos, was, now:{d:CAM.dist, t:[CAM.target.x,CAM.target.y,CAM.target.z]}};
+  });
+  ok('…and the button brings that side round to the front',
+     turned.cos > 0.5, JSON.stringify(turned));
+  ok('…without changing how close, or what, the view is on',
+     JSON.stringify(turned.was) === JSON.stringify(turned.now), JSON.stringify(turned));
+  ok('…and it goes quiet again once the part is facing you', await ev(()=>{
+    buildSequencer();
+    const n = $('seqinsp').querySelector('.blkfar');
+    return !n || getComputedStyle(n).display === 'none';
+  }));
+
+  console.log('\n════ bricks on parts with no channel are a warning at export ════');
+  const nochan = await ev(()=>{
+    const off = BLKH.movers().filter(m=>!m.on);
+    MSTR.sequences.length = 0;
+    EDIT.seq = blockNewRoutine('Wiring comes later');
+    const s = MSTR.sequences[EDIT.seq];
+    blockAdd(s, 'act', blockActions()[0].act, 0, {dur:800});   // one wired brick, so it is not an empty routine
+    blockSync(s); loadoutReset(); reindexSubs();
+    const before = lintMaestro();
+    off.slice(0,2).forEach((m,i)=>blockAdd(s, 'act', m.act, 1000 + i*1200, {dur:1000}));
+    blockSync(s); loadoutReset(); reindexSubs(); buildSequencer();
+    const rep = lintMaestro();
+    const hits = rep.items.filter(i=>i.code === 'brick-nochan');
+    return {offCount: off.length, n: hits.length,
+            level: hits[0] ? hits[0].level : null,
+            msg:   hits[0] ? hits[0].msg   : '',
+            fix:   hits[0] ? hits[0].fix   : '',
+            slot:  hits[0] ? hits[0].slot  : null,
+            names: off.slice(0,2).map(m=>m.label),
+            errBefore: before.counts.err, err: rep.counts.err};
+  });
+  ok('the channel-less parts really are there to build with', nochan.offCount === 10, String(nochan.offCount));
+  ok('a routine driving them raises exactly one line, naming the routine',
+     nochan.n === 1 && /Wiring comes later/.test(nochan.msg), JSON.stringify(nochan));
+  ok('…which names the bricks, not just a count',
+     nochan.names.every(l=>nochan.msg.indexOf(l) >= 0), JSON.stringify(nochan));
+  ok('…and carries the slot as a field, like slot-nodpad',
+     typeof nochan.slot === 'number', JSON.stringify(nochan));
+  ok('…and it advises rather than refuses — a warning, and no new errors',
+     nochan.level === 'warn' && nochan.err === nochan.errBefore, JSON.stringify(nochan));
+  ok('…and it says what to do about it', /channel/i.test(nochan.fix), nochan.fix.slice(0,120));
+
   console.log('\n════ no page errors ════');
   ok('nothing threw', errs.length===0, errs.join(' | '));
 

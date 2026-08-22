@@ -64,7 +64,23 @@
        markup on purpose: btnTheme, btnScaleDn/Up, uiScaleLbl and btnSaveLoad
        must stay alive in the DOM at all times — main.js binds them once at
        boot and the suites reference them — so the menu is shown/hidden
-       (views.js appMenuOpen/Close), never rebuilt. -->
+       (views.js appMenuOpen/Close), never rebuilt.
+
+       NO LABEL ENDS IN AN ELLIPSIS (v1.71.1). These three read "Save & load…",
+       "Sim only…" and "Credits…" — the convention for "this opens something
+       rather than doing it". At the size and face they are set in, that
+       convention does not survive contact with the pixel grid: 10px tracked
+       IBM Plex Mono caps draw U+2026 as ONE 6×1px bar, the identical box `_`
+       fills, and the identical mark text-overflow:ellipsis paints on a label
+       that is genuinely cut off. (The glyph is not missing — the face has it
+       and draws it; there are simply not enough pixels for three dots and
+       two gaps.) A walkthrough read the menu as SIM ONLY_ / CREDITS_ /
+       SAVE & LOAD_ and could not tell "opens a dialog" from "clipped".
+       Truncation is the meaning the app cannot spell any other way — CSS
+       draws it and no label can opt out — so it keeps the mark, and nothing
+       else uses it. The amrow label to the left already says which door this
+       is, and every one of them still carries its title. Pinned by
+       chrome.test.js "an ellipsis and a truncation are one mark". -->
   <div id="appMenu" hidden>
     <div class="amrow"><span class="amlbl">Theme</span>
       <button class="hbtn" id="btnTheme" title="Switch the frame between dark and light">Light</button>
@@ -75,10 +91,10 @@
       <button class="hbtn" id="btnScaleUp" title="Larger interface text">A+</button>
     </div>
     <div class="amrow"><span class="amlbl">Setup file</span>
-      <button class="hbtn" id="btnSaveLoad" title="Export or import your whole setup as one .json">Save &amp; load…</button>
+      <button class="hbtn" id="btnSaveLoad" title="Export or import your whole setup as one .json">Save &amp; load</button>
     </div>
     <div class="amrow"><span class="amlbl">Public</span>
-      <button class="hbtn" id="btnKiosk" title="Sim only — hand the laptop over: the droid, the backdrop and the pad, and nothing that can change the build. Set a temporary password to lock the way out.">Sim only…</button>
+      <button class="hbtn" id="btnKiosk" title="Sim only — hand the laptop over: the droid, the backdrop and the pad, and nothing that can change the build. Set a temporary password to lock the way out.">Sim only</button>
     </div>
     <!-- ABOUT (v1.44.0). The simulator travels as ONE self-contained HTML
          file, so the people running it are frequently people who never saw
@@ -86,7 +102,7 @@
          thing itself, not only with its README. Static markup like the rest
          of this menu: main.js binds it once at boot. -->
     <div class="amrow"><span class="amlbl">About</span>
-      <button class="hbtn" id="btnAbout" title="Version, credits and licence — who made the parts this is built from">Credits…</button>
+      <button class="hbtn" id="btnAbout" title="Version, credits and licence — who made the parts this is built from">Credits</button>
     </div>
   </div>
 
@@ -225,17 +241,41 @@
             <g id="g_A" class="hit"><circle cx="500" cy="180" r="17" class="pb" id="b_A"></circle><text class="pbtxt" x="500" y="180">A</text></g>
           </svg>
         </div>
+        <!-- ONE KEYBOARD LEGEND (v1.71.1)
+             This panel used to print its own key → control list — nine rows,
+             twenty-five key caps — beside the "?" card's (app/shortcuts.js,
+             KBD_COLS). Two hand-written copies of one map, in two files, with
+             nothing keeping them in step, and they duly drifted: v1.71.0 made
+             the card authoritative and taught it the arming fact (the feet
+             boot DISARMED; Start must be HELD), rewriting `Left stick — drive
+             + turn, once armed` and `Start — HOLD it to arm the feet`. This
+             copy still said `Start / Back  ↵ N` — the very row shortcuts.js
+             records as having hidden that fact through four walkthroughs and
+             four and a half minutes of nobody moving. So the app taught two
+             different things depending on which one you happened to read,
+             and the thinner of the two was the one always on screen.
+
+             The list is gone and the DOOR takes its place, because "make the
+             two agree" only fixes today: no mechanism could keep markup here
+             in step with a table in a JS file, and the last edit to that
+             table proves it. What is lost is a legend visible while driving —
+             but it was the WRONG legend, and the card lets the driving keys
+             fall through on purpose (shortcuts.js), so it can be read with a
+             hand still on WASD.
+
+             The door matters most in sim only, where the header and its "?"
+             are display:none and the visitor holding the laptop was never
+             told a key exists. Wired inline — and it is the only inline
+             handler in this file — because kbdHelpToggle() is the card's own
+             public entry, the same one #btnKbd goes through (app/main.js),
+             and adding the door was a body.html change. If a boot binding is
+             ever added for it, take this attribute out at the same time.
+             kiosk.test.js still pins #padside as shown; chrome.test.js pins
+             "one keyboard legend, and a door to it". -->
         <div id="padside">
           <h4>Keyboard</h4>
-          <div class="kbrow"><span>Left stick</span><span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></span></div>
-          <div class="kbrow"><span>Right stick</span><span><kbd>I</kbd><kbd>J</kbd><kbd>K</kbd><kbd>L</kbd></span></div>
-          <div class="kbrow"><span>D-pad</span><span><kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd></span></div>
-          <div class="kbrow"><span>LB / RB</span><span><kbd>Q</kbd><kbd>E</kbd></span></div>
-          <div class="kbrow"><span>LT / RT</span><span><kbd>Z</kbd><kbd>C</kbd></span></div>
-          <div class="kbrow"><span>A / B / X / Y</span><span><kbd>Spc</kbd><kbd>B</kbd><kbd>V</kbd><kbd>Y</kbd></span></div>
-          <div class="kbrow"><span>Start / Back</span><span><kbd>↵</kbd><kbd>N</kbd></span></div>
-          <div class="kbrow"><span>L3 / R3</span><span><kbd>R</kbd><kbd>F</kbd></span></div>
-          <div class="kbrow"><span>Guide</span><span><kbd>G</kbd></span></div>
+          <button class="b" id="btnPadKbd" style="width:100%" onclick="kbdHelpToggle()"
+                  title="Every key the sim listens for — and what has to be armed before anything moves. Same card as ? and the header’s ?.">? Shortcuts</button>
           <div class="hint" style="margin-top:9px">Sticks: drag them, or hold a key.<br>Plug in a real pad and press a button — the on-screen pad mirrors it.</div>
         </div>
         <div id="pupside"></div>
