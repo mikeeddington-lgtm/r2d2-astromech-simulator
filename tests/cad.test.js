@@ -203,6 +203,189 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
   await ev(()=>setCadActive(true));
   ok('and back again', await ev(()=>CAD.active && !R2.body.visible && R2.legGroup.scale.y<1));
 
+  /* =====================================================================
+     v1.46.0 — the CAD layer's own work-destroying defects. Each of these
+     was written to FAIL against the module as it stood: three of them lose
+     something the user typed, and they lose it SILENTLY, which is why they
+     get a test apiece rather than a note in the handover.
+     ===================================================================== */
+
+  console.log('\n════ (D) clearing a name or a colour must not delete the motion ════');
+  /* Three of the four override writers pruned the record on a SUBSET of the
+     keys it can carry — setPartLabel and setPartColor checked label+color,
+     setPartFinish checked label+color+finish — so writing and then clearing
+     any one of them threw away `ov.motion`, which is what motionApply()
+     rebuilds the rig from. Silent, because neither writer calls motionApply:
+     the part keeps moving correctly for the rest of the session and is only
+     found back on the CAD rig after the next reload. */
+  const keep = await ev(()=>{
+    const name = CAD.moving.find(m=>m.act && CAD.header.parts.find(p=>p.name===m.name && p.bbox)).name;
+    const savedOv = JSON.parse(JSON.stringify(PARTS.overrides));
+    const has = () => !!(PARTS.overrides[name] && PARTS.overrides[name].motion);
+    const out = {name};
+    PARTS.overrides = {};
+
+    setPartMotion(name, {kind:'hinge_y', pivot:'top', amount:40});
+    out.set = has();
+    setPartColor(name, '#d4af37'); out.afterColour = has();
+    setPartColor(name, null);      out.afterClearColour = has();
+
+    setPartMotion(name, {kind:'hinge_y', pivot:'top', amount:40});
+    setPartLabel(name, 'test name'); out.afterLabel = has();
+    setPartLabel(name, '');          out.afterClearLabel = has();
+
+    setPartMotion(name, {kind:'hinge_y', pivot:'top', amount:40});
+    setPartFinish(name, 'metal'); out.afterFinish = has();
+    setPartFinish(name, null);    out.afterClearFinish = has();
+
+    /* and the prune still has to happen when the record really is empty —
+       an override map that never shrinks is its own bug */
+    setPartMotion(name, null);
+    out.emptyPruned = !PARTS.overrides[name];
+
+    PARTS.overrides = savedOv; partsSave(); motionApplyAll(); applyPaint();
+    return out;
+  });
+  ok('a motion override is written', keep.set, JSON.stringify(keep));
+  ok('colouring the part keeps its motion', keep.afterColour);
+  ok('…and CLEARING the colour keeps it too', keep.afterClearColour);
+  ok('naming the part keeps its motion', keep.afterLabel);
+  ok('…and clearing the name keeps it too', keep.afterClearLabel);
+  ok('a finish keeps it, and clearing the finish keeps it', keep.afterFinish && keep.afterClearFinish);
+  ok('…but a record with nothing left in it is still pruned', keep.emptyPruned);
+
+  console.log('\n════ (E) partsLoad() must not prune against the model that happens to be loaded ════');
+  /* The bundled payload is the SHELL — 175 parts, no `internal` kind at all,
+     which is what the pane's own "Drop the full .r2m in to add the internal
+     mechanism" is about. partsLoad() kept only overrides and group members
+     whose names are in CAD.partIndex, and every rename/colour/motion/group
+     edit calls partsSave(), which serialises the pruned PARTS. So the
+     documented workflow — drop the full .r2m, name and group the internal
+     parts, reload, rename anything — deleted that work permanently. */
+  const survive = await ev(()=>{
+    const savedOv = JSON.parse(JSON.stringify(PARTS.overrides));
+    const savedGr = JSON.parse(JSON.stringify(PARTS.groups));
+    const savedPrefs = JSON.parse(JSON.stringify(PREFS.parts || {}));
+    const ghost = 'GearboxIdler_1';                 // only the FULL .r2m has this
+    const known = CAD.moving[0].name;
+    PARTS.overrides = {}; PARTS.groups = [];
+    setPartLabel(ghost, 'idler gear');
+    setPartLabel(known, 'a real part');
+    const g = groupCreate('Internals');
+    groupToggleMember(g.id, ghost, true);
+    groupToggleMember(g.id, known, true);
+
+    partsLoad();                                    // what a reload / model load does
+    const afterLoad = {ov: !!PARTS.overrides[ghost],
+                       member: PARTS.groups.some(x=>x.members.indexOf(ghost)>=0)};
+    setPartLabel(known, 'another edit');            // any later edit re-saves PARTS
+    const stored = PREFS.parts;
+    const afterSave = {ov: !!(stored.overrides && stored.overrides[ghost]),
+                       member: (stored.groups||[]).some(x=>(x.members||[]).indexOf(ghost)>=0)};
+    /* the known part must still work exactly as before — widening what the
+       registry may hold must not change what it answers for a real part */
+    const stillWorks = partLabel(known)==='another edit' && !!effectivePartHex(known);
+
+    PARTS.overrides = savedOv; PARTS.groups = savedGr; PREFS.parts = savedPrefs;
+    partsSave(); registerGroupAnims(); applyPaint();
+    return {afterLoad, afterSave, stillWorks};
+  });
+  ok('an override for a part this payload does not carry survives partsLoad()',
+     survive.afterLoad.ov, JSON.stringify(survive));
+  ok('…so does its group membership', survive.afterLoad.member);
+  ok('…and the next edit does not delete it from storage either',
+     survive.afterSave.ov && survive.afterSave.member, JSON.stringify(survive.afterSave));
+  ok('…while a part that IS in this payload behaves exactly as before', survive.stillWorks);
+
+  console.log('\n════ (F) paintSave() must not wipe another model’s slot roles ════');
+  /* PAINT.roleOf is rebuilt from scratch by classifyMaterials() out of
+     CAD.slots, whose keys are model-specific (kind:file:material).
+     initPaint() is careful to READ only keys that still exist; paintSave()
+     replaced the saved map wholesale, so the first colour touched under a
+     second CAD model erased every role override made against the first. */
+  const roles = await ev(()=>{
+    const savedPaint = PREFS.paint ? JSON.parse(JSON.stringify(PREFS.paint)) : null;
+    const foreign = 'wheel:mouse:3';                 // a slot key from another model
+    PREFS.paint = {scheme:PAINT.scheme, colors:Object.assign({},PAINT.colors),
+                   roleOf:Object.assign({}, PAINT.roleOf, {[foreign]:'trim'})};
+    setRoleColor('trim', '#123456');                 // → paintSave()
+    const kept = PREFS.paint.roleOf[foreign];
+    const mine = PREFS.paint.roleOf[CAD.slots[0].key];
+    PREFS.paint = savedPaint; if(savedPaint) initPaint();
+    return {kept, mine};
+  });
+  ok('a slot role belonging to another model survives a colour change here',
+     roles.kept==='trim', JSON.stringify(roles));
+  ok('…and this model’s own roles are still written', !!roles.mine, JSON.stringify(roles));
+
+  console.log('\n════ (H) a bad header must not take the model off the stage ════');
+  /* buildCad's very first statement disposed the current model; the first
+     unguarded read of the NEW header was six lines later. CAD.loaded /
+     header / fileName / stats are only assigned on success and there was no
+     rollback, so a header with no `materials` left CAD.loaded true with the
+     OLD header, CAD.moving emptied, CAD.slots pointing at disposed
+     materials, nothing on the stage — and the Model pane still claiming the
+     old model's part and moving counts. */
+  const rollback = await ev(()=>{
+    const snap = () => ({name:CAD.fileName, loaded:CAD.loaded, moving:CAD.moving.length,
+                         slots:CAD.slots.length, parts:CAD.stats?CAD.stats.parts:-1,
+                         onStage: !!(CAD.root && CAD.root.parent === R2.root),
+                         meshes: (()=>{ let n=0; if(CAD.root) CAD.root.traverse(o=>{ if(o.isMesh) n++; }); return n; })()});
+    const before = snap();
+    const hdr = JSON.parse(JSON.stringify(CAD.header));
+    delete hdr.materials;
+    let threw = '';
+    try{ buildCad({header:hdr, pos:new Float32Array(0), nrm:new Float32Array(0),
+                   idx:new Uint32Array(0)}, 'broken.r2m'); }
+    catch(e){ threw = e.message; }
+    const after = snap();
+    /* and the pane must still describe the model that IS on the stage */
+    buildCadPane();
+    const msg = ($('cadMsg')||{}).textContent || '';
+    return {threw, before, after, msg};
+  });
+  ok('a header with no materials is refused', rollback.threw!=='', rollback.threw);
+  ok('…and the model that was on the stage is still all there',
+     JSON.stringify(rollback.after)===JSON.stringify(rollback.before),
+     JSON.stringify(rollback.before)+' → '+JSON.stringify(rollback.after));
+  ok('…so the Model pane is not describing a model that has gone',
+     rollback.msg.indexOf(String(rollback.before.parts)+' parts')===0, rollback.msg);
+
+  console.log('\n════ (G) an unknown part kind is shown, and gets a checkbox ════');
+  /* Visibility defaulted to hidden for any kind outside a hardcoded list of
+     seven, and the Show section only ever offered those seven. The project's
+     OWN second container — the Polar Mouse .r2m, which ui-files.js routes
+     here by extension — has kinds {body, wheel, chariot}: 130 parts loaded,
+     all invisible, zero checkboxes, an empty stage and nothing logged. */
+  const unknown = await ev(async ()=>{
+    const buf = await inflateB64(MOUSE_PAYLOAD);
+    buildCad(decodeR2M(buf), 'polar-mouse.r2m');
+    const kinds = {};
+    CAD.header.parts.forEach(p=>{ kinds[p.kind] = (kinds[p.kind]||0)+1; });
+    const groups = Object.keys(CAD.kindGroups).map(k=>CAD.kindGroups[k].visible);
+    document.querySelector('#tabs button[data-p="pCad"]').click();
+    buildCadPane();
+    const boxes = Array.from($('cadHost').querySelectorAll('label.sw'))
+      .map(l=>l.textContent).filter(t=>!/Procedural legs/.test(t));
+    return {kinds:Object.keys(kinds).sort().join(), parts:CAD.header.parts.length,
+            allShown: groups.length>0 && groups.every(v=>v),
+            moving: CAD.moving.every(m=>m.group.visible),
+            boxes: boxes.join(' | ')};
+  });
+  ok('the second bundled container loads', unknown.parts>0 && unknown.kinds==='body,chariot,wheel',
+     JSON.stringify(unknown));
+  ok('every part of it is VISIBLE — an unknown kind defaults to shown',
+     unknown.allShown && unknown.moving, JSON.stringify(unknown));
+  ok('…and the Show list offers a checkbox per kind actually present',
+     /body/i.test(unknown.boxes) && /wheel/i.test(unknown.boxes) && /chariot/i.test(unknown.boxes),
+     unknown.boxes);
+
+  /* put the bundled droid back, so anything appended after this starts from
+     the same stage every other section here ran against */
+  await ev(async ()=>{ await loadCadFromPayload(); });
+  ok('the bundled MK4 reloads cleanly after all of that',
+     await ev(()=>CAD.loaded && CAD.stats.parts===175 && CAD.active), await ev(()=>CAD.fileName));
+
   console.log(`\n${pass} passed, ${fail} failed`);
   console.log('page errors:', errs.length?errs:'none');
   await browser.close();

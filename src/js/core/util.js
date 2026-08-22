@@ -7,7 +7,7 @@
 
 /* Shown top-left in the header so a stale copy is obvious at a glance.
    BUMP THIS on every delivery (HANDOVER §change log gets the same number). */
-const APP_VERSION = '1.68.0';
+const APP_VERSION = '1.69.0';
 /* The licence the app's own About box states — one string, one place.
    Scoped on purpose: MIT covers THIS project's code and artwork, and the
    About box has to say so rather than implying it covers the geometry, the
@@ -41,7 +41,25 @@ function fileStamp(d){
 }
 
 /* -------------------------------------------------------- arduino helpers */
-const map_ = (x,a,b,c,d)=>Math.trunc((x-a)*(d-c)/(b-a)+c);   // integer, unconstrained — same as Arduino
+/* map() — and it has to be Arduino's, not a rounding of the same idea. In C:
+
+       long map(x, a, b, c, d){ return (x - a) * (d - c) / (b - a) + c; }
+
+   Every term is a long, so the DIVISION truncates toward zero and `+ c`
+   happens to the already-truncated quotient. This used to truncate the SUM
+   instead — `Math.trunc(q + c)` — which is the same answer only once q + c
+   has reached zero. Below that, truncating toward zero rounds the wrong way,
+   and the result is one HIGHER than the sketch's: over a hat's full travel
+   into `-drivespeed .. drivespeed`, 32,765 of the 65,536 positions disagreed,
+   all of them on the reverse half. `map_(-1,-32768,32767,-50,50)` gave 0
+   where an Arduino gives -1 (2026-08-22).
+
+   Reverse throttle, reverse turn, dome-left and the leftDirection===0 foot
+   PWM all read through here (profiles/maestro-shared.js, profiles/mod2026.js),
+   so this is the difference between a droid that behaves like the sketch and
+   one that nearly does — which is the entire premise of the app. Truncate the
+   quotient; add out_min afterwards; keep it unconstrained, as Arduino's is. */
+const map_ = (x,a,b,c,d)=>Math.trunc((x-a)*(d-c)/(b-a))+c;   // integer, unconstrained — same as Arduino
 const rnd  = (a,b)=>Math.floor(Math.random()*(b-a))+a;        // random(min,max), max exclusive
 const clamp=(v,a,b)=>v<a?a:v>b?b:v;
 

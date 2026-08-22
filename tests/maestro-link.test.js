@@ -295,10 +295,100 @@ const ok = (n,c,x='') => { c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+' 
   ok('the dial starts a poll on its own channel', stopped.running === true);
   ok('and leaving the dial stops it', stopped.after === true);
 
+  /* ════ THE CACHE THAT OUTLIVED THE SPEEDS IT REMEMBERS (v1.66.3)
+     serialMove() de-duplicates Set Speed against SER.lastSpeed, so the second
+     paced move on a channel is a bare Set Target. mstrQuiet() rewrites the
+     board's speed and acceleration on EVERY channel and never goes near that
+     cache — so after the "let the sim shape the moves" toggle the cache still
+     names a speed the board no longer holds, the next move is suppressed
+     against it, and a channel whose table speed is 0 runs at FULL SPEED while
+     the sequencer is still timing the brick against the ramp it asked for. */
+  console.log('\n════ rewriting the board\'s speeds forgets what it was told ════');
+  await txReset();
+  const cache = await ev(()=>{
+    SER.port = {}; SER.blocked = false; SER.kind = 'maestro';
+    SER.lastTicks = {}; SER.lastSpeed = {};
+    MST.on = true; MST.chCount = 18; MST.quiet = false;
+    /* table speed 0 = unlimited, which is what a generated table gives you
+       until somebody tunes the channel — the case that runs away */
+    if(MSTR.channels && MSTR.channels[5]) MSTR.channels[5].speed = 0;
+    serialMove(5, 6000, 300);                    /* the frame's own speed */
+    const first = window.__tx.slice();
+    mstrQuiet(true); mstrQuiet(false);           /* the board's speeds rewritten */
+    const cached = SER.lastSpeed[5];
+    const cleared = Object.keys(SER.lastSpeed).length === 0;
+    window.__tx.length = 0;
+    serialMove(5, 4000, 300);                    /* the same speed, a new move */
+    const replay = window.__tx.slice();
+    MST.quiet = false;
+    return {first, cleared, replay, cached};
+  });
+  ok('the first paced move states its speed', cache.first.length === 2 && cache.first[0][0] === 0x87,
+     JSON.stringify(cache.first));
+  ok('rewriting the board\'s speeds drops the Set Speed cache', cache.cleared === true,
+     'lastSpeed5 = ' + cache.cached);
+  ok('so the next move states it again instead of trusting the board',
+     cache.replay.some(t=>t[0] === 0x87), JSON.stringify(cache.replay));
+
+  /* The mode banner is WHY streaming is on, and it outlived the link: nothing
+     cleared SER.modeWarn on disconnect, so the next hwLinkRender() — one per
+     setupRender(), i.e. per keystroke on the Channels step — painted "the
+     board draws the ramps" and its live buttons back beside a chip reading
+     "No board", with nothing on the other end to press them at. */
+  console.log('\n════ disconnecting takes the banner with it ════');
+  const banner = await ev(async ()=>{
+    SER.port = {}; SER.blocked = false; SER.kind = 'maestro'; MST.on = true;
+    serialSetMode('stream', 'Connected to a <b>Pololu Maestro</b> — the board draws the ramps');
+    const held = SER.modeWarn;
+    await serialDisconnect();
+    return {held, after:SER.modeWarn};
+  });
+  ok('a live link remembers why it is streaming', /Pololu Maestro/.test(banner.held), banner.held);
+  ok('and disconnecting forgets it, so no re-render can put it back',
+     banner.after === '', banner.after);
+
+  /* "use N expanders" is an ADD-ROWS button. It was calling wizFinish(), the
+     wizard's EXIT path — which marks the build done, closes the startup card
+     and burns the once-ever first-run card. What it wants is the post-buildSet
+     re-derivation, which is buildApply(). */
+  console.log('\n════ "use N expanders" adds rows, it does not end setup ════');
+  const adopt = await ev(()=>{
+    /* only a counted PCA shape can take a board count at all */
+    buildSet('servoDevice','pca'); buildSet('servoTopo','p1x2'); buildSet('pcaBoards',2);
+    buildGet().done = false;
+    const was = HW.count();
+    const took = serialAdoptBoardCount(3);
+    return {took, was, now:HW.count(), done:!!buildGet().done};
+  });
+  ok('adopting the board\'s count grows the channel table',
+     adopt.took === true && adopt.now > adopt.was, adopt.was + ' → ' + adopt.now);
+  ok('and it does not declare the build finished', adopt.done === false);
+  const adoptCalls = await ev(()=>{
+    const realWiz = window.wizFinish, realApply = window.buildApply;
+    /* the ORDER, not a count: buildSet() applies the build itself, so what
+       tells the two apart is what follows it — a second re-derivation, or the
+       wizard's exit path. wizFinish is counted and NOT called through, because
+       running the exit path here is the very thing under test. */
+    const log = [];
+    window.wizFinish  = function(){ log.push('wizFinish'); };
+    window.buildApply = function(){ log.push('buildApply'); return realApply.apply(this, arguments); };
+    const took = serialAdoptBoardCount(4);
+    window.wizFinish = realWiz; window.buildApply = realApply;
+    return {took, log};
+  });
+  ok('it re-derives the build rather than finishing the wizard',
+     JSON.stringify(adoptCalls.log) === '["buildApply","buildApply"]',
+     JSON.stringify(adoptCalls.log));
+
   await ev(()=>{ SER.port = null; SER.kind = ''; mstrReset(); });
   ok('no page errors', errs.length === 0, errs.join(' | '));
 
-  console.log('\n' + (fail ? 'FAILED ' + fail : 'ALL PASS') + '   (' + pass + ' assertions)');
+  /* the shape test.sh greps for (`^[0-9]+ passed|FAIL`). "ALL PASS (51
+     assertions)" matched neither, so a fully green run reported `(no summary)`
+     — byte-identical to what the runner prints when this suite dies before it
+     gets here, e.g. its 40 s waitForFunction timing out. This is the only
+     suite that pins the serial protocol; a crash in it must not read as a pass. */
+  console.log('\n'+pass+' passed, '+fail+' failed');
   await browser.close();
   process.exit(fail ? 1 : 0);
 })();

@@ -76,7 +76,7 @@ function buildSequencer(){
   $('seqName').textContent = seq
     ? (seq.name + '  ·  ' + (blockIsRoutine(seq) ? blockList(seq).length+' bricks' : seq.frames.length+' frames')
        + '  ·  ' + (seqTotal(seq)/1000).toFixed(1) + 's'
-       + (BLK.adv ? '  ·  sub ' + niceName(seq.name) : ''))
+       + (BLK.adv ? '  ·  sub ' + scriptSubNameFor(seq) : ''))
     : 'no settings file — the Maestro tab can generate a starter';
   /* the snap picker is built by blkTimeline() into the ruler's corner cell
      (v1.47.0) — no separate call needed here */
@@ -166,10 +166,19 @@ function sqStepSync(){
   const wrap = $('sqStepWrap'), sel = $('sqStep');
   if(!wrap || !sel) return;
   const seq = (typeof MSTR !== 'undefined' && MSTR.loaded) ? MSTR.sequences[EDIT.seq] : null;
-  const show = !!BLK.adv && !!seq && typeof blockIsRoutine === 'function' && blockIsRoutine(seq);
+  const isRoutine = !!seq && typeof blockIsRoutine === 'function' && blockIsRoutine(seq);
+  const show = !!BLK.adv && isRoutine;
   wrap.classList.toggle('hide', !show);
-  if(!show) return;
-  const cur = blockStepMs(seq);
+  /* THE BOX IS REBUILT WHETHER IT IS SHOWN OR NOT. This used to return here,
+     which left a hidden select holding the option list of whichever routine
+     last had Advanced on — including the legacy 120 ms, which only ever
+     appears for a routine already using it. Tick Advanced back on over a
+     different routine and the stale list is what you are looking at, and the
+     change handler below applies it through blockStepClamp(), hoisting a
+     legacy 120 to 200. blockStepMs()'s own comment says that must never
+     happen: it rewrites the staircase and the old routine stops re-attaching
+     its bricks. A hidden control still has to be telling the truth. */
+  const cur = isRoutine ? blockStepMs(seq) : BLK_STEP_DEFAULT;
   const opts = SQ_STEP_CHOICES.slice();
   if(opts.indexOf(cur) < 0) opts.unshift(cur);        // whatever it really is, including 120
   sel.innerHTML = opts.map(v=>'<option value="'+v+'"'+(v===cur?' selected':'')

@@ -26,6 +26,14 @@
    by adding one MB_PRIM entry. */
 const { launchBrowser } = require('./harness');
 const path = require('path');
+const fs = require('fs');
+/* the app's OWN shipped examples, read here and handed to the page — a
+   file:// page cannot fetch a sibling file, and these two are the exact
+   inputs the import bug was proven with: the face model is six part types
+   this build has never had (nothing survives), the robot arm is seven of
+   eight (the `grip` is dropped). */
+const EX_FACE = JSON.parse(fs.readFileSync(path.resolve(__dirname,'..','examples','R2-model-simple-face.json'),'utf8'));
+const EX_ARM  = JSON.parse(fs.readFileSync(path.resolve(__dirname,'..','examples','R2-model-robot-arm.json'),'utf8'));
 /* the picture is the one thing no assertion here reads, and on a GPU-less
    box it costs ~800 ms an assertion — see HANDOVER §Traps. R2_DRAW=1 puts it
    back when you want to watch, or screenshot, what the test is doing. */
@@ -983,6 +991,199 @@ const near=(a,b,t)=>Math.abs(a-b)<=t;
     return r;
   });
   ok('the pane has an export button and an import button', fileBtns.ex && fileBtns.im, JSON.stringify(fileBtns));
+
+  /* =====================================================================
+     v1.46.0 — three defects that destroy a build rather than merely
+     misreport one. Same rule as the numbered sections above: each was
+     written to FAIL against the module as it stood, with the app's own
+     shipped example as the input, because the reproduction is the point.
+     ===================================================================== */
+
+  console.log('\n════ (A) an import that lands NOTHING must not destroy the assembly ════');
+  /* mbImportModelText() committed the file to PREFS.builder before a single
+     record had been looked at, and mbRebuildFromPrefs() then tore the live
+     assembly down and saved the empty result. The shipped face model is the
+     proof: its six types (panel/eye/brow/mouth) are phase 2's, this build has
+     none of them, and it reported {ok:true, count:0} — "loaded 0 part(s)" as
+     a success word for total destruction, with no undo. */
+  const destroyed = await evA((face)=>{
+    modelSet('builder', {frame:false});
+    MB.parts.slice().forEach(p=>mbDeletePart(p.id));
+    ['beam','plate','hinge','disc'].forEach(t=>mbAddPart(t));
+    const before = MB.parts.map(p=>p.type).join();
+    const toasts = [];
+    const realToast = window.toast;
+    window.toast = (m,k)=>toasts.push((k||'ok')+'|'+m);
+    let threw = '';
+    let r = null;
+    try{ r = mbImportModelText(JSON.stringify(face), 'R2-model-simple-face.json'); }
+    catch(e){ threw = e.message; }
+    window.toast = realToast;
+    const out = {
+      threw, ok: !!(r && r.ok), count: r ? r.count : -1, err: (r && r.error) || '',
+      before, after: MB.parts.map(p=>p.type).join(),
+      saved: ((PREFS.builder && PREFS.builder.parts) || []).map(p=>p.type).join(),
+      toasts: toasts.join(' ~ ')
+    };
+    MB.parts.slice().forEach(p=>mbDeletePart(p.id));
+    modelSet('droid', {frame:false});
+    return out;
+  }, EX_FACE);
+  ok('an import whose every record is refused answers ok:false, not ok:true',
+     destroyed.threw==='' && !destroyed.ok, JSON.stringify(destroyed));
+  ok('…the assembly on the stage is exactly as it was',
+     destroyed.after===destroyed.before && destroyed.before==='beam,plate,hinge,disc', destroyed.after);
+  ok('…PREFS.builder still holds it — nothing was saved over it', destroyed.saved===destroyed.before, destroyed.saved);
+  ok('…and it says WHICH types this build does not have, without a success word',
+     /panel/.test(destroyed.toasts+destroyed.err) && /eye/.test(destroyed.toasts+destroyed.err) &&
+     !/loaded 0 part/.test(destroyed.toasts), destroyed.toasts);
+
+  /* the survivable case, from the same folder: the robot arm's `grip` is not
+     a type this build has either, but seven of its eight records are — so it
+     imports, and says what it dropped */
+  const partial = await evA((arm)=>{
+    modelSet('builder', {frame:false});
+    MB.parts.slice().forEach(p=>mbDeletePart(p.id));
+    mbAddPart('beam');
+    const toasts = [];
+    const realToast = window.toast;
+    window.toast = (m,k)=>toasts.push((k||'ok')+'|'+m);
+    const r = mbImportModelText(JSON.stringify(arm), 'R2-model-robot-arm.json');
+    window.toast = realToast;
+    const out = {ok:!!(r&&r.ok), count:r?r.count:-1, types:MB.parts.map(p=>p.type).join(),
+                 toasts:toasts.join(' ~ ')};
+    MB.parts.slice().forEach(p=>mbDeletePart(p.id));
+    modelSet('droid', {frame:false});
+    return out;
+  }, EX_ARM);
+  ok('a file most of whose records are good still imports', partial.ok && partial.count===7, JSON.stringify(partial));
+  ok('…the one unrecognised record is dropped and named', /grip/.test(partial.toasts), partial.toasts);
+
+  console.log('\n════ (B) an Object.prototype key is not a part type ════');
+  /* MB_PRIM is a plain object literal, so `!!MB_PRIM['constructor']` was
+     truthy and the record validated. mbBuildGeometry then dispatched to
+     Object('constructor'), whose .group is undefined, and mbRealize threw
+     inside the one function whose docblock says it MUST NEVER THROW —
+     after it had already destroyed the live assembly. The poison stayed in
+     PREFS, so it threw again on every later switch to the Builder and, at
+     boot, rejected inside main.js's mouseReady.then(modelApply) as an
+     unhandled rejection: an empty stage on every reload, with no message. */
+  const poison = await ev(()=>{
+    modelSet('builder', {frame:false});
+    MB.parts.slice().forEach(p=>mbDeletePart(p.id));
+    mbAddPart('beam');
+    /* a BENIGN id, so the throw is not masked: `byId['constructor']` on a
+       plain {} is Object too, so a record whose id is also a prototype key
+       was refused as a "second part record sharing the id" — a false
+       duplicate that happened to stop the record before it could throw. Both
+       halves are tested, one at a time. */
+    const rec = t => ({id:'p1', type:t, name:'', pos:{x:0,y:0.05,z:0}, rot:{x:0,y:0,z:0},
+                       parent:'base', socket:'', channels:[]});
+    const out = {};
+    ['constructor','toString','valueOf','hasOwnProperty'].forEach(t=>{
+      let threw = '';
+      let r = null;
+      const realToast = window.toast; window.toast = ()=>{};
+      try{ r = mbImportModelText(JSON.stringify({format:'r2sim-model', v:2, parts:[rec(t)]}), t+'.json'); }
+      catch(e){ threw = e.constructor.name+': '+e.message; }
+      window.toast = realToast;
+      out[t] = {threw, ok:!!(r&&r.ok), valid: mbSavedPartValid(rec(t)),
+                parts: MB.parts.map(p=>p.type).join(),
+                poisoned: ((PREFS.builder && PREFS.builder.parts)||[]).some(p=>p.type===t)};
+    });
+    /* the other half of the same trap: "constructor" is a perfectly good
+       part ID, and it was refused as a duplicate of nothing */
+    const dup = {id:'constructor', type:'beam', name:'', pos:{x:0,y:0.05,z:0}, rot:{x:0,y:0,z:0},
+                 parent:'base', socket:'', channels:[]};
+    const realToast2 = window.toast; window.toast = ()=>{};
+    const rDup = mbImportModelText(JSON.stringify({format:'r2sim-model', v:2, parts:[dup]}), 'dup.json');
+    window.toast = realToast2;
+    out.dup = {ok:!!(rDup&&rDup.ok), count:rDup?rDup.count:-1, ids:MB.parts.map(p=>p.id).join()};
+
+    /* and the same record arriving through PREFS — the boot path — must not
+       take mbSetShown() (and with it modelApply) down either */
+    PREFS.builder = {v:MB_SCHEMA, parts:[rec('constructor')]};
+    let showThrew = '';
+    try{ mbSetShown(false); mbSetShown(true); }catch(e){ showThrew = e.constructor.name+': '+e.message; }
+    out.show = {threw:showThrew, parts:MB.parts.length};
+    MB.parts.slice().forEach(p=>mbDeletePart(p.id));
+    modelSet('droid', {frame:false});
+    return out;
+  });
+  ['constructor','toString','valueOf','hasOwnProperty'].forEach(t=>{
+    ok('"'+t+'" is not a part type — the import refuses it instead of throwing',
+       poison[t].threw==='' && !poison[t].valid && !poison[t].ok, JSON.stringify(poison[t]));
+    ok('…the beam on the stage survives it, and nothing is poisoned in PREFS',
+       poison[t].parts==='beam' && !poison[t].poisoned, JSON.stringify(poison[t]));
+  });
+  ok('…while "constructor" as a part ID is a real id, not a false duplicate',
+     poison.dup.ok && poison.dup.count===1 && poison.dup.ids==='constructor', JSON.stringify(poison.dup));
+  ok('…and a poisoned PREFS.builder cannot take mbSetShown down on the way to the stage',
+     poison.show.threw==='' && poison.show.parts===0, JSON.stringify(poison.show));
+
+  console.log('\n════ (C) the selection helper is not leaked, one per click ════');
+  /* MB.selHelper was replaced without disposing its geometry or its
+     material: 200 selection clicks made 200 BoxHelper geometries and freed
+     none of them. Counted here by listening for three.js's own 'dispose'
+     event on each one. */
+  const helpers = await ev(()=>{
+    modelSet('builder', {frame:false});
+    MB.parts.slice().forEach(p=>mbDeletePart(p.id));
+    const a = mbAddPart('beam'), b = mbAddPart('disc');
+    let madeG = 0, freedG = 0, madeM = 0, freedM = 0;
+    const seenG = [], seenM = [];
+    for(let i=0;i<40;i++){
+      mbSelect(i % 2 ? a.id : b.id);
+      const h = MB.selHelper;
+      if(h && h.geometry && seenG.indexOf(h.geometry) < 0){
+        seenG.push(h.geometry); madeG++;
+        h.geometry.addEventListener('dispose', ()=>{ freedG++; });
+      }
+      if(h && h.material && seenM.indexOf(h.material) < 0){
+        seenM.push(h.material); madeM++;
+        h.material.addEventListener('dispose', ()=>{ freedM++; });
+      }
+    }
+    mbSelect(null);
+    const out = {madeG, freedG, madeM, freedM};
+    MB.parts.slice().forEach(p=>mbDeletePart(p.id));
+    modelSet('droid', {frame:false});
+    return out;
+  });
+  ok('every selection helper geometry that was made is disposed again',
+     helpers.madeG > 1 && helpers.freedG === helpers.madeG, JSON.stringify(helpers));
+  ok('…and so is its material', helpers.madeM > 1 && helpers.freedM === helpers.madeM, JSON.stringify(helpers));
+
+  console.log('\n════ (I) re-picking the model already on stage must not reset it ════');
+  /* modelSet() gated only its log line and then called modelApply()
+     regardless, contradicting modelApply()'s own comment ("modelSet()
+     deliberately does nothing when the id has not changed"). modelApply →
+     anzSetShown → anzRegister() writes ACT[a.id] = a.home unconditionally for
+     all eleven Anzellan face channels, and modelFrame() resets the camera —
+     so picking the model you are already looking at snapped the head home
+     mid-sequence. scene/builder.js's own channels are idempotent about this
+     (mbRegisterPart) and its show is edge-guarded (mbSetShown); this is the
+     seam that was breaking the rule for the other models. */
+  const repick = await ev(()=>{
+    modelSet('frik', {frame:false});
+    ACT.anzJaw = 0.90; ACT_T.anzJaw = 0.90;      // as a running sequence would leave it
+    ACT.anzPan = 0.75; ACT_T.anzPan = 0.75;
+    CAM.dist = 3.21; CAM.theta = 1.11;
+    const again = modelSet('frik');              // the picker hands back the same id
+    const held = {jaw:ACT.anzJaw, jawT:ACT_T.anzJaw, pan:ACT.anzPan,
+                  dist:CAM.dist, theta:CAM.theta, again};
+    /* …while a REAL change still applies, camera and channels and all */
+    modelSet('droid', {frame:false});
+    held.gone = ACT.anzJaw === undefined && !ANZ.root.visible && R2.root.visible;
+    held.model = modelGet();
+    return held;
+  });
+  ok('re-picking the model on stage leaves its channels where the sequence put them',
+     repick.jaw===0.90 && repick.jawT===0.90 && repick.pan===0.75, JSON.stringify(repick));
+  ok('…and does not throw the camera back to its default',
+     Math.abs(repick.dist-3.21)<1e-9 && Math.abs(repick.theta-1.11)<1e-9, JSON.stringify(repick));
+  ok('…and it still answers with the model on the stage', repick.again==='frik', repick.again);
+  ok('…while picking a DIFFERENT model still applies it in full', repick.gone && repick.model==='droid');
 
   console.log('\n════ nothing leaked into the droid ════');
   ok('the builder owns no droid actuator keys', await ev(()=>

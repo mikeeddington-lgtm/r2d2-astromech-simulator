@@ -190,12 +190,18 @@ function blockDefaultRamp(ref){
   return Math.max(BLK_DEFAULTS.rise, blockMinTravelMs(ref));
 }
 /* the ramps the compiler actually uses: the brick's own rise/fall, floored
-   at the imported travel time, capped at half the brick as before */
+   at the imported travel time, capped at half the brick as before.
+   The cap is FLOORED to a whole millisecond: `b.dur/2` on an odd-length
+   brick is an x.5 value, and blockBoundaries then held both `t0+rise` and
+   the rounded `t0+rise` — a junk 1 ms frame and two <Frame> elements
+   sharing the name 't'+Math.round(t). Rounding down rather than up keeps
+   the cap a cap, so rise and fall can still never overlap. */
 function blockEffRamps(b){
   const lim = (b.kind === 'act') ? blockMinTravelMs(b.ref, b.amp) : 0;
+  const half = Math.floor(b.dur/2);
   return {
-    rise: Math.min(Math.max(b.rise, lim), b.dur/2),
-    fall: Math.min(Math.max(b.fall, lim), b.dur/2)
+    rise: Math.min(Math.max(b.rise, lim), half),
+    fall: Math.min(Math.max(b.fall, lim), half)
   };
 }
 
@@ -349,21 +355,29 @@ function blockMode(b){ return (b && b.mode) || 'oc'; }
    rather than a delay followed by a jump. Shared by blockBoundaries for
    every mode: only WHERE a ramp sits (start vs end of the brick) changes
    between them, never how it is stepped. */
-function blkAddRampSteps(set, start, ms, stepMs){
+function blkAddRampSteps(add, start, ms, stepMs){
   const n = blockRampSteps(ms, stepMs);
-  for(let k=1;k<=n;k++) set.add(Math.round(start + ms*k/n));
+  for(let k=1;k<=n;k++) add(start + ms*k/n);
 }
 /* every instant where something changes */
 function blockBoundaries(seq, stepMs){
-  const set = new Set([0]);
+  const set = new Set();
+  /* WHOLE MILLISECONDS ONLY, at the door. A frame is named 't'+Math.round(t)
+     and its duration is a rounded difference, so a fractional boundary — the
+     x.5 an odd-length brick's dur/2 ramp cap used to produce, or a fractional
+     t0/dur arriving straight from an import — compiled to a junk 1 ms frame
+     and two <Frame> elements sharing a name. Rounding here means the Set
+     itself collapses the pair, whatever the brick's own arithmetic did. */
+  const add = t => set.add(Math.round(t));
+  add(0);
   blockList(seq).forEach(b=>{
     if(b.kind === 'seq'){
       const ref = BLKH.sequences().find(x=>x.name === b.ref);
       let t = b.t0;
-      set.add(t);
+      add(t);
       const end = b.t0 + b.dur;  // v1.39.5: a resized brick must not compile frames past its own end
-      (ref ? ref.frames : []).forEach(f=>{ t += f.duration; if(t < end) set.add(t); });
-      set.add(end);
+      (ref ? ref.frames : []).forEach(f=>{ t += f.duration; if(t < end) add(t); });
+      add(end);
     }else{
       /* v1.46.0 — an unwired brick opens no frame boundaries. It compiles
          to nothing (blockValueAt returns null with no channel), so a
@@ -371,29 +385,29 @@ function blockBoundaries(seq, stepMs){
       if(!blockWired(b)) return;
       const r  = blockEffRamps(b);
       const mode = blockMode(b);
-      set.add(b.t0);
-      set.add(b.t0 + b.dur);
+      add(b.t0);
+      add(b.t0 + b.dur);
       /* 'oc' (unchanged) and 'o' both open across [t0, t0+rise] */
       if(mode === 'oc' || mode === 'o'){
-        blkAddRampSteps(set, b.t0, r.rise, stepMs);
-        set.add(b.t0 + r.rise);
+        blkAddRampSteps(add, b.t0, r.rise, stepMs);
+        add(b.t0 + r.rise);
       }
       /* 'oc' (unchanged) closes across [t0+dur-fall, t0+dur]; 'c' and 'co'
          close at THE START instead — the stepped ramp sits on [t0, t0+fall] */
       if(mode === 'oc'){
         const t2 = b.t0 + b.dur - r.fall;
-        set.add(t2);
-        blkAddRampSteps(set, t2, r.fall, stepMs);
+        add(t2);
+        blkAddRampSteps(add, t2, r.fall, stepMs);
       }else if(mode === 'c' || mode === 'co'){
-        set.add(b.t0 + r.fall);
-        blkAddRampSteps(set, b.t0, r.fall, stepMs);
+        add(b.t0 + r.fall);
+        blkAddRampSteps(add, b.t0, r.fall, stepMs);
       }
       /* 'co' also opens again at THE END — [t0+dur-rise, t0+dur], so both
          of its ramps get stepped instants */
       if(mode === 'co'){
         const t3 = b.t0 + b.dur - r.rise;
-        set.add(t3);
-        blkAddRampSteps(set, t3, r.rise, stepMs);
+        add(t3);
+        blkAddRampSteps(add, t3, r.rise, stepMs);
       }
     }
   });
@@ -601,7 +615,9 @@ function blockCompile(seq, opts){
   chans.forEach(c=>{ base[c.i] = blockClosed(c); });
 
   const bounds = blockBoundaries(seq, stepMs);
-  const total = blockEndCompiled(seq);      // v1.46.0 — an unwired brick must not stretch the frame list
+  /* rounded like every boundary is, so an imported fractional t0/dur cannot
+     push a half-millisecond onto the end of the list */
+  const total = Math.round(blockEndCompiled(seq));   // v1.46.0 — an unwired brick must not stretch the frame list
   if(!bounds.length || total <= 0){
     /* an empty routine still has to emit ONE frame, or the subroutine
        numbering stops lining up with the sketch */
@@ -625,10 +641,19 @@ function blockCompile(seq, opts){
   const last = {};
   chans.forEach(c=>{ last[c.i] = base[c.i]; });
 
+  /* ONE FRAME PER INTERVAL, not per boundary. Every frame covers
+     [bounds[i], bounds[i+1]] and carries the pose due at its END, so the
+     LAST boundary — which is always the routine's own end, `total` — is
+     already commanded by the frame before it. Emitting a frame for it too
+     meant a 200 ms tail holding a pose that had just been reached, and the
+     home frame appended below then repeated that tail byte for byte: every
+     routine ran 400 ms longer than its bricks, so buildSequencer's
+     seqTotal() header disagreed with the inspector's blockEnd() and
+     restartScript() overran a music-synced cue. */
   const frames = [];
-  for(let i=0;i<bounds.length;i++){
+  for(let i=0;i+1<bounds.length;i++){
     const t = bounds[i];
-    const next = (i+1 < bounds.length) ? bounds[i+1] : t + 200;
+    const next = bounds[i+1];
     const targets = [];
     chans.forEach(c=>{ targets[c.i] = last[c.i]; });
     /* A frame COMMANDS its targets and then waits its duration, so the pose
@@ -646,7 +671,18 @@ function blockCompile(seq, opts){
         const tg = blockSeqTargetsAt(b, mid);
         if(tg) chans.forEach(c=>{ if(tg[c.i]) targets[c.i] = tg[c.i]; });
       }else{
-        const v = blockValueAt(b, next);
+        /* …but NOT on the instant a brick STARTS. A brick's window is
+           inclusive at t0, so sampling it at `next === b.t0` answers with
+           its value at local 0 — fully shut for an 'o'/'oc' brick — and,
+           being later in blockList, it won the whole interval RUNNING INTO
+           it from a brick that was genuinely mid-hold. Two bricks merely
+           laid end to end then compiled the earlier one's last interval
+           shut, contradicting the timeline and the scrub preview, and which
+           brick won depended on the order they were dropped. A brick may
+           only claim an interval it is actually inside; the deliberate
+           overlap is untouched, because every interval after t0 has
+           next > b.t0 and the layering rule above still decides it. */
+        const v = (next > b.t0) ? blockValueAt(b, next) : null;
         const c = blockChan(b.ref);
         if(v !== null && c) targets[c.i] = v;
       }
@@ -676,9 +712,20 @@ function blockCompile(seq, opts){
     if(anySpeed) fr.speeds = speeds;
     frames.push(fr);
   }
-  /* land on the home pose so the close is real and not a delta artefact */
-  const home = []; chans.forEach(c=>{ home[c.i] = base[c.i]; });
-  frames.push({name:'home', duration:200, targets:home});
+  /* land on the home pose so the close is real and not a delta artefact.
+     A COMPILED ROUTINE MUST NEVER END OPEN — that is what explode's mode-'o'
+     recovery reads back — so the last frame is always the home pose and is
+     always named 'home'. A routine whose own last interval already lands on
+     base-closed (every 'oc'-only routine) IS at home there: it is renamed
+     rather than followed by an identical copy of itself. One left open by an
+     'o'/'co' brick still gets the extra 200 ms frame that closes it. */
+  const lastFr = frames[frames.length-1];
+  if(lastFr && chans.every(c=>lastFr.targets[c.i] === base[c.i])){
+    lastFr.name = 'home';
+  }else{
+    const home = []; chans.forEach(c=>{ home[c.i] = base[c.i]; });
+    frames.push({name:'home', duration:200, targets:home});
+  }
   return frames;
 }
 
@@ -866,14 +913,26 @@ function blockScaleTime(seq, f){
   return blockEnd(seq);
 }
 
-/* save the routine into the library under a name of its own */
+/* save the routine into the library under a name of its own.
+   THE WHOLE SEQUENCE IS CARRIED FORWARD, not three keys of it. The copy
+   REPLACES the live library object, so anything the hand-built literal left
+   out was silently deleted from the routine: `stepMs` above all, which sent
+   blockStepMs() back to the legacy 120 and made the very next brick edit
+   rewrite the routine at 3–4× the frames — the ripple v1.66.0 exists to
+   prevent (see its measurements above) — and also lost the library `cat` the
+   user typed and broke blocksTryAttach's round trip, which needs the step to
+   recognise its own frames. Object.assign is the fix that cannot rot: a key
+   added to a sequence later travels by default instead of waiting to be
+   noticed. Every reader of the library array takes a sequence whole
+   (setup-io's save, the exporters, cues, blocks-ui), so a wider copy is the
+   ordinary shape, not a special one. */
 function blockSaveAs(seq, name){
   if(!seq || !name) return null;
-  const copy = {
+  const copy = Object.assign({}, seq, {
     name: name,
     frames: JSON.parse(JSON.stringify(seq.frames)),
     blocks: JSON.parse(JSON.stringify(blockList(seq)))
-  };
+  });
   const lib = BLKH.sequences();
   const at = lib.findIndex(s=>s.name === name);
   if(at >= 0) lib[at] = copy; else lib.push(copy);
@@ -881,10 +940,33 @@ function blockSaveAs(seq, name){
   BLKH.log('mae','saved to the library: '+name+'  ('+copy.frames.length+' frames, '+copy.blocks.length+' blocks)');
   return copy;
 }
+/* ------------------------------------------------------- naming, once
+   A NAME IS AN ADDRESS. Everything downstream resolves a board slot to a
+   sequence BY NAME (loadoutSeqs → find(s => s.name === n), export.js), so
+   two sequences sharing one makes the second unreachable from the board
+   while a slot silently fires the first. There is more than one door into
+   "new sequence" — the library's + here, the Maestro pane's +, the music
+   builder — and each was inventing its own 'Sequence N' from its own count,
+   which is how ['Sequence 0','Sequence 2','Sequence 2'] happened.
+
+   So this is the one place a name is made unique, and every door is meant to
+   call it: `seqUniqueName('Sequence 4')` → 'Sequence 4' if nothing holds it,
+   else 'Sequence 4 2', 'Sequence 4 3'… It is SAFE ON AN ALREADY-UNIQUE NAME,
+   returning it unchanged, so a caller can pass whatever it was going to use
+   without first asking whether it needs to. Asked through BLKH.sequences()
+   like everything else here — in the sim that IS MSTR.sequences, and PCA
+   Studio gets the same guarantee for its own library. */
+function seqUniqueName(base){
+  const lib = BLKH.sequences();
+  const want = String(base || 'Sequence');
+  let n = want;
+  for(let k = 2; lib.some(s=>s && s.name === n); k++) n = want + ' ' + k;
+  return n;
+}
 /* start a fresh, empty routine */
 function blockNewRoutine(name){
   const lib = BLKH.sequences();
-  const n = name || ('Sequence '+(lib.length+1));
+  const n = seqUniqueName(name || ('Sequence '+(lib.length+1)));
   const seq = {name:n, frames:[], blocks:[]};
   lib.push(seq);
   blockSync(seq);

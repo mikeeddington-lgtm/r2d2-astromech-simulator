@@ -133,6 +133,20 @@ const HW = {
   setSetup(hw){ if(CFG) CFG.hwSetup = hw; },
   appVersion(){ return APP_VERSION + ' (R2-D2 Simulator)'; },
   applied(hw){
+    /* THE RATE HAS TO REACH THE BOARD BEFORE THE STREAM DOES (v1.66.3).
+       setupApply() calls setSetup() and setOsc() and then lands here, and
+       rebuild() below ends in serialSyncAll() → serialWrite() →
+       serialTicksFor(), which divides by the NEW HW.freq(). Nothing on that
+       path writes the board's config frame — serialConfig() and
+       serialSetFreq() are its only writers — so a 50 Hz board was being fed
+       200 Hz tick maths: 1500 µs asked for became 1229 ticks, which a 50 Hz
+       prescaler emits as a 6 ms pulse, on every channel at once, and then the
+       wizard closed and left it there.
+       hwCfgPush() is the same sequence serialSetFreq() uses, and stops
+       everything first for the same reason: the sketch calls setPWMFreq() the
+       moment the frame arrives, and a prescaler reprogrammed under a moving
+       servo is a twitch you can hear. */
+    hwCfgPush();
     this.rebuild(true);
     if(typeof rebuildMaestroUI === 'function') rebuildMaestroUI();
     if(typeof hwIsOpen === 'function' && hwIsOpen()) hwRender();
@@ -168,10 +182,31 @@ const HW = {
       for(let i=0;i<Math.min(old.st.length, HWE.st.length);i++){
         const o = old.st[i], s = HWE.st[i];
         if(!o || !s || !s.servo) continue;   /* a hole on either side is not a channel */
-        s.active = o.active; s.pos256 = o.pos256; s.vel256 = o.vel256; s.target = o.target;
+        /* AND `aim` WITH THEM (v1.66.3). `target` is where the channel was
+           ASKED to go; `aim` is where pcaStepChannel actually steers — the
+           two differ under PCA_EASE_OVERSHOOT, and only aim is read by the
+           kinematics (`const T = s.aim<<8`). Carrying four of the five left
+           the new engine holding pcaGoHome's aim instead of the live one, so
+           every driven channel ramped to its HOME the instant anything called
+           this — a tick on boot or rev, a typed endpoint, saving OR cancelling
+           the dial, setting a Part, finishing the wizard.
+           On a channel with homemode 'Off' that home is 0 (pcaHomeQus), which
+           drives it hard into c.min and PINS it there: pos256 clamps at the
+           endpoint every tick while T stays 0, so the `d===0` repair branch in
+           pcaStepChannel is never reached. With a board plugged in that is a
+           real horn walking to its stop and staying on it. */
+        s.active = o.active; s.pos256 = o.pos256; s.vel256 = o.vel256;
+        s.target = o.target; s.aim = o.aim;
         const c = MSTR.channels[i]; if(!c) continue;
         const lo = Math.min(c.min,c.max)<<8, hi = Math.max(c.min,c.max)<<8;
-        if(s.active){ s.pos256 = clamp(s.pos256, lo, hi); s.target = clamp(s.target, lo>>8, hi>>8); }
+        if(s.active){
+          s.pos256 = clamp(s.pos256, lo, hi);
+          s.target = clamp(s.target, lo>>8, hi>>8);
+          /* the endpoints may have just been narrowed — that is one of the
+             edits that brings us here — and an aim outside them is the same
+             drive-into-the-stop as above */
+          s.aim = clamp(s.aim, lo>>8, hi>>8);
+        }
       }
     }
     /* every position the engine writes goes down the wire, if there is one */
@@ -204,8 +239,25 @@ const HW = {
     }
     pcaSetTarget(E, ch, qus);
     /* a board that ramps for itself takes the move whole, once — the engine's
-       stream is suppressed for it (serial-link.js, TWO BOARDS TWO DOORS) */
-    if(typeof serialMove === 'function') serialMove(ch, qus, speed);
+       stream is suppressed for it (serial-link.js, TWO BOARDS TWO DOORS)
+
+       AND IT TAKES THE ENGINE'S NUMBER, NOT THE CALLER'S (v1.66.3).
+       pcaSetTarget clamps into Math.min/max(c.min, c.max); serialMove does
+       not clamp at all, and below it the only bound left is the protocol's
+       0..16383. Handing it the raw `qus` therefore sent a real servo past its
+       calibrated stops while the engine, the position bar and the bench all
+       showed it sitting correctly at the endpoint — a .mstr built on another
+       droid, or a library sequence written before a channel was re-measured
+       narrower, was enough. live-drive.js promises the opposite in prose.
+       `E.st[ch].target` is that same clamp, already applied.
+
+       It stays live rather than cached on purpose: calDrive() (setup-hw-cal.js)
+       widens c.min/c.max around exactly one call to this and restores them in
+       a finally, so reading the clamp back off the engine keeps the
+       calibration dial able to reach past the ends it is there to move. */
+    const st = E.st[ch];
+    if(typeof serialMove === 'function')
+      serialMove(ch, (st && st.servo) ? st.target : qus, speed);
     const c = MSTR.channels[ch];
     if(c && c.act && typeof ACT_T !== 'undefined' && typeof chanNorm === 'function'){
       if(qus) ACT_T[c.act] = chanNorm(c, qus);
@@ -278,6 +330,52 @@ const HW = {
   }
 };
 
+/* ================================ WHAT THE BOARD IS ACTUALLY CONFIGURED FOR
+   v1.66.3. The oscillator and the servo rate are the two numbers the app and
+   the PCA9685 have to agree on and cannot check: every position on the wire
+   is a TICK COUNT the browser worked out from them (serialTicksFor), and a
+   board running a different prescaler decodes that number as a completely
+   different pulse width, silently. So the app has to remember what it told
+   the board, because the board will never say.
+
+   Only two things ever write the config frame — serialConfig(), which
+   serialSetMode() fires the moment a connection is proved, and
+   serialSetFreq(). hwCfgSeen() therefore reads a freshly connected port as
+   "already carries whatever HW says today", and after that the record only
+   moves when this file moves it. A rate typed into the wizard changes HW and
+   not the record, which is exactly the disagreement hwCfgPush() is looking
+   for. */
+let HWCFG = null;                       /* {port, freq, osc} or null */
+function hwCfgSeen(){
+  if(typeof SER === 'undefined' || !SER.port){ HWCFG = null; return; }
+  if(!HWCFG || HWCFG.port !== SER.port)
+    HWCFG = {port:SER.port, freq:HW.freq(), osc:HW.osc()};
+}
+/* Reprogram the board, if and only if it is not already running what the app
+   is about to stream at it. The order is serialSetFreq()'s, for its reasons:
+   everything OFF first (a prescaler change under a moving servo is audible),
+   then the config frame, then forget every cached tick so the resync that
+   follows re-sends real numbers rather than sparing the wire against values
+   computed at the old rate.
+
+   A Pololu Maestro is not in this: its period is its own, it never sees these
+   frames, and its targets are quarter-µs with no tick maths in between. */
+function hwCfgPush(){
+  if(typeof SER === 'undefined' || !SER.port || SER.blocked) return false;
+  if(SER.kind === 'maestro') return false;
+  if(typeof serialConfig !== 'function' || typeof serialAllOff !== 'function') return false;
+  hwCfgSeen();
+  if(HWCFG.freq === HW.freq() && HWCFG.osc === HW.osc()) return false;
+  serialAllOff();
+  SER.lastTicks = {};
+  serialConfig();
+  HWCFG = {port:SER.port, freq:HW.freq(), osc:HW.osc()};
+  HW.say('board reconfigured — '+HW.freq()+' Hz servo rate, '
+       + (HW.osc()/1000000)+' MHz oscillator. Everything was stopped first, '
+       + 'so drive a channel to wake it.');
+  return true;
+}
+
 /* ------------------------------------------------------- the bench clock
    The engine steps on the sim's own animation frame, but ONLY while there
    is a reason: the Bench workspace is open, or a board is connected and
@@ -290,8 +388,10 @@ function hwWanted(){
 /* Called from the animation frame. It does NOT step the engine — a fixed-rate
    engine driven off a variable-rate clock ripples (hw-clock.js). All this does
    is start and stop the heartbeat as the reason to have one comes and goes,
-   and repaint what the heartbeat moved. */
+   repaint what the heartbeat moved, and notice a board arriving or leaving so
+   HWCFG above knows which port its record belongs to. */
 function hwTick(){
+  hwCfgSeen();
   const want = hwWanted();
   if(want && !hwClockRunning()) hwClockStart();
   if(!want && hwClockRunning()) hwClockStop();

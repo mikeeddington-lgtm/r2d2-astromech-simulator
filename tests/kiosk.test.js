@@ -109,6 +109,65 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
   ok('…and it says why rather than swallowing it', await ev(()=>
     [...document.querySelectorAll('.toastp')].some(t=>/sim only/i.test(t.textContent))));
 
+  /* THE SIXTH GUARD. #stage is the one surface sim only leaves fully live —
+     the public have to be able to drive — so the droid's own raycaster is
+     the last funnel that can hand a stranger a configuration surface, and
+     #selcard is a full one: a live position slider, the Port <select> that
+     rewrites MSTR.channels[n].act, rename, colour, the pivot/travel editor
+     and "+ New group with this part". Assert all three layers the other
+     five guards have — the funnel, the shut-down pass on the way in, and
+     the visible half in CSS. */
+  console.log('\n════ the droid on the stage is drivable, not configurable ════');
+  const pick = await ev(()=>{
+    const n = Object.keys(CAD.partIndex)[0];
+    selectPart(n);
+    const card = $('selcard');
+    return {n, sel:SEL.name, on:card.classList.contains('on')};
+  });
+  ok('selectPart() refuses the pick while sim only is on', pick.sel===null, JSON.stringify(pick));
+  ok('…so the part card never opens', pick.on===false, JSON.stringify(pick));
+  /* getComputedStyle, NOT the stylesheet text: under file:// a LINKED
+     sheet's cssRules throws, so a rule-text assertion reads nothing on
+     dev.html and passes anyway (HANDOVER §Traps). Force the card's own
+     `.on` and ask the browser what it actually resolved to. */
+  ok('…and the card is display:none in sim only even if something else opens it', await ev(()=>{
+    const c = $('selcard'); c.classList.add('on');
+    const d = getComputedStyle(c).display;
+    c.classList.remove('on');
+    return d === 'none';
+  }));
+  ok('a card already open when the laptop is handed over is shut on the way in', await ev(()=>{
+    kioskLeave();
+    const n = Object.keys(CAD.partIndex)[0];
+    selectPart(n);
+    const opened = SEL.name===n && $('selcard').classList.contains('on');
+    kioskEnter('');
+    return opened && SEL.name===null && !$('selcard').classList.contains('on');
+  }));
+
+  /* An appConfirm sits over a LIVE pad in sim only, and .dlgcard/.dlgmsg
+     are plain divs: one click on the dialog's text moves focus to <body>
+     and both of the mapper's guards (the closest('input,…,button') test
+     and uiModalOpen()) are gone. The About box is explicitly a scroll
+     region, so "click the text, press Down" is the natural way to read
+     it — and it fired the D-pad at the running sketch. */
+  console.log('\n════ a dialog over a live pad — no keystroke reaches the sketch ════');
+  await ev(()=>{ window._c = appConfirm('A long message you would read by clicking into it and pressing Down.',
+                                        {title:'Reading, not driving'}); });
+  await page.waitForSelector('.dlgwrap .dlgyes', {timeout:10000});
+  await page.click('.dlgmsg');
+  await ev(()=>{ INPUT.keys = {}; });
+  await page.keyboard.down('ArrowDown');
+  const cDown = await ev(()=>({key:INPUT.keys.ArrowDown, active:document.activeElement.tagName}));
+  await page.keyboard.up('ArrowDown');
+  await page.keyboard.down('Space');
+  const cSpace = await ev(()=>INPUT.keys.Space);
+  await page.keyboard.up('Space');
+  await ev(()=>{ document.querySelector('.dlgno').click(); return window._c; });
+  ok('a click on an appConfirm’s text drops focus to the page', cDown.active==='BODY', JSON.stringify(cDown));
+  ok('…and Down still cannot reach the D-pad', cDown.key!==1, JSON.stringify(cDown));
+  ok('…nor Space the A button', cSpace!==1, String(cSpace));
+
   console.log('\n════ leaving with no password set — a confirm, not a lock ════');
   await ev(()=>{ window._x = kioskExit(); });
   await page.waitForSelector('.dlgwrap .dlgyes', {timeout:10000});
@@ -146,15 +205,28 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
   }));
   await page.fill('.dlginp','nope');
   await page.click('.dlgyes');
+  await page.waitForTimeout(150);
   ok('a wrong password does not open it', await ev(()=>
-    window._x.then(r=>r===false && kioskOn()===true && document.body.classList.contains('kiosk'))));
-  ok('…and it says so', await ev(()=>
-    [...document.querySelectorAll('.toastp.warn')].some(t=>/not the password/i.test(t.textContent))));
-
-  await ev(()=>{ window._x = kioskExit(); });
-  await page.waitForSelector('.dlgwrap .dlginp', {timeout:10000});
+    kioskOn()===true && document.body.classList.contains('kiosk')));
+  /* it used to close the dialog and drop a toast in the far bottom-left
+     corner — feedback the operator is not looking at, and a prompt that
+     has silently gone. Someone who keeps typing the password they think
+     they are still typing is then typing at the LIVE pad. */
+  ok('…the prompt stays up rather than vanishing', await ev(()=>
+    !!document.querySelector('.dlgwrap .dlginp')));
+  ok('…and it says which of the two it was, inline', await ev(()=>{
+    const m = document.querySelector('.dlgwrap .dlgmsg');
+    return !!m && /not the password/i.test(m.textContent);
+  }));
+  ok('…and the Serial console has the attempt', await ev(()=>
+    LOG.some(l=>l.k==='warn' && /wrong password/i.test(l.s))));
+  await ev(()=>{ INPUT.keys = {}; });
+  await page.keyboard.down('KeyR');
+  const rKey = await ev(()=>INPUT.keys.KeyR);
+  await page.keyboard.up('KeyR');
+  ok('…so a letter typed at the retry still cannot change gear', rKey!==1, String(rKey));
   await page.click('.dlgno');
-  ok('cancelling the prompt leaves it locked', await ev(()=>
+  ok('cancelling the retry leaves it locked', await ev(()=>
     window._x.then(r=>r===false && kioskOn()===true)));
 
   await ev(()=>{ window._x = kioskExit(); });

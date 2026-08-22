@@ -113,15 +113,21 @@ function rcDeviceSect(host, redraw){
   }
 
   pads.forEach(p=>{
-    const r = el('div','rcdev' + (p.id === RC.padId ? ' act' : ''));
+    /* rcOwns(), not a name match: two of the same dongle report the same
+       id, and marking both as the one in use — and disabling both buttons
+       — is what made the second one unpickable */
+    const mine = rcOwns(p);
+    const r = el('div','rcdev' + (mine ? ' act' : ''));
     r.dataset.padId = p.id;
+    r.dataset.padIx = String(p.index);
     const nm = el('div','rcdevname');
     nm.appendChild(el('b', null, p.id));
-    nm.appendChild(el('div','rcdevsub', p.axes.length + ' axes · ' + p.buttons.length + ' buttons'));
+    nm.appendChild(el('div','rcdevsub', p.axes.length + ' axes · ' + p.buttons.length + ' buttons'
+      + (pads.length > 1 ? ' · slot ' + (p.index + 1) : '')));
     r.appendChild(nm);
-    const b = el('button','b' + (p.id === RC.padId ? '' : ' prim'), p.id === RC.padId ? 'In use' : 'Use this one');
-    b.disabled = (p.id === RC.padId);
-    b.addEventListener('click',()=>{ rcSelect(p.id); redraw(); });
+    const b = el('button','b' + (mine ? '' : ' prim'), mine ? 'In use' : 'Use this one');
+    b.disabled = mine;
+    b.addEventListener('click', async ()=>{ if(await rcSelect(p.id, p.index)) redraw(); });
     r.appendChild(b);
     s.appendChild(r);
   });
@@ -180,12 +186,16 @@ function rcChanRow(host, idx, redraw){
   const ch = RC.chans[idx];
   const assigned = ch.mode !== 'off' && (ch.pad || ch.out);
   /* a channel that is not reading zero with your hands off the set is
-     commanding something right now — flag the row, not a footnote */
-  const restive = assigned && Math.abs(rcRestValue(ch)) > 0.08;
+     commanding something right now — flag the row, not a footnote. The
+     same delivered value the warning list uses, so the two agree. */
+  const rest = assigned ? rcRestDelivered(ch, idx) : 0;
+  const restive = assigned && Math.abs(rest) > 0.08;
   const r = el('div','rcrow' + (assigned ? ' on' : '') + (restive ? ' warn' : ''));
   r.dataset.rcChan = String(idx);
-  if(restive) r.title = 'This channel reads ' + rcRestValue(ch).toFixed(2) + ' at rest, so it is commanding '
-    + (ch.out || ch.pad) + ' with nothing touched. Press "Centring" to make its resting position zero.';
+  if(restive) r.title = 'This channel reads ' + rest.toFixed(2) + ' at rest, so it is commanding '
+    + (ch.out || ch.pad) + ' with nothing touched. '
+    + (ch.moved ? 'Press "Centring" to make its resting position zero.'
+                : 'It has never been calibrated, so this is where it is sitting right now — calibrate it.');
 
   r.appendChild(el('div','rcname', rcChanName(ch)));
 
@@ -218,9 +228,24 @@ function rcChanRow(host, idx, redraw){
     sel.appendChild(opt);
   });
   if(RC.advanced && ch.mode === 'off') sel.disabled = true;
+  /* A channel nobody has calibrated has no endpoints and no rest point on
+     record, so there is nothing to point at anything: it would be wired
+     from a set of defaults no transmitter sends. Hiding the row was not
+     enough, because "show every channel" un-hides it and hands over a live
+     dropdown — say why instead. Already-assigned rows stay usable, or
+     there would be no way to take a binding off again. */
+  if(!ch.moved && !assigned){
+    sel.disabled = true;
+    sel.options[0].textContent = 'calibrate this channel first';
+    sel.title = 'This channel did not move during calibration, so where it rests and how far it travels are both unknown. Run the calibration and sweep it to both stops.';
+  }
   sel.addEventListener('change',()=>{
     if(RC.advanced && ch.mode === 'out') ch.out = sel.value;
-    else { ch.pad = sel.value; if(ch.mode === 'off' && sel.value) ch.mode = 'pad'; if(!sel.value) ch.mode = 'off'; }
+    /* promote whatever the mode WAS. Only promoting from 'off' meant a
+       channel left on 'out' by a since-un-ticked Advanced switch swallowed
+       the assignment: the picker said Left stick Y and the channel went on
+       writing the motor. */
+    else { ch.pad = sel.value; ch.mode = sel.value ? 'pad' : 'off'; }
     rcPrefsSave(); redraw();
   });
   target.appendChild(sel);
@@ -266,7 +291,27 @@ function rcChanSect(host, redraw){
   const adv = el('label','blkswitch');
   const cb = document.createElement('input');
   cb.type = 'checkbox'; cb.id = 'rcAdvanced'; cb.checked = RC.advanced;
-  cb.addEventListener('change',()=>{ RC.advanced = cb.checked; rcPrefsSave(); redraw(); });
+  /* UN-TICKING THIS HAS TO DISARM, not merely hide. The handler used to set
+     the flag and redraw, which took the picker off the screen and left
+     every binding made through it writing motors and servos every frame —
+     the switch that exists to lock the direct route away did not lock it
+     away, and the simple-mode dropdown showed those channels as "not
+     assigned" while they did it. So the bindings go when the switch goes.
+     They are somebody's work, though, so they are not wiped in silence:
+     one question, naming how many. Nothing to lose, no question — which
+     also keeps the common case synchronous. */
+  cb.addEventListener('change',()=>{
+    if(cb.checked){ RC.advanced = true; rcPrefsSave(); redraw(); return; }
+    const off = ()=>{ RC.advanced = false; rcDisarmDirect(); rcPrefsSave(); redraw(); };
+    const n = rcDirectBound();
+    if(!n || typeof appConfirm !== 'function'){ off(); return; }
+    cb.checked = true;                       // stays on until the question is answered
+    appConfirm(n === 1
+        ? 'One channel is bound straight to an output. Turning Advanced off releases it, and that channel stops doing anything until you assign it again.'
+        : n + ' channels are bound straight to an output. Turning Advanced off releases them, and those channels stop doing anything until you assign them again.',
+      {title:'Turn direct output off?', yes:'Turn it off', no:'Leave it on', danger:true})
+      .then(go=>{ if(go) off(); else redraw(); });
+  });
   adv.appendChild(cb); adv.appendChild(document.createTextNode('Advanced — bind straight to an output'));
   tools.appendChild(adv);
   s.appendChild(tools);
@@ -286,7 +331,10 @@ function rcChanSect(host, redraw){
     w.innerHTML = '<b>Hands off the set and ' + (warn.length === 1 ? 'a channel is' : warn.length + ' channels are')
       + ' still commanding something.</b> ' + warn.map(x=>rcChanName(x.ch) + ' reads ' + x.rest.toFixed(2)).join(', ')
       + '. That is usually a throttle: it rests at the bottom of its travel, so treating the middle of the throw as zero '
-      + 'means "not touching it" is full reverse. Press <b>Centring</b> on the row and its resting position becomes zero.';
+      + 'means "not touching it" is full reverse. Press <b>Centring</b> on the row and its resting position becomes zero.'
+      + (warn.some(x=>!x.ch.moved)
+          ? ' One of them has never been calibrated, so that reading is simply where it is sitting at this moment — run the calibration and it settles.'
+          : '');
     s.appendChild(w);
   }
 

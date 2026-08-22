@@ -1628,6 +1628,218 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
   ok('and unticking it while you are IN one of them returns you to the bricks',
      advV.stranded.view === 'blocks' && advV.stranded.cls === 'seqv-blocks', JSON.stringify(advV.stranded));
 
+  /* =====================================================================
+     THE FOUR WORK-DESTROYING WAYS OUT (2026-08-22)
+
+     Every case below was found by reading, reproduced by hand, and lost
+     somebody's routine on the way. They are regression tests in the strict
+     sense: each one was watched failing against the code as it shipped.
+     ===================================================================== */
+
+  /* one library, two routines, told apart by the length of their only brick —
+     "which one survived" is then a number, not a guess */
+  await ev(()=>{
+    window.tSaveSetup = ()=>{
+      MSTR.sequences.length = 0;
+      const mk = (n, dur)=>{
+        const s = MSTR.sequences[blockNewRoutine(n)];
+        blockAdd(s, 'act', 'pie0', 0, {dur:dur});
+        blockSync(s);
+        return s;
+      };
+      mk('Wave', 500);
+      const dance = mk('Dance', 900);
+      MSTR.loadout = ['Wave','Dance'];
+      EDIT.seq = MSTR.sequences.indexOf(dance);
+      BLK.sel = null; blkSelClear();
+      reindexSubs(); buildSequencer();
+    };
+    /* type a name into the library's Save box, press Save, and answer whatever
+       question it asks. Returns whether it asked one at all. */
+    window.tSaveAs = async (typed, replace)=>{
+      const lib = $('seqlib');
+      lib.querySelector('.blkname').value = typed;
+      Array.from(lib.querySelectorAll('button')).find(b=>b.textContent === 'Save').click();
+      await new Promise(r=>setTimeout(r, 40));
+      const dlg = document.querySelector('.dlgwrap');
+      if(dlg){
+        const b = dlg.querySelector(replace ? '.dlgyes' : '.dlgno');
+        if(b) b.click(); else dlg.remove();
+      }
+      await new Promise(r=>setTimeout(r, 40));
+      return !!dlg;
+    };
+    window.tLibShape = ()=>({
+      names: MSTR.sequences.map(s=>s.name),
+      durs:  MSTR.sequences.map(s=>(blockList(s)[0]||{}).dur),
+      loadout: (MSTR.loadout||[]).slice()
+    });
+  });
+
+  /* Save set seq.name FIRST and then handed the name to blockSaveAs, which
+     replaces BY NAME — so findIndex found the OTHER routine and overwrote it
+     with a copy of the one being edited. No confirm, no log, no undo. */
+  console.log('\n════ Save never silently overwrites another sequence ════');
+  const saveKeep = await ev(async ()=>{
+    tSaveSetup();
+    const asked = await tSaveAs('Wave', false);
+    return Object.assign({asked}, tLibShape());
+  });
+  ok('saving onto a name another sequence already has asks first',
+     saveKeep.asked, JSON.stringify(saveKeep));
+  ok('...and declining leaves the other routine exactly as it was',
+     saveKeep.durs.filter(d=>d===500).length === 1 &&
+     saveKeep.names.filter(n=>n==='Wave').length === 1, JSON.stringify(saveKeep));
+  const saveYes = await ev(async ()=>{
+    tSaveSetup();
+    const asked = await tSaveAs('Wave', true);
+    return Object.assign({asked, edited:(blkSeq()||{}).name}, tLibShape());
+  });
+  ok('...and agreeing replaces it deliberately — ONE sequence carries the name',
+     saveYes.names.filter(n=>n==='Wave').length === 1 &&
+     saveYes.durs.indexOf(500) < 0 && saveYes.edited === 'Wave', JSON.stringify(saveYes));
+  ok('...and the board does not end up naming the same sequence twice',
+     saveYes.loadout.filter(n=>n==='Wave').length === 1, JSON.stringify(saveYes));
+  ok('saving under its own name is still just a save',
+     await ev(async ()=>{
+       tSaveSetup();
+       const asked = await tSaveAs('Dance', false);
+       const s = tLibShape();
+       return !asked && s.names.join()==='Wave,Dance' && s.durs.join()==='500,900';
+     }));
+
+  /* blkConvRun's review door held the original frames in BLK.conv and nowhere
+     else, while buildSequencer() persisted the CONVERTED routine 500 ms later.
+     The only restore path runs from buildBlocks(), which leaving the desk
+     never calls — so the frame list was gone with the screen. */
+  console.log('\n════ a reviewed conversion keeps the original frames ════');
+  await ev(()=>{
+    /* author a routine, compile it, throw the bricks away: what is left is
+       indistinguishable from an imported Pololu frame list */
+    window.tConvSetup = ()=>{
+      MSTR.sequences.length = 0;
+      const s = MSTR.sequences[blockNewRoutine('Imported thing')];
+      s.stepMs = BLK_RAMP_STEP_MS;
+      blockAdd(s,'act','pie0',   0, {dur:900,  rise:250, fall:400});
+      blockAdd(s,'act','pie1', 300, {dur:1200, rise:150, fall:150});
+      blockSync(s);
+      window.tConvOrig = JSON.stringify(s.frames);
+      delete s.blocks;
+      MSTR.loadout = null;
+      EDIT.seq = MSTR.sequences.indexOf(s);
+      BLK.conv = null; BLK.sel = null; blkSelClear();
+      reindexSubs(); setStripMode('seq'); buildSequencer();
+      return s;
+    };
+    /* what servoStoreSave() would write — the persisted library, not a
+       screenful of DOM */
+    window.tStored = ()=>servoStoreObj().sequences.map(s=>({
+      name:s.name, list:!s.blocks, frames:JSON.stringify(s.frames)
+    }));
+  });
+  const convLeave = await ev(()=>{
+    const s = tConvSetup();
+    blkConvRun(s, true);                       // door 2 — "Work them out and review…"
+    const pending = !!BLK.conv;
+    setStripMode('pad');                       // the strip switch. buildBlocks() never runs.
+    const stored = tStored();
+    const back = stored.find(x=>x.list && x.frames === tConvOrig);
+    return {pending, kept:!!back, keptName:back?back.name:'', names:stored.map(x=>x.name)};
+  });
+  ok('door 2 leaves a conversion pending', convLeave.pending, JSON.stringify(convLeave));
+  ok('leaving the sequencer still leaves the original frame list recoverable',
+     convLeave.kept, JSON.stringify(convLeave));
+  const convAcc = await ev(()=>{
+    const s = tConvSetup();
+    blkConvRun(s, true); blkConvAccept();
+    const stored = tStored();
+    return {copies: stored.filter(x=>x.list && x.frames === tConvOrig).length,
+            names: stored.map(x=>x.name), isRoutine: blockIsRoutine(MSTR.sequences[EDIT.seq])};
+  });
+  ok('accepting keeps exactly one copy — the one the review already made',
+     convAcc.copies === 1 && convAcc.isRoutine, JSON.stringify(convAcc));
+  const convDis = await ev(()=>{
+    const s = tConvSetup();
+    blkConvRun(s, true); blkConvDiscard();
+    const stored = tStored();
+    return {n: stored.length, names: stored.map(x=>x.name),
+            same: JSON.stringify(s.frames) === tConvOrig, isList: !blockIsRoutine(s)};
+  });
+  ok('discarding leaves nothing behind — nothing changed means nothing added',
+     convDis.n === 1 && convDis.same && convDis.isList, JSON.stringify(convDis));
+
+  /* the inspector's Duplicate forgot `mode`, so every "Closes" and "Closes
+     then opens" came back as "Opens then closes" — the multi-select twin has
+     always passed it */
+  console.log('\n════ the inspector Duplicate keeps the motion mode ════');
+  const dupMode = await ev(()=>{
+    MSTR.sequences.length = 0;
+    EDIT.seq = blockNewRoutine('Dup mode');
+    const s = MSTR.sequences[EDIT.seq];
+    BLK.sel = blockAdd(s,'act','pie0',0,{dur:600, mode:'c'}).id;
+    blockSync(s); blkSelClear(); buildSequencer();
+    const n0 = blockList(s).length;
+    const dup = Array.from($('seqinsp').querySelectorAll('button')).find(b=>b.textContent === 'Duplicate');
+    if(dup) dup.click();
+    const list = blockList(MSTR.sequences[EDIT.seq]);
+    return {had:!!dup, n0, n1:list.length, modes:list.map(b=>blockMode(b))};
+  });
+  ok('the inspector offers Duplicate on a single brick', dupMode.had, JSON.stringify(dupMode));
+  ok('duplicating a brick from the inspector keeps its motion mode',
+     dupMode.n1 === dupMode.n0 + 1 && dupMode.modes.filter(m=>m==='c').length === 2,
+     JSON.stringify(dupMode));
+
+  /* #sqStepWrap ships as class="blkswitch hide", but the only .hide rules in
+     the build named other elements — so .blkswitch{display:flex} won and the
+     Advanced-only control was permanently on screen. Read the COMPUTED style:
+     under file:// a linked stylesheet's cssRules throws, so a test that reads
+     stylesheet text passes on the dist and reads nothing here. */
+  console.log('\n════ the Advanced-only Ramp step control (v1.66.0) ════');
+  const stepVis = await ev(()=>{
+    MSTR.sequences.length = 0;
+    EDIT.seq = blockNewRoutine('Step routine');
+    const s = MSTR.sequences[EDIT.seq];
+    blockAdd(s,'act','pie0',0,{dur:600}); blockSync(s);
+    setStripMode('seq');
+    $('sqAdv').checked = true;  $('sqAdv').dispatchEvent(new Event('change'));
+    const on  = getComputedStyle($('sqStepWrap')).display;
+    $('sqAdv').checked = false; $('sqAdv').dispatchEvent(new Event('change'));
+    const off = getComputedStyle($('sqStepWrap')).display;
+    return {on, off, cls:$('sqStepWrap').className};
+  });
+  ok('with Advanced ticked the Ramp step control is shown',
+     stepVis.on !== 'none', JSON.stringify(stepVis));
+  ok('with Advanced off it is actually hidden — .hide has to mean display:none',
+     stepVis.off === 'none', JSON.stringify(stepVis));
+  const stepStale = await ev(()=>{
+    /* a LEGACY routine (no stepMs of its own = 120 ms) and a modern one.
+       sqStepSync() used to return before repopulating whenever the control was
+       hidden, so the box kept the legacy list — and the change handler clamps
+       120 up to 200, which blockStepMs's own comment says must never happen
+       because it stops an old routine re-attaching its bricks. */
+    MSTR.sequences.length = 0;
+    const mk = (n, step)=>{
+      const s = MSTR.sequences[blockNewRoutine(n)];
+      s.stepMs = step;
+      blockAdd(s,'act','pie0',0,{dur:600}); blockSync(s);
+      return s;
+    };
+    const legacy = mk('Legacy', BLK_RAMP_STEP_MS), modern = mk('Modern', 500);
+    $('sqAdv').checked = true; $('sqAdv').dispatchEvent(new Event('change'));
+    EDIT.seq = MSTR.sequences.indexOf(legacy); buildSequencer();
+    const shown = Array.from($('sqStep').options).map(o=>o.value);
+    $('sqAdv').checked = false; $('sqAdv').dispatchEvent(new Event('change'));
+    EDIT.seq = MSTR.sequences.indexOf(modern); buildSequencer();
+    const hidden = Array.from($('sqStep').options).map(o=>o.value);
+    return {shown, hidden, value:$('sqStep').value, modern:blockStepMs(modern)};
+  });
+  ok('a legacy routine is offered its own 120 ms while it is the one open',
+     stepStale.shown.indexOf('120') >= 0, JSON.stringify(stepStale));
+  ok('the hidden box does not keep the last routine\'s option list',
+     stepStale.hidden.indexOf('120') < 0, JSON.stringify(stepStale));
+  ok('...it names the routine you are actually in',
+     stepStale.value === '500' && stepStale.modern === 500, JSON.stringify(stepStale));
+
   console.log('\n════ no page errors ════');
   ok('nothing threw', errs.length===0, errs.join(' | '));
 

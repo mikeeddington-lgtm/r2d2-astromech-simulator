@@ -57,6 +57,7 @@
 
 const RC = {
   padId:'',            // Gamepad.id of the chosen transmitter ('' = none)
+  padIx:-1,            // ...and its index, because the id is not unique (-1 = unknown)
   chans:[],            // one record per axis, then per button
   raw:[], norm:[],     // live values, parallel to chans, refreshed each frame
   live:false,          // is the chosen device actually present right now?
@@ -93,18 +94,52 @@ function rcPads(){
   for(const p of pads) if(p && p.connected) out.push(p);
   return out;
 }
+/* WHICH DEVICE IS OURS. The header above says `Gamepad.id` is not an
+   identity and the panel's hint repeats it, and then every lookup keyed on
+   that string alone — so two of the same dongle, which is the ordinary way
+   to have a spare, were one device as far as this module was concerned.
+   Both rows lit, both buttons said "In use", and the second was reachable
+   by neither route.
+
+   The identity is therefore the id AND the index. The index alone will not
+   do either: it is a slot the browser hands out on connect, so unplugging
+   and replugging can move a device to a different one, and a saved padId
+   from before this existed has no index at all. Hence two grades of match
+   — exact wins outright, and an id-only match is taken when nothing
+   matches exactly, which is the single-dongle reconnect and the old-prefs
+   case. With two identical dongles and a stale index that fallback picks
+   one of them; the panel is right there to say which. */
+function rcPadMatch(gp){
+  if(!gp || !RC.padId || gp.id !== RC.padId) return 0;
+  return (gp.index === RC.padIx) ? 2 : 1;
+}
 function rcGamepad(){
   if(!RC.padId) return null;
-  const pads = rcPads();
-  for(const p of pads) if(p.id === RC.padId) return p;
-  return null;
+  let loose = null;
+  for(const p of rcPads()){
+    const m = rcPadMatch(p);
+    if(m === 2) return p;
+    if(m === 1 && !loose) loose = p;
+  }
+  return loose;
 }
 /* Does the RC layer own this gamepad? pollInput() asks before it applies
    the Xbox button map — a transmitter run through that map is nonsense
    (axis 4 becomes a trigger, a switch becomes a stuck A button), and on a
    bench where the transmitter is the ONLY device it would be the pad the
-   scan picks. */
-function rcOwns(gp){ return !!(gp && RC.padId && gp.id === RC.padId); }
+   scan picks. Only the ONE device we are actually reading is taken out of
+   that path: excluding every same-named dongle left the second one
+   unreachable by either route, which is the panel's own instruction —
+   wiggle a stick, pick the row that twitches — having no outcome. Compared
+   field by field rather than by identity because getGamepads() hands back
+   a fresh snapshot object on every call. */
+function rcOwns(gp){
+  const m = rcPadMatch(gp);
+  if(m === 2) return true;              // exact: nothing else can be it
+  if(m === 0) return false;             // wrong name: not ours at all
+  const own = rcGamepad();              // id-only — is this the one we settle on?
+  return !!(own && own.index === gp.index);
+}
 
 /* Is the RC layer allowed to drive anything? Choosing a device is not
    enough — the build has to say RC is what this droid is flown with, so
@@ -116,13 +151,31 @@ function rcEnabled(){
   return true;
 }
 
-function rcSelect(id){
-  if(RC.padId === id) return;
+/* Choosing a device throws away the calibration and every assignment made
+   against it, because they belong to the device they were made for. That is
+   right, and it is also somebody's afternoon at the bench going in one
+   mis-click — so when there is one to lose, ask.
+
+   The question is the only `await` here, so a first choice, with nothing to
+   throw away, still lands synchronously: callers that were written against
+   the old void signature keep working unchanged. Anything added above the
+   question would break that, so nothing goes above it. */
+async function rcSelect(id, ix){
+  const wantIx = (ix === undefined || ix === null) ? -1 : ix;
+  if(RC.padId === (id || '') && (wantIx < 0 || RC.padIx === wantIx)) return false;
+  if(RC.chans.length && typeof appConfirm === 'function'){
+    const go = await appConfirm(
+      'The calibration and channel assignments belong to the transmitter they were made for, so choosing a different device clears them.',
+      {title:'Use a different device?', yes:'Use it — start again', no:'Keep what I have', danger:true});
+    if(!go) return false;
+  }
   RC.padId = id || '';
+  RC.padIx = wantIx;
   RC.chans = []; RC.raw = []; RC.norm = [];
   RC.cal.on = false;
   if(id && typeof lg === 'function') lg('sys','RC: using "'+id+'"');
   rcPrefsSave();
+  return true;
 }
 
 /* ------------------------------------------------------------ channels */
@@ -254,14 +307,42 @@ function rcAutoAssign(){
   rcPrefsSave();
   return n;
 }
-/* what this channel reads with nothing touched — 0 for a sane assignment */
-function rcRestValue(ch){ return rcNorm(ch, clamp(ch.mid, ch.min, ch.max)); }
+/* What this channel reads with nothing touched — 0 for a sane assignment.
+   The calibration record is the answer ONLY for a channel that has been
+   calibrated. `moved` is what says so: rcCalStop() sets it from the sweep
+   the user actually made, and rcNewChan() leaves it false along with
+   min:-1 max:1 mid:0 — a textbook axis that no transmitter sends. Reading
+   ch.mid on such a channel therefore answers 0 however the stick is
+   physically sitting, and a Mode 2 throttle rests at raw -1. That is not
+   a hypothetical state: the panel offers "show every channel" and a live
+   assignment dropdown on rows nobody has calibrated, so the answer has to
+   come from the stick rather than from the record. For an uncalibrated
+   channel that means the LIVE value — which does move while a hand is on
+   it, and reporting a held stick as restive is the safe way round. */
+function rcRestValue(ch, idx){
+  if(!ch.moved){
+    const i = (idx === undefined) ? RC.chans.indexOf(ch) : idx;
+    const raw = (i >= 0) ? RC.raw[i] : undefined;
+    if(raw !== undefined) return rcNorm(ch, raw);
+  }
+  return rcNorm(ch, clamp(ch.mid, ch.min, ch.max));
+}
+/* What a channel actually hands the merged input state at rest, which is
+   not always its axis value: a trigger target is unipolar and is mapped
+   from the channel's own rest point (see rcTriggerUnit), so a `span`
+   throttle reading -1 at rest delivers a perfectly quiet 0. Warn on the
+   number that reaches the firmware, never on the one before the map. */
+function rcRestDelivered(ch, idx){
+  const v = rcRestValue(ch, idx);
+  if(ch.mode === 'pad' && RC_ANALOG_BTNS.indexOf(ch.pad) >= 0) return rcTriggerUnit(ch, v, idx);
+  return v;
+}
 /* channels that would command something with your hands off the set */
 function rcRestWarnings(){
   const out = [];
   RC.chans.forEach((ch,idx)=>{
     if(ch.mode === 'off' || (!ch.pad && !ch.out)) return;
-    const v = rcRestValue(ch);
+    const v = rcRestDelivered(ch, idx);
     if(Math.abs(v) > 0.08) out.push({idx:idx, ch:ch, rest:v});
   });
   return out;
@@ -269,6 +350,22 @@ function rcRestWarnings(){
 function rcClearAssign(){
   RC.chans.forEach(ch=>{ ch.mode = 'off'; ch.pad = ''; ch.out = ''; });
   rcPrefsSave();
+}
+/* how many channels are actually bound straight to an output right now —
+   the number the Advanced switch has to name before it wipes them */
+function rcDirectBound(){ return RC.chans.filter(c=>c.mode === 'out' && c.out).length; }
+/* Put every direct binding back to off. Called when Advanced is un-ticked,
+   so that what is on disk matches the safety the user has just re-asserted
+   — a gate alone would leave a re-tick of the switch silently re-arming a
+   binding they had already decided against. */
+function rcDisarmDirect(){
+  let n = 0;
+  RC.chans.forEach(ch=>{
+    if(ch.mode !== 'out') return;
+    if(ch.out) n++;
+    ch.mode = 'off'; ch.out = '';
+  });
+  return n;
 }
 
 /* ------------------------------------------------------------ reading */
@@ -304,6 +401,28 @@ function rcRead(){
    null when RC is not driving, so pollInput() can skip the merge entirely.
    Only ASSIGNED targets appear — an unassigned channel must not push a
    stick to zero and fight the keyboard. */
+/* A TRIGGER IS UNIPOLAR, and 0 is the only value that means "not pressed".
+   Turning a signed channel into one is a rescale, and the whole question is
+   what to rescale FROM. The first cut used a fixed -1 — right for exactly
+   one of rcNorm()'s two centre modes: a `span` channel reckons zero at the
+   middle of its travel, so its resting stop really is -1 and (v+1)/2 puts
+   it at 0. A `ctr:'rest'` channel reckons zero at the rest point itself —
+   that is the entire point of capturing it — so the same expression hands
+   the firmware 128 of 255 with hands off, past pollInput()'s noise floor
+   of 25 and into XB.press for good. That is a knob, a slider or a
+   3-position switch, and rcAutoAssign() forces `rest` on every channel it
+   touches.
+
+   So rescale from whatever this channel reads at rest, which subsumes both
+   modes rather than guessing between them: rest → 0, the stop FURTHEST
+   from rest → 1, anything on the near side of rest → 0. The far stop is
+   +1 unless the channel rests above zero, and |rest| never exceeds 1, so
+   the span is never smaller than 1 and there is no divide to guard. */
+function rcTriggerUnit(ch, v, idx){
+  const rest = rcRestValue(ch, idx);
+  const far  = (rest > 0) ? -1 : 1;
+  return clamp((v - rest) / (far - rest), 0, 1);
+}
 function rcContribute(){
   if(!rcEnabled() || !RC.live) return null;
   const ax = {}, btn = {};
@@ -312,7 +431,7 @@ function rcContribute(){
     const v = RC.norm[idx] || 0;
     if(RC_AXIS_IDS.indexOf(ch.pad) >= 0){ ax[ch.pad] = v; return; }
     if(RC_ANALOG_BTNS.indexOf(ch.pad) >= 0){
-      btn[ch.pad] = Math.round(clamp((v + 1) / 2, 0, 1) * 255);
+      btn[ch.pad] = Math.round(rcTriggerUnit(ch, v, idx) * 255);
       return;
     }
     const thr = (ch.thr === undefined) ? 0.5 : ch.thr;
@@ -326,6 +445,14 @@ function rcContribute(){
    watchdog, so a bound channel overrides what the firmware just commanded
    and keeps the Sabertooth packet clock alive while it holds a value. */
 function rcDirectApply(){
+  /* The Advanced switch is what unlocks this route, so it is what locks it
+     away again. Reading RC.advanced only where the picker is DRAWN left the
+     switch decorative: a binding made with it on kept writing the motor
+     with it off, while the simple-mode dropdown showed the same channel as
+     "not assigned". A switch that hides a thing without stopping it is
+     worse than no switch. rcDisarmDirect() clears the state as well, but
+     this is the gate that has to hold whatever is in the state. */
+  if(!RC.advanced) return false;
   if(!rcEnabled() || !RC.live) return false;
   let drive = null, turn = null, dome = null, did = false;
   RC.chans.forEach((ch,idx)=>{
@@ -390,13 +517,17 @@ function rcOutOptions(){
 /* ---------------------------------------------------------- persistence */
 function rcPrefsSave(){
   if(typeof PREFS === 'undefined') return;
-  PREFS.rc = {padId:RC.padId, advanced:RC.advanced, chans:RC.chans};
+  PREFS.rc = {padId:RC.padId, padIx:RC.padIx, advanced:RC.advanced, chans:RC.chans};
   if(typeof prefsSave === 'function') prefsSave();
 }
 function rcPrefsRestore(){
   if(typeof PREFS === 'undefined' || !PREFS.rc) return;
   const p = PREFS.rc;
   RC.padId = p.padId || '';
+  /* every settings file written before the index was recorded has a padId
+     and nothing else — -1 means "unknown", and rcPadMatch() falls back to
+     the id, so an old save still finds its transmitter */
+  RC.padIx = (typeof p.padIx === 'number') ? p.padIx : -1;
   RC.advanced = !!p.advanced;
   RC.chans = Array.isArray(p.chans) ? p.chans.map(c=>Object.assign(rcNewChan(c.src||'axis', c.i|0), c)) : [];
   RC.raw = []; RC.norm = [];

@@ -56,12 +56,17 @@ void MpcaSplitOutput::off(uint8_t board, uint8_t pin){
   frame(board, pin, 0);                    /* 0 = stop pulsing, same as ever */
 }
 void MpcaSplitOutput::frame(uint8_t board, uint8_t pin, uint16_t qus){
-  uint8_t ch = (uint8_t)(board * 16 + pin);
+  /* WIDE first, then test, then narrow. Computed in a uint8_t the test
+     came too late to mean anything: board 16 is channel 256, which wraps
+     to 0, passes "not above 127" and goes out as CHANNEL 0 — a channel
+     the wire cannot address moving the far board's first servo instead of
+     moving nothing. */
+  uint16_t ch = (uint16_t)board * 16 + pin;
   if(ch > 127) return;                     /* the header byte has 7 bits */
   /* three single writes rather than a block: Print::write(buf, n) is a loop
      over this one anyway, and Stream is the smallest thing every target
      agrees on — including the host shim the tests run against. */
-  _link.write((uint8_t)(0x80 | ch));
+  _link.write((uint8_t)(0x80 | (uint8_t)ch));
   _link.write((uint8_t)((qus >> 7) & 0x7F));
   _link.write((uint8_t)(qus & 0x7F));
   _sent++;
@@ -72,7 +77,7 @@ void MaestroPCA::initCommon(){
   _st = new ChanState[_count];
   for(uint8_t i = 0; i < MPCA_MAX_TRACKS; i++){
     _tk[i].seq = -1; _tk[i].frame = -1; _tk[i].frameT = 0;
-    _tk[i].mask = 0; _tk[i].started = 0;
+    _tk[i].mask.clear(); _tk[i].started = 0;
     _bgWait[i] = -1;
   }
 }
@@ -160,14 +165,14 @@ bool MaestroPCA::isReleased(uint8_t ch) const {
 
 /* ---------------------------------------------------------- sequences */
 
-uint32_t MaestroPCA::seqMask(uint8_t n) const {
+MaestroPCA::Mask MaestroPCA::seqMask(uint8_t n) const {
   MpcaSeqDef sd; memcpy_P(&sd, &_seqs[n], sizeof(MpcaSeqDef));
-  uint32_t mask = 0;
+  Mask mask; mask.clear();
   if(sd.flags & MPCA_SEQ_GENERATOR){
     /* generator entries name their channel in the first word of each */
     for(uint16_t e = 0; e < sd.frameCount; e++){
       uint16_t c = pgm_read_word(&sd.data[(uint32_t)e * 5]);
-      if(c < _count) mask |= 1UL << (c < 31 ? c : 31);
+      if(c < _count) mask.set((uint8_t)c);
     }
     return mask;
   }
@@ -175,25 +180,25 @@ uint32_t MaestroPCA::seqMask(uint8_t n) const {
   for(uint16_t f = 0; f < sd.frameCount; f++){
     const uint16_t* row = sd.data + (uint32_t)f * stride + 1;
     for(uint8_t c = 0; c < _count; c++)
-      if(pgm_read_word(&row[c])) mask |= 1UL << (c < 31 ? c : 31);
+      if(pgm_read_word(&row[c])) mask.set(c);
   }
   return mask;
 }
 
 /* a displaced background sequence waits for its channels to come free */
 void MaestroPCA::bgRemember(uint8_t n){
-  for(uint8_t i = 0; i < MPCA_MAX_TRACKS; i++) if(_bgWait[i] == (int8_t)n) return;
+  for(uint8_t i = 0; i < MPCA_MAX_TRACKS; i++) if(_bgWait[i] == (int16_t)n) return;
   for(uint8_t i = 0; i < MPCA_MAX_TRACKS; i++)
-    if(_bgWait[i] < 0){ _bgWait[i] = (int8_t)n; return; }
+    if(_bgWait[i] < 0){ _bgWait[i] = (int16_t)n; return; }
 }
 
 void MaestroPCA::bgResume(){
   for(uint8_t i = 0; i < MPCA_MAX_TRACKS; i++){
-    int8_t n = _bgWait[i];
+    int16_t n = _bgWait[i];
     if(n < 0) continue;
-    uint32_t mask = seqMask((uint8_t)n), busy = 0;
-    for(uint8_t t = 0; t < MPCA_MAX_TRACKS; t++) if(_tk[t].seq >= 0) busy |= _tk[t].mask;
-    if(mask & busy) continue;              /* still borrowed — wait */
+    Mask mask = seqMask((uint8_t)n), busy; busy.clear();
+    for(uint8_t t = 0; t < MPCA_MAX_TRACKS; t++) if(_tk[t].seq >= 0) busy.add(_tk[t].mask);
+    if(mask.overlaps(busy)) continue;      /* still borrowed — wait */
     _bgWait[i] = -1;
     restartScript((uint8_t)n);
   }
@@ -201,7 +206,7 @@ void MaestroPCA::bgResume(){
 
 void MaestroPCA::restartScript(uint8_t n){
   if(n >= _seqCount) return;
-  uint32_t mask = seqMask(n);
+  Mask mask = seqMask(n);
 
   /* Anything already driving one of these channels gives way — two
      sequences fighting over one servo would only jitter. Background
@@ -209,9 +214,9 @@ void MaestroPCA::restartScript(uint8_t n){
   int8_t slot = -1;
   for(uint8_t i = 0; i < MPCA_MAX_TRACKS; i++){
     if(_tk[i].seq < 0){ if(slot < 0) slot = i; continue; }
-    if(_tk[i].seq == (int8_t)n || (_tk[i].mask & mask)){
+    if(_tk[i].seq == (int16_t)n || _tk[i].mask.overlaps(mask)){
       MpcaSeqDef od; memcpy_P(&od, &_seqs[_tk[i].seq], sizeof(MpcaSeqDef));
-      if((od.flags & MPCA_SEQ_BACKGROUND) && _tk[i].seq != (int8_t)n)
+      if((od.flags & MPCA_SEQ_BACKGROUND) && _tk[i].seq != (int16_t)n)
         bgRemember((uint8_t)_tk[i].seq);
       releaseSeqSpeeds(_tk[i].mask);      /* its speeds go back with its channels */
       _tk[i].seq = -1;
@@ -224,9 +229,9 @@ void MaestroPCA::restartScript(uint8_t n){
       if(_tk[i].started < _tk[slot].started) slot = i;
   }
   /* asking for it again cancels any pending resume of the same thing */
-  for(uint8_t i = 0; i < MPCA_MAX_TRACKS; i++) if(_bgWait[i] == (int8_t)n) _bgWait[i] = -1;
+  for(uint8_t i = 0; i < MPCA_MAX_TRACKS; i++) if(_bgWait[i] == (int16_t)n) _bgWait[i] = -1;
 
-  _tk[slot].seq     = (int8_t)n;
+  _tk[slot].seq     = (int16_t)n;
   _tk[slot].frame   = -1;
   _tk[slot].frameT  = 0;
   _tk[slot].mask    = mask;
@@ -243,11 +248,11 @@ void MaestroPCA::stopScript(){
 
 void MaestroPCA::stopSequence(uint8_t n){
   for(uint8_t i = 0; i < MPCA_MAX_TRACKS; i++){
-    if(_tk[i].seq == (int8_t)n){
+    if(_tk[i].seq == (int16_t)n){
       releaseSeqSpeeds(_tk[i].mask);
       _tk[i].seq = -1; _tk[i].frame = -1; _tk[i].frameT = 0;
     }
-    if(_bgWait[i] == (int8_t)n) _bgWait[i] = -1;
+    if(_bgWait[i] == (int16_t)n) _bgWait[i] = -1;
   }
 }
 
@@ -256,7 +261,7 @@ bool MaestroPCA::scriptRunning() const {
   return false;
 }
 bool MaestroPCA::sequenceRunning(uint8_t n) const {
-  for(uint8_t i = 0; i < MPCA_MAX_TRACKS; i++) if(_tk[i].seq == (int8_t)n) return true;
+  for(uint8_t i = 0; i < MPCA_MAX_TRACKS; i++) if(_tk[i].seq == (int16_t)n) return true;
   return false;
 }
 uint8_t MaestroPCA::runningCount() const {
@@ -264,8 +269,8 @@ uint8_t MaestroPCA::runningCount() const {
   for(uint8_t i = 0; i < MPCA_MAX_TRACKS; i++) if(_tk[i].seq >= 0) c++;
   return c;
 }
-int8_t MaestroPCA::currentScript() const {
-  int8_t best = -1; uint32_t newest = 0;
+int16_t MaestroPCA::currentScript() const {
+  int16_t best = -1; uint32_t newest = 0;
   for(uint8_t i = 0; i < MPCA_MAX_TRACKS; i++)
     if(_tk[i].seq >= 0 && _tk[i].started >= newest){ newest = _tk[i].started; best = _tk[i].seq; }
   return best;
@@ -455,7 +460,12 @@ void MaestroPCA::update(){
 
   bgResume();                          /* an idle picks up once it can */
 
-  _tickAcc += (uint8_t)((elapsed > 200) ? 200 : elapsed);
+  /* The SAME elapsed the frame timers above were given — clamped once, at
+     the top, and not a second time here. It was clamped again to 200 for
+     want of a byte to put it in, so a stall moved the frames on 250 ms and
+     the servos 200, and an animation that slips against itself lands in
+     the wrong place rather than merely stuttering. */
+  _tickAcc += (uint16_t)elapsed;
   while(_tickAcc >= 10){
     _tickAcc -= 10;
     for(uint8_t c = 0; c < _count; c++)
@@ -493,10 +503,10 @@ void MaestroPCA::applyFrame(uint8_t track, uint16_t f){
    would leave the pad, a group action and every later move running at
    whatever pace its last frame happened to need. Called wherever a track
    lets go of its channels. */
-void MaestroPCA::releaseSeqSpeeds(uint32_t mask){
+void MaestroPCA::releaseSeqSpeeds(const Mask& mask){
   for(uint8_t c=0; c<_count; c++){
     if(!_st[c].seqSpeed) continue;
-    if(mask && !(mask & (1UL << (c < 31 ? c : 31)))) continue;
+    if(!mask.empty() && !mask.has(c)) continue;
     MpcaChannelDef d; rowOf(_table, c, &d);
     _st[c].speed = d.speed;
     _st[c].seqSpeed = false;

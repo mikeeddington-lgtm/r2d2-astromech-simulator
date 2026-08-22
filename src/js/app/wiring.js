@@ -343,46 +343,86 @@ function wiringCsv(){
 
 /* schematic wiring diagram: board on the left, one servo block per driven
    channel on the right, SIGNAL and GROUND lines only — power distribution is
-   deliberately left to the builder (Mike's call: too build-specific). */
+   deliberately left to the builder (Mike's call: too build-specific).
+
+   ONE BOX PER BOARD (2026-08-22). This drew a single board and hung every
+   channel off it, taking the whole sheet's title from `wired[0].board`.
+   That was survivable while wiringSource() only ever answered from one
+   location; it stopped being survivable when wiringSource() was fixed to
+   walk BOTH board locations, because the default build is a two-board build
+   (servoSplit:'two'). The picture then showed two physically separate
+   boards as one component and printed the pin column as 0,0,1,1,2,2… —
+   every channel number appearing twice, on the page a builder prints and
+   wires from at the bench. Two boards means two boxes, each with its own
+   pins, its own ground bus and its own name over it. */
 function wiringDiagramSvg(rows){
-  const wired = rows.filter(r=>r.board).sort((a,b)=>(a.ch===''?99:a.ch)-(b.ch===''?99:b.ch));
+  const wired = rows.filter(r=>r.board);
   if(!wired.length) return '';
-  const rowH = 34, top = 46, W = 980;
-  const H = top + wired.length*rowH + 40 + WIRING_BETA_H;  // v1.45.0 — room for the beta line
+  /* group in first-seen order — wiringSource() walks the locations dome
+     first, so the sections come out in the order the build lists them */
+  const groups = [];
+  wired.forEach(r=>{
+    let g = groups.find(x=>x.board === r.board);
+    if(!g){ g = {board:r.board, rows:[]}; groups.push(g); }
+    g.rows.push(r);
+  });
+  groups.forEach(g=>g.rows.sort((a,b)=>(a.ch===''?99:a.ch)-(b.ch===''?99:b.ch)));
+
+  const rowH = 34, W = 980, headH = 46, sectGap = 22;
   const boardX = 40, boardW = 190;
-  const boardH = Math.max(90, wired.length*rowH*0.75);
-  const boardY = top + (wired.length*rowH - boardH)/2;
   const sx = boardX + boardW;                          // pin exit x
+  const gndBusX = sx + 40;
   const servoX = 700, servoW = 240;
   const hue = i => 'hsl('+(i*47)%360+',60%,42%)';
+  const esc = t => String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;');
+
+  const sectH = g => headH + g.rows.length*rowH + sectGap;
+  const H = 14 + groups.reduce((n,g)=>n+sectH(g), 0) + 40 + WIRING_BETA_H;
+
   let s = '<svg class="wd" viewBox="0 0 '+W+' '+H+'" xmlns="http://www.w3.org/2000/svg" font-family="ui-monospace,Consolas,monospace">';
-  s += '<text x="'+boardX+'" y="24" font-size="14" font-weight="700">'+ (wired[0].board||'') +'</text>';
-  s += '<text x="'+boardX+'" y="38" font-size="10" fill="#777">signal + ground only — power distribution is your build\'s business</text>';
   s += wiringBetaBadge(W-24, 10);                     // v1.45.0 — see WIRING_BETA_WHY
-  s += '<rect x="'+boardX+'" y="'+boardY+'" width="'+boardW+'" height="'+boardH+'" rx="8" fill="#1c4d2e" stroke="#333" stroke-width="1.5"/>';
-  s += '<text x="'+(boardX+boardW/2)+'" y="'+(boardY+boardH/2)+'" font-size="11" fill="#cde" text-anchor="middle">'+ (wired[0].board||'controller') +'</text>';
-  const gndBusX = sx + 40;
-  wired.forEach((r,i)=>{
-    const y = top + i*rowH + rowH/2;
-    const pinY = boardY + 14 + i*((boardH-28)/Math.max(1,wired.length-1||1));
-    // pin stub + label
-    s += '<circle cx="'+sx+'" cy="'+pinY+'" r="3.5" fill="#ddd" stroke="#333"/>';
-    s += '<text x="'+(sx-8)+'" y="'+(pinY+3)+'" font-size="9" fill="#fff" text-anchor="end">'+r.ch+'</text>';
-    // signal line: pin -> elbow -> servo block
-    const c = hue(i);
-    s += '<path d="M'+(sx+4)+' '+pinY+' H '+(gndBusX+30+i*9)+' V '+y+' H '+servoX+'" fill="none" stroke="'+c+'" stroke-width="1.6"/>';
-    // servo block
-    s += '<rect x="'+servoX+'" y="'+(y-13)+'" width="'+servoW+'" height="26" rx="4" fill="#f4f4f4" stroke="#888"/>';
-    const label = (r.friendly||r.act) + (r.cad ? '' : '  (no CAD part)');
-    s += '<text x="'+(servoX+8)+'" y="'+(y-1)+'" font-size="10" font-weight="600">'+label.replace(/&/g,'&amp;').replace(/</g,'&lt;')+'</text>';
-    s += '<text x="'+(servoX+8)+'" y="'+(y+10)+'" font-size="8.5" fill="#666">ch '+r.ch+' · SIG '+'<'.replace('<','')+(r.travel||'')+'</text>';
-    // ground line from servo block to the ground bus
-    s += '<path d="M'+servoX+' '+(y+8)+' H '+gndBusX+'" fill="none" stroke="#555" stroke-width="1.1" stroke-dasharray="4 3"/>';
+
+  let y0 = 14;
+  groups.forEach(g=>{
+    const n = g.rows.length;
+    const top = y0 + headH;
+    const boardH = Math.max(90, n*rowH*0.75);
+    const boardY = top + (n*rowH - boardH)/2;
+    /* the group carries the board's own name so nothing downstream — a
+       reader, a test, a future renderer — has to infer which box a channel
+       belongs to from its position on the page */
+    s += '<g data-board="'+esc(g.board)+'">';
+    s += '<text x="'+boardX+'" y="'+(y0+22)+'" font-size="14" font-weight="700">'+ esc(g.board) +'</text>';
+    s += '<text x="'+boardX+'" y="'+(y0+36)+'" font-size="10" fill="#777">'+ n +' channel'+(n===1?'':'s')
+       + ' — signal + ground only, power distribution is your build\'s business</text>';
+    s += '<rect x="'+boardX+'" y="'+boardY+'" width="'+boardW+'" height="'+boardH+'" rx="8" fill="#1c4d2e" stroke="#333" stroke-width="1.5"/>';
+    s += '<text x="'+(boardX+boardW/2)+'" y="'+(boardY+boardH/2)+'" font-size="11" fill="#cde" text-anchor="middle">'+ esc(g.board) +'</text>';
+    g.rows.forEach((r,i)=>{
+      const y = top + i*rowH + rowH/2;
+      const pinY = boardY + 14 + i*((boardH-28)/Math.max(1,n-1||1));
+      // pin stub + label
+      s += '<circle cx="'+sx+'" cy="'+pinY+'" r="3.5" fill="#ddd" stroke="#333"/>';
+      s += '<text class="pin" x="'+(sx-8)+'" y="'+(pinY+3)+'" font-size="9" fill="#fff" text-anchor="end">'+r.ch+'</text>';
+      // signal line: pin -> elbow -> servo block
+      const c = hue(i);
+      s += '<path d="M'+(sx+4)+' '+pinY+' H '+(gndBusX+30+i*9)+' V '+y+' H '+servoX+'" fill="none" stroke="'+c+'" stroke-width="1.6"/>';
+      // servo block
+      s += '<rect x="'+servoX+'" y="'+(y-13)+'" width="'+servoW+'" height="26" rx="4" fill="#f4f4f4" stroke="#888"/>';
+      const label = (r.friendly||r.act) + (r.cad ? '' : '  (no CAD part)');
+      s += '<text x="'+(servoX+8)+'" y="'+(y-1)+'" font-size="10" font-weight="600">'+esc(label)+'</text>';
+      s += '<text x="'+(servoX+8)+'" y="'+(y+10)+'" font-size="8.5" fill="#666">ch '+r.ch+' · SIG '+(r.travel||'')+'</text>';
+      // ground line from servo block to the ground bus
+      s += '<path d="M'+servoX+' '+(y+8)+' H '+gndBusX+'" fill="none" stroke="#555" stroke-width="1.1" stroke-dasharray="4 3"/>';
+    });
+    /* this board's OWN ground bus — the boards do not share one here, and
+       drawing them joined would be a claim about the loom we cannot make */
+    const busTop = top + rowH/2 + 8, busBot = top + (n-1)*rowH + rowH/2 + 8;
+    s += '<path d="M'+gndBusX+' '+busTop+' V '+Math.max(busBot, boardY+boardH-10)+' H '+(sx+4)+'" fill="none" stroke="#555" stroke-width="1.6"/>';
+    s += '<text x="'+(gndBusX+5)+'" y="'+(busTop-6)+'" font-size="9" fill="#555">GND bus → board GND</text>';
+    s += '</g>';
+    y0 += sectH(g);
   });
-  // common ground bus down to the board
-  const busTop = top + rowH/2 + 8, busBot = top + (wired.length-1)*rowH + rowH/2 + 8;
-  s += '<path d="M'+gndBusX+' '+busTop+' V '+Math.max(busBot, boardY+boardH-10)+' H '+(sx+4)+'" fill="none" stroke="#555" stroke-width="1.6"/>';
-  s += '<text x="'+(gndBusX+5)+'" y="'+(busTop-6)+'" font-size="9" fill="#555">GND bus → board GND</text>';
+
   s += wiringBetaLine(boardX, H-32);
   // legend
   s += '<g font-size="9.5">'
@@ -390,7 +430,10 @@ function wiringDiagramSvg(rows){
     + '<line x1="'+(boardX+100)+'" y1="'+(H-14)+'" x2="'+(boardX+130)+'" y2="'+(H-14)+'" stroke="#555" stroke-width="1.1" stroke-dasharray="4 3"/><text x="'+(boardX+136)+'" y="'+(H-11)+'">ground</text>'
     + '<text x="'+(boardX+220)+'" y="'+(H-11)+'" fill="#b00">no V+ lines shown — fuse and distribute servo power per your own plan</text></g>';
   s += '</svg>';
-  return '<h2>Wiring diagram — signal &amp; ground <span class="bmark">beta</span></h2>' + s;
+  const title = groups.length > 1
+    ? 'Wiring diagram — signal &amp; ground, ' + groups.length + ' boards'
+    : 'Wiring diagram — signal &amp; ground';
+  return '<h2>' + title + ' <span class="bmark">beta</span></h2>' + s;
 }
 
 function wiringHtml(){
@@ -401,7 +444,15 @@ function wiringHtml(){
   const orphanCh  = rows.filter(r => r.board && !r.cad);
   const esc = s => String(s === null || s === undefined ? '' : s)
     .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-  const stamp = new Date().toISOString().slice(0,16).replace('T',' ');
+  /* LOCAL time, like the filename this document arrives under. fileStamp()
+     (core/util.js) is explicitly local — "the stamp exists to be recognised
+     by the person who pressed the button" — and this line was UTC, so an
+     export at 09:00 in UTC+10 downloaded as `…-0900.html` and then printed
+     "generated 2026-08-21 23:00": a different clock time and a different
+     date, on the same sheet. Derived from fileStamp() rather than
+     re-implemented, so the two can never drift apart again. */
+  const fs = fileStamp();
+  const stamp = fs.slice(0,10) + ' ' + fs.slice(11,13) + ':' + fs.slice(13,15);
 
   const tr = r => `<tr${r.board ? '' : ' class="un"'}>
     <td class="m act">${esc(r.act)}</td>

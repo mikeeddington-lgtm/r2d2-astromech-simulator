@@ -27,6 +27,49 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
   ok('the bank starts empty with a visible invitation', await ev(()=>
     SBANK.count===0 && /drop the Padawan zip/.test($('sbankStat').textContent)));
 
+  /* ══════════════════════════════════════════════════════════════════════
+     THE NAME NORMALISER MUST NOT MAKE THE LABEL WORSE
+
+     `name.replace(/\.\w+$/,'').replace(/^\d+/,'') || name` strips the
+     extension and the leading track number and stops there, so
+     "01 SCREAM2.mp3" came out as " SCREAM2" with a leading space — and
+     "21.wav" came out as "21.wav", because stripping emptied the string
+     and the `|| name` fallback handed back the RAW FILENAME. trackDesc()
+     prefers SBANK.names[n] over the embedded SOUND_NAMES[n], so dropping
+     the real pack's `21.mp3` REPLACED the correct MISC17 with "21.mp3"
+     everywhere it is shown.
+     ══════════════════════════════════════════════════════════════════════ */
+  console.log('\n════ file names become labels, not worse labels ════');
+  const names = await ev(()=>{
+    const buf = new ArrayBuffer(8);
+    const cases = ['01 SCREAM2.mp3','21.wav','07-ALARM3.MP3','13_MISC14.ogg','52HUM19.mp3','notanumber.mp3'];
+    const out = {};
+    cases.forEach((n,i)=>{
+      const track = [1,21,7,13,52,4][i];
+      sbankAdd(track, n, buf, false);
+      out[n] = {name: SBANK.names[track], desc: trackDesc(track)};
+    });
+    /* leave the bank exactly as it was — the zip section below counts on it */
+    SBANK.bufs = {}; SBANK.names = {}; SBANK.decoded = {}; SBANK.count = 0;
+    return out;
+  });
+  Object.keys(names).forEach(k=>console.log('      "'+k+'" → "'+names[k].name+'"   ('+names[k].desc+')'));
+  ok('a number-and-space name keeps the name and loses the separator',
+     names['01 SCREAM2.mp3'].name === 'SCREAM2', JSON.stringify(names['01 SCREAM2.mp3']));
+  ok('a dash or an underscore goes the same way',
+     names['07-ALARM3.MP3'].name === 'ALARM3' && names['13_MISC14.ogg'].name === 'MISC14',
+     JSON.stringify([names['07-ALARM3.MP3'].name, names['13_MISC14.ogg'].name]));
+  ok('a name that is nothing BUT its number falls back to the pack name, not the filename',
+     names['21.wav'].name === 'MISC17' && !/21\.wav/.test(names['21.wav'].desc),
+     JSON.stringify(names['21.wav']));
+  ok('…so trackDesc still says MISC17 rather than the file it came from',
+     /MISC17/.test(names['21.wav'].desc), names['21.wav'].desc);
+  ok('a number run straight into the name still splits',
+     names['52HUM19.mp3'].name === 'HUM19', JSON.stringify(names['52HUM19.mp3']));
+  ok('no label comes back with leading or trailing space',
+     Object.keys(names).every(k=>names[k].name === names[k].name.trim() && names[k].name.length>0),
+     JSON.stringify(Object.keys(names).map(k=>JSON.stringify(names[k].name))));
+
   console.log('\n════ zip reader: stored + deflate, numbered entries only ════');
   // build a zip IN THE PAGE: 01 stored wav, 07 deflate wav, one junk file
   const zres = await ev(async ()=>{
@@ -144,6 +187,117 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
     mp3.playTrack(1);
     return modal === false && !!SBANK.playing && SBANK.playing.n === 1;
   }));
+
+  /* ══════════════════════════════════════════════════════════════════════
+     A SAVE THAT FAILED MUST NOT REPORT AS A SAVE THAT WORKED
+
+     sbankIdbPut()'s `.catch(()=>{})` covered only the OPEN failing. A
+     QuotaExceededError on put() aborts the TRANSACTION and fires `error`
+     there — on a handle nothing was listening to, long after the promise
+     resolved. A 53-track pack therefore fired 53 independent
+     indexedDB.open() calls and 53 unawaited transactions, closed none of
+     them, and toasted "53 of 53 tracks" from a count of DECODES. Reload,
+     and the bank was gone with nothing ever said.
+     ══════════════════════════════════════════════════════════════════════ */
+  console.log('\n════ the sound-pack receipt tells the truth about what was stored ════');
+  const opens = await ev(async ()=>{
+    /* one connection, reused — count opens across a burst of writes */
+    const real = indexedDB.open.bind(indexedDB);
+    let n = 0;
+    indexedDB.open = (...a)=>{ n++; return real(...a); };
+    const buf = new ArrayBuffer(8);
+    const puts = [];
+    for(let i=60;i<70;i++) puts.push(sbankIdbPut(i, i+'.wav', buf));
+    await Promise.all(puts);
+    indexedDB.open = real;
+    return n;
+  });
+  console.log('      indexedDB.open() calls for 10 stored files: '+opens);
+  ok('ten files share one connection instead of opening ten', opens <= 1, String(opens));
+  const putFail = await ev(async ()=>{
+    /* a store whose put() aborts its transaction, the way a full disk does */
+    const keepDb = SBANK.db, keepP = SBANK._dbp;
+    SBANK.db = { transaction(){
+      const tx = { objectStore(){ return { put(){
+        setTimeout(()=>{ if(tx.onerror) tx.onerror({target:{error:{name:'QuotaExceededError'}}}); }, 0);
+        return {};
+      } }; } };
+      return tx;
+    } };
+    SBANK._dbp = null;
+    const res = await sbankIdbPut(71, '71.wav', new ArrayBuffer(8));
+    SBANK.db = keepDb; SBANK._dbp = keepP;
+    return res;
+  });
+  ok('a put whose transaction aborts resolves FALSE rather than vanishing',
+     putFail === false, JSON.stringify(putFail));
+  const receipt = await ev(async ()=>{
+    const keepDb = SBANK.db, keepP = SBANK._dbp, keepBufs = SBANK.bufs, keepNames = SBANK.names, keepCount = SBANK.count;
+    SBANK.db = { transaction(){
+      const tx = { objectStore(){ return { put(){
+        setTimeout(()=>{ if(tx.onerror) tx.onerror({target:{error:{name:'QuotaExceededError'}}}); }, 0);
+        return {};
+      } }; } };
+      return tx;
+    } };
+    SBANK._dbp = null;
+    const h = $('toasts'); if(h) h.remove();
+    /* a wav the loader will accept, dropped as a plain numbered file */
+    const wav = new File([window.__wav1 || new ArrayBuffer(64)], '41TESTC.wav', {type:'audio/wav'});
+    await sbankLoadFiles([wav]);
+    await new Promise(r=>setTimeout(r,120));
+    const plates = [...document.querySelectorAll('#toasts .toastp')].map(p=>({t:p.textContent, warn:p.className}));
+    SBANK.db = keepDb; SBANK._dbp = keepP;
+    SBANK.bufs = keepBufs; SBANK.names = keepNames; SBANK.count = keepCount;
+    return plates;
+  });
+  console.log('      receipt: '+JSON.stringify(receipt));
+  ok('the drop receipt SAYS the files were not stored, and says it as a warning',
+     receipt.some(p=>/not saved|storage/i.test(p.t)) && receipt.some(p=>/warn/.test(p.warn)),
+     JSON.stringify(receipt));
+  /* this section wrote scratch keys into the REAL store — take them back out
+     before the reload below counts what is in there */
+  await ev(async ()=>{
+    delete SBANK.bufs[41]; delete SBANK.names[41];
+    SBANK.count = Object.keys(SBANK.bufs).length;
+    try{
+      const db = await sbankIdb();
+      await new Promise(res=>{
+        const tx = db.transaction('files','readwrite'), st = tx.objectStore('files');
+        for(let i=60;i<=71;i++) st.delete(i);
+        st.delete(41);
+        tx.oncomplete = tx.onerror = tx.onabort = ()=>res();
+      });
+    }catch(e){}
+  });
+
+  /* ══════════════════════════════════════════════════════════════════════
+     AN EVICTED TOAST TAKES ITS TIMER WITH IT
+
+     `while(host.childElementCount >= TOAST_MAX) host.firstElementChild
+     .remove()` bypassed toastDrop(), so every plate pushed out early left a
+     live 3.5 s timeout holding a detached node.
+     ══════════════════════════════════════════════════════════════════════ */
+  console.log('\n════ a toast pushed out early is really gone ════');
+  const evicted = await ev(()=>{
+    const h = $('toasts'); if(h) h.remove();
+    const plates = [];
+    for(let i=0;i<5;i++) plates.push(toast('plate '+i));
+    return {
+      onScreen: $('toasts').childElementCount,
+      max: TOAST_MAX,
+      dropped: plates.map(p=>p._toastGone === true),
+      detached: plates.map(p=>!p.parentNode)
+    };
+  });
+  console.log('      '+JSON.stringify(evicted));
+  ok('five toasts leave TOAST_MAX on screen', evicted.onScreen === evicted.max, JSON.stringify(evicted));
+  ok('…and the two pushed out went through toastDrop, so their timers were cleared',
+     evicted.dropped[0] === true && evicted.dropped[1] === true, JSON.stringify(evicted.dropped));
+  ok('…and the ones still up did not', evicted.dropped.slice(2).every(v=>v===false), JSON.stringify(evicted.dropped));
+  ok('the evicted plates are off the DOM immediately, not 180 ms later',
+     evicted.detached[0] && evicted.detached[1], JSON.stringify(evicted.detached));
+  await ev(()=>{ const h=$('toasts'); if(h) h.remove(); });
 
   console.log('\n════ persistence (IndexedDB where the browser allows it) ════');
   const idbOk = await ev(()=>new Promise(res=>{

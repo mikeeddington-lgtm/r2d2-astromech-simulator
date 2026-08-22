@@ -498,13 +498,23 @@ function buildCadPane(){
   const s1 = sect(host,'Show','by part group');
   const counts = {};
   for(const p of CAD.header.parts) counts[p.kind] = (counts[p.kind]||0) + p.tris;
-  ['shell','pie','panel','anim','leg','internal','outlier'].forEach(k=>{
-    if(counts[k] === undefined) return;
+  /* THE KINDS THIS FILE ACTUALLY HAS, not the seven the MK4 happens to have
+     (v1.46.0). The list used to be a hardcoded seven, so a container with any
+     other vocabulary got no checkboxes at all — and since visibility defaulted
+     to hidden for an unlisted kind (see cadShown() in cad/runtime.js), the
+     Polar Mouse .r2m loaded 130 parts onto an empty stage with no way to bring
+     any of them back. The MK4's seven keep their familiar order; anything else
+     follows, under its raw kind string where KIND_LABEL has no name for it. */
+  const KIND_ORDER = ['shell','pie','panel','anim','leg','internal','outlier'];
+  KIND_ORDER.filter(k => counts[k] !== undefined)
+    .concat(Object.keys(counts).filter(k => KIND_ORDER.indexOf(k) < 0))
+    .forEach(k=>{
     const l = el('label','sw');
-    const cb = document.createElement('input'); cb.type='checkbox'; cb.checked = !!CAD.show[k];
+    const cb = document.createElement('input'); cb.type='checkbox'; cb.checked = cadShown(k);
     cb.addEventListener('change',()=>{ CAD.show[k]=cb.checked; applyCadVisibility(); });
     l.appendChild(cb);
-    l.appendChild(document.createTextNode((KIND_LABEL[k]||k)+'  ('+counts[k].toLocaleString()+' tris)'));
+    const named = Object.prototype.hasOwnProperty.call(KIND_LABEL, k) ? KIND_LABEL[k] : k;
+    l.appendChild(document.createTextNode(named+'  ('+counts[k].toLocaleString()+' tris)'));
     s1.appendChild(l);
   });
   const lp = el('label','sw');
@@ -524,7 +534,12 @@ function buildCadPane(){
   inp.type='number'; inp.step=0.005; inp.value=CAD.yOffset.toFixed(3);
   inp.addEventListener('change',()=>{ CAD.yOffset = parseFloat(inp.value)||0; });
   r.appendChild(inp); s2.appendChild(r);
-  const bb = CAD.header.parts.reduce((a,p)=>[Math.min(a[0],p.bbox[1]),Math.max(a[1],p.bbox[4])],[1e9,-1e9]);
+  /* a part with no bbox is a header this pane cannot measure, not a reason to
+     throw and take the whole Model tab down with it — foreign containers do
+     reach here (v1.46.0, and see cadHeaderCheck() in cad/build.js for the two
+     fields the BUILD genuinely cannot start without) */
+  const bb = CAD.header.parts.reduce((a,p)=>(p.bbox
+    ? [Math.min(a[0],p.bbox[1]), Math.max(a[1],p.bbox[4])] : a), [1e9,-1e9]);
   const h2 = el('div','hint prose');
   h2.innerHTML = 'Model spans '+bb[0].toFixed(3)+' … '+bb[1].toFixed(3)+' m before the offset, so the dome top lands at '+
                  (bb[1]+CAD.yOffset).toFixed(3)+' m. A real R2 is about 1.09 m.';

@@ -813,11 +813,26 @@ function blkConvRun(seq, review){
   blockHistReset(seq);                  // a fresh history: undo must not reach behind the conversion
 
   if(review){
-    BLK.conv = { seq: seq, name: seq.name, orig: orig, issues: t.issues };
+    /* THE COPY IS MADE HERE, NOT AT ACCEPT (2026-08-22). The header above has
+       always said BOTH doors keep the original first; this one did not. It
+       held `orig` in BLK.conv and nowhere else, while buildSequencer() ends in
+       servoStoreTouch() and writes the CONVERTED routine to the browser store
+       500 ms later — and pagehide writes it again. The only restore path,
+       blkConvCheckSeq(), runs from buildBlocks(), which leaving the desk
+       (setStripMode('pad')) never calls. So a review somebody walked away from
+       replaced their imported frame list with a guess at it, invisibly, with
+       nothing anywhere to go back to.
+
+       Accepting simply keeps this copy. Discarding, and abandoning the review
+       by opening another routine, take it away again — blkConvDropKept(). */
+    const keptName = blkConvKeepOriginal(seq.name, orig);
+    BLK.conv = { seq: seq, name: seq.name, orig: orig, issues: t.issues,
+                 kept: MSTR.sequences.find(s=>s.name === keptName) || null };
     blkSelClear(); BLK.sel = null;
     if(typeof lg === 'function')
       lg('mae','conversion proposed for “'+seq.name+'”: '+t.bricks.length+' brick(s) from '+orig.length
-        +' frame(s), '+t.issues.length+' issue(s) to review');
+        +' frame(s), '+t.issues.length+' issue(s) to review. Your original frames are kept as “'
+        +keptName+'” while you decide.');
     buildSequencer();
     return;
   }
@@ -838,6 +853,21 @@ function blkConvRun(seq, review){
   buildSequencer();
 }
 
+/* the copy the review door made, taken back out again. Discarding — and
+   abandoning the review by opening something else — both mean "nothing
+   changed", and a spare frame list nobody asked for is not nothing. Spliced
+   by IDENTITY rather than by name, because the name is one somebody may since
+   have typed themselves; EDIT.seq follows it, being a position in this very
+   array. */
+function blkConvDropKept(c){
+  if(!c || !c.kept) return;
+  const at = MSTR.sequences.indexOf(c.kept);
+  if(at < 0) return;
+  MSTR.sequences.splice(at, 1);
+  if(typeof EDIT !== 'undefined' && EDIT.seq > at) EDIT.seq--;
+  if(typeof reindexSubs === 'function') reindexSubs();
+}
+
 /* Leaving the routine abandons the review rather than stranding it: a
    pending conversion is a question about THIS routine, and a banner you
    cannot see is not a question. */
@@ -845,6 +875,7 @@ function blkConvCheckSeq(seq){
   if(!BLK.conv) return;
   if(BLK.conv.seq === seq) return;
   const c = BLK.conv; BLK.conv = null;
+  blkConvDropKept(c);
   if(c.seq){ c.seq.frames = c.orig; delete c.seq.blocks; }
   if(typeof toast === 'function') toast('Conversion of “'+c.name+'” discarded — you left the routine. '
     + 'It is a frame list again, exactly as it was.');
@@ -852,7 +883,10 @@ function blkConvCheckSeq(seq){
 
 function blkConvAccept(){
   const c = BLK.conv; if(!c) return;
-  const kept = blkConvKeepOriginal(c.name, c.orig);
+  /* the review door already made the copy — accepting keeps it, it does not
+     make a second one. The fallback is for a BLK.conv that arrived without
+     one, so this stays the place the promise is honoured either way. */
+  const kept = c.kept ? c.kept.name : blkConvKeepOriginal(c.name, c.orig);
   BLK.conv = null;
   if(typeof HW !== 'undefined' && HW.save) HW.save();
   const left = blockTraceReview(c.seq, c.orig);
@@ -870,6 +904,7 @@ function blkConvAccept(){
 function blkConvDiscard(){
   const c = BLK.conv; if(!c) return;
   BLK.conv = null;
+  blkConvDropKept(c);          // nothing changed, so nothing is left behind
   c.seq.frames = c.orig;
   delete c.seq.blocks;
   blockHistReset(c.seq);
@@ -1331,7 +1366,12 @@ function blkInspector(seq){
   const bDup = el('button','b','Duplicate');
   bDup.addEventListener('click',()=>{
     blockHistPush(seq);
-    blockAdd(seq, b.kind, b.ref, b.t0 + b.dur, {dur:b.dur, rise:b.rise, fall:b.fall, amp:b.amp});
+    /* `mode` travels with the copy, exactly as it does in blkMultiDuplicate.
+       Leaving it out did not fail loudly — blockMode() reads an absent mode as
+       'oc' — so a duplicated "Closes" or "Closes then opens" silently came
+       back as "Opens then closes", which is the brick doing the opposite of
+       what the one it was copied from does. */
+    blockAdd(seq, b.kind, b.ref, b.t0 + b.dur, {dur:b.dur, rise:b.rise, fall:b.fall, amp:b.amp, mode:b.mode});
     buildSequencer();
   });
   const bDel = el('button','b danger','Remove');
@@ -1574,11 +1614,66 @@ function buildSeqLib(){
   nameIn.value = (blkSeq() && blkSeq().name) || '';
   const bSave = el('button','b prim','Save');
   bSave.title = 'store the sequence you are building under this name — in your library, not on the board';
-  bSave.addEventListener('click',()=>{
+  /* SAVING ONTO A NAME SOMEBODY ELSE ALREADY HAS (2026-08-22)
+
+     blockSaveAs() replaces BY NAME, and this handler set seq.name FIRST — so
+     typing the name of another sequence handed blockSaveAs the WRONG routine
+     to overwrite. findIndex found the victim, the victim's slot was filled
+     with a copy of the routine being edited, and the routine being edited kept
+     the new name too: library ['Wave','Dance'] became ['Wave','Wave'], both
+     board slots fired the same thing, and the real Wave was gone from the
+     library, the loadout and the board at once. No confirm, no log, no undo.
+
+     So a clash is a question now, in the shape CLEAR EVERY BRICK asks it:
+     name the victim, say what is in it, say what survives either way. */
+  bSave.addEventListener('click', async ()=>{
     const seq = blkSeq(); if(!seq) return;
     const old = seq.name;
-    const n = (nameIn.value||'').trim() || seq.name;
-    if(old !== n && typeof loadoutRename === 'function' && typeof loadoutIndex === 'function' && loadoutIndex(old) >= 0) loadoutRename(old, n);
+    let n = (nameIn.value||'').trim() || seq.name;
+    const clash = MSTR.sequences.find(s=>s.name === n && s !== seq);
+    let drop = null;
+    if(clash){
+      /* seqUniqueName() (blocks.js) is what "Keep both" needs — a free name to
+         put this one under. Where it is not there, Keep both can only mean
+         "nothing happens", and the toast says so rather than pretending. */
+      const free = (typeof seqUniqueName === 'function') ? seqUniqueName(n) : '';
+      const nb = clash.frames.length;
+      const yes = (typeof appConfirm === 'function')
+        ? await appConfirm(
+            '“' + n + '” is already a sequence in your library — ' + nb + ' frame' + (nb===1?'':'s')
+            + ', ' + (seqTotal(clash)/1000).toFixed(1) + 's. Saving “' + old + '” under that name '
+            + 'replaces it, and nothing brings it back.\n\n'
+            + (free
+                ? 'Keep both saves what you are editing as “' + free + '” and leaves “' + n + '” alone.'
+                : 'Keep both saves nothing — pick a name of its own and press Save again.'),
+            {title:'Replace “'+n+'”?', yes:'Replace it', no:'Keep both', danger:true})
+        : false;
+      if(yes){
+        drop = clash;                       // deliberate: one name, one sequence
+      }else if(free){
+        n = free;
+      }else{
+        if(typeof toast === 'function')
+          toast('Nothing saved — “'+n+'” belongs to another sequence. Give this one a name of its own.','warn');
+        return;
+      }
+    }
+    /* the loadout is a list of NAMES, so a replace has already pointed the
+       victim's slot at whatever takes the name next. Renaming this routine's
+       own slot into it as well would put one sequence on the board twice —
+       it gives its slot up instead. Read before the splice, while the name
+       still resolves to the victim. */
+    const victimOnBoard = !!drop && !!MSTR.loadout && MSTR.loadout.indexOf(n) >= 0;
+    if(drop){
+      const at = MSTR.sequences.indexOf(drop);
+      MSTR.sequences.splice(at, 1);
+      if(EDIT.seq > at) EDIT.seq--;         // EDIT.seq is a position in that array
+      lg('mae','“'+n+'” replaced — the sequence that had that name ('+drop.frames.length+' frames) is gone');
+    }
+    if(old !== n && typeof loadoutIndex === 'function' && loadoutIndex(old) >= 0){
+      if(victimOnBoard && typeof loadoutDrop === 'function') loadoutDrop(old);
+      else if(typeof loadoutRename === 'function') loadoutRename(old, n);
+    }
     seq.name = n;
     blockSaveAs(seq, n);
     if(old !== n && typeof reindexSubs === 'function') reindexSubs();  // v1.39.5: renaming via Save must not drop the routine off the board

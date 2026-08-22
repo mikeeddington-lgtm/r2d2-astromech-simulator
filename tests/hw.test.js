@@ -1120,6 +1120,206 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
   ok('…and it warns that MPCA_CHANNELS is fixed at flash time',
      /MPCA_CHANNELS BELOW IS FIXED WHEN YOU FLASH/.test(hdr) && /regenerate this file, re-flash/.test(hdr));
 
+
+  /* ==================================================================
+     v1.66.3 — WHAT A BENCH EDIT MUST NOT DO TO A SERVO
+
+     Three of these are the same shape of fault: something the bench knows
+     (where a channel is, what its endpoints are, what rate the board is
+     running at) not reaching the place that actually moves the horn. They
+     are grouped because the evidence for each is the same — read the
+     ENGINE and read the WIRE, and check they agree with the table.
+     ================================================================== */
+  console.log('\n════ a bench edit never moves a servo on its own ════');
+
+  /* HW.rebuild(true) is what EVERY bench edit ends with — a tick on boot,
+     a typed endpoint, a saved dial, a part assignment, Finish. It copied
+     four of the five fields that say where a channel is and left `aim`,
+     which is the one pcaStepChannel actually integrates toward. So the new
+     engine's aim was pcaGoHome's, and a channel whose boot mode is Off
+     homes to 0 — which clamps to c.min and stays there. */
+  const aimKeep = await ev(()=>{
+    const ch = 12;
+    HW.ensure(ch);
+    const c = MSTR.channels[ch];
+    const save = Object.assign({}, c);
+    c.mode='Servo'; c.min=4000; c.max=8000; c.homemode='Off'; c.home=0;
+    HW.rebuild(false);
+    HW.drive(ch, 7000);
+    for(let k=0;k<600;k++) HW.tick(10);
+    const s = ()=>({pos:HW.pos(ch), aim:HW.engine().st[ch].aim, target:HW.engine().st[ch].target});
+    const before = s();
+    HW.rebuild(true);                       /* ANY bench edit lands here */
+    const after = s();
+    for(let k=0;k<600;k++) HW.tick(10);
+    const settled = HW.pos(ch);
+    Object.assign(c, save); HW.rebuild(false);
+    return {before, after, settled, min:4000};
+  });
+  ok('a rebuild carries `aim`, not just target — the field the engine steers by',
+     aimKeep.after.aim === 7000, JSON.stringify(aimKeep));
+  ok('…so a bench edit does not walk a boot-Off channel down onto its minimum',
+     aimKeep.settled === 7000 && aimKeep.settled !== aimKeep.min,
+     'settled at '+aimKeep.settled+' (was '+aimKeep.before.pos+')');
+
+  /* HW.drive() clamped into the channel's own min/max on the way to the
+     ENGINE and then handed the raw, unclamped number to the wire. Both
+     halves looked right — the model, the position bar and the bench all
+     read the clamped value — while the servo was commanded past its stops.
+     live-drive.js promises the opposite in prose. */
+  const wireClamp = await ev(()=>{
+    const ch = 13;
+    HW.ensure(ch);
+    const c = MSTR.channels[ch];
+    const save = Object.assign({}, c);
+    c.mode='Servo'; c.min=4800; c.max=6400; c.homemode='Off'; c.home=0;
+    HW.rebuild(false);
+    const keptKind = SER.kind, keptQuiet = MST.quiet;
+    SER.writer = { write:b=>Promise.resolve() };
+    SER.port = {}; SER.blocked = false;
+    SER.kind = 'maestro'; MST.quiet = false; MST.chCount = 24;
+    SER.lastTicks = {}; SER.lastSpeed = {}; MST.asked = {};
+    HW.drive(ch, 8000);                     /* a frame built on another droid */
+    const out = {asked: MST.asked[ch], engine: HW.engine().st[ch].target, max: c.max};
+    SER.kind = keptKind; MST.quiet = keptQuiet;
+    SER.port = null; SER.writer = null; MST.asked = {};
+    Object.assign(c, save); HW.rebuild(false);
+    return out;
+  });
+  ok('the engine clamps a foreign frame into the channel\'s calibrated travel',
+     wireClamp.engine === wireClamp.max, 'engine '+wireClamp.engine+' of '+wireClamp.max);
+  ok('…and the WIRE carries that same clamped number, not the raw one',
+     wireClamp.asked === wireClamp.max, 'wire asked for '+wireClamp.asked
+     + ', engine '+wireClamp.engine+', channel max '+wireClamp.max);
+
+  /* the calibration dial deliberately widens c.min/c.max for exactly one
+     HW.drive() call (setup-hw-cal.js calDrive) and puts them back in a
+     finally. Reading the clamp off the LIVE channel is what keeps that
+     working — a clamp cached anywhere else would lock the dial inside the
+     ends it is there to move. */
+  const dialStillFree = await ev(()=>{
+    const ch = 13;
+    HW.ensure(ch);
+    const c = MSTR.channels[ch];
+    const save = Object.assign({}, c);
+    c.mode='Servo'; c.min=4800; c.max=6400; c.homemode='Off'; c.home=0;
+    HW.rebuild(false);
+    const keptKind = SER.kind, keptQuiet = MST.quiet;
+    SER.writer = { write:b=>Promise.resolve() };
+    SER.port = {}; SER.blocked = false;
+    SER.kind = 'maestro'; MST.quiet = false; MST.chCount = 24;
+    SER.lastTicks = {}; SER.lastSpeed = {}; MST.asked = {};
+    setupCalOpen(ch, {quiet:true});
+    calDrive(ch, 7200);                     /* past the ends, on purpose */
+    const out = {asked: MST.asked[ch], engine: HW.engine().st[ch].target,
+                 minBack: c.min, maxBack: c.max};
+    SETUP.cal = null;
+    SER.kind = keptKind; MST.quiet = keptQuiet;
+    SER.port = null; SER.writer = null; MST.asked = {};
+    Object.assign(c, save); HW.rebuild(false);
+    return out;
+  });
+  ok('the calibration dial still reaches past the stored ends, wire included',
+     dialStillFree.asked === 7200 && dialStillFree.engine === 7200
+     && dialStillFree.minBack === 4800 && dialStillFree.maxBack === 6400,
+     JSON.stringify(dialStillFree));
+
+  /* HW.applied() rebuilds and re-streams every position through
+     serialTicksFor(), which divides by the NEW HW.freq(). Nothing on that
+     path writes the board's config frame, so a 50 Hz board was being fed
+     200 Hz tick maths — 1500 µs asked for, 6001 µs emitted, and then the
+     wizard closed. */
+  const applyFreq = await ev(async ()=>{
+    const flush = ()=>new Promise(r=>setTimeout(r,0));
+    const seen = [];
+    const keptKind = SER.kind, keptHw = CFG.hwSetup, keptOsc = CFG.pcaOsc;
+    serialSetWidth(false);
+    SER.kind = 'bridge';
+    SER.writer = { write:b=>{ seen.push(...b); return Promise.resolve(); } };
+    SER.port = {}; SER.blocked = false;
+    HW.setFreq(50); HW.setOsc(25000000);
+    hwTick();                               /* the frame sees the board, at 50 Hz */
+    serialConfig(); await flush();          /* …which is what connecting sends */
+
+    /* now the wizard's Apply: setSetup, setOsc, applied */
+    seen.length = 0;
+    HW.setFreq(200);
+    HW.applied(HW.setup());
+    await flush();
+    const want = [0x80|SER.cfgServo, 200>>7, 200&0x7F];
+    const out = {rateSent: seen.some((_,k)=>want.every((v,j)=>seen[k+j]===v)),
+                 wrote: seen.length};
+
+    /* …and applying with nothing changed must NOT stop a moving droid */
+    seen.length = 0;
+    HW.applied(HW.setup());
+    await flush();
+    out.quietWhenSame = !seen.some((_,k)=>want.every((v,j)=>seen[k+j]===v));
+
+    SER.kind = keptKind; SER.port = null; SER.writer = null;
+    CFG.hwSetup = keptHw; CFG.pcaOsc = keptOsc;
+    hwTick();
+    HW.rebuild(false);
+    return out;
+  });
+  ok('applying a new servo rate CONFIGURES the board before it streams at it',
+     applyFreq.rateSent, JSON.stringify(applyFreq));
+  ok('…and applying with the rate unchanged writes no config at all',
+     applyFreq.quietWhenSame, JSON.stringify(applyFreq));
+
+  /* chAssign()'s live branch writes MSTR.channels and redraws three
+     surfaces, and until now saved none of it. servoStoreSave() is the only
+     writer of r2sim.servo.v1, so every panel→channel assignment made on the
+     Panels step or the Outputs panel was gone on the next reload. */
+  const assignSaved = await ev(()=>{
+    const loc = hwLocs().find(l=>hwAt(l) === MSTR.board);
+    if(!loc) return {noLoc:true};
+    const ch = 14;
+    HW.ensure(ch);
+    const c = MSTR.channels[ch];
+    const save = Object.assign({}, c);
+    c.mode='Servo'; c.act='';
+    HW.save();                              /* the store as it stands: no act */
+    const took = chAssign(loc, ch, 'oth9');
+    const o = JSON.parse(localStorage.getItem('r2sim.servo.v1') || '{}');
+    const stored = ((o.channels||[])[ch] || {}).act;
+    const out = {took, live: c.act, stored};
+    Object.assign(c, save); HW.save(); HW.rebuild(false);
+    return out;
+  });
+  ok('chAssign writes the part mapping into the live table', assignSaved.live === 'oth9',
+     JSON.stringify(assignSaved));
+  ok('…and SAVES it, so the next reload still knows which panel that channel drives',
+     assignSaved.stored === 'oth9', JSON.stringify(assignSaved));
+
+  /* a reloaded table has explicit NULLS where the JSON had holes
+     (JSON.stringify writes null for a sparse slot — servo-store.js), and
+     forEach VISITS an explicit null even though it skips a real hole. So
+     chAssign's clear-then-set walk threw before it had written anything and
+     the assignment was simply lost. HW.setPart guards for exactly this.
+
+     Scope: the RENDER that follows still throws on a null row — ui-pane.js's
+     channel map reads c.mode unguarded, and HW.setPart reaches it the same
+     way — so this asserts what chAssign itself owns, that the write lands. */
+  const assignHole = await ev(()=>{
+    const loc = hwLocs().find(l=>hwAt(l) === MSTR.board);
+    if(!loc) return {noLoc:true};
+    const ch = 14, hole = 15;
+    HW.ensure(hole);
+    const c = MSTR.channels[ch], h = MSTR.channels[hole];
+    const save = Object.assign({}, c);
+    c.mode='Servo'; c.act='';
+    MSTR.channels[hole] = null;
+    let threw = '';
+    try{ chAssign(loc, ch, 'oth8'); }catch(e){ threw = e.message; }
+    const out = {threw, act:c.act};
+    MSTR.channels[hole] = h;
+    Object.assign(c, save); HW.save(); HW.rebuild(false);
+    return out;
+  });
+  ok('a null row in the table does not cost the assignment its write',
+     assignHole.act === 'oth8', JSON.stringify(assignHole));
+
   console.log('\n════ no page errors ════');
   ok('nothing threw', errs.length===0, errs.join(' | '));
 

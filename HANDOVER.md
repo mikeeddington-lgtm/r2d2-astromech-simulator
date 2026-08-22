@@ -41,7 +41,7 @@ Fusion OBJ exports have never been in the repository and stay out of it.
 | | |
 |---|---|
 | Modules | 104 JS, 15 CSS, 1 markup fragment (+ the MaestroPCA Arduino library under `arduino/`) |
-| Tests | **2268 passing** across 34 suites, both builds, zero failures — plus PCA Studio's 86-assertion smoke test (in `./test.sh`) and 169 host-compiled C++ assertions plus **four** sketch-compile checks in `arduino/MaestroPCA/test` (`./run.sh`). v1.45.0 added 227 of them and v1.60.0 carries the gauges' 45, every one written red first |
+| Tests | **5309 passing** across 36 suites, both builds, zero failures — plus PCA Studio's 86-assertion smoke test (in `./test.sh`) and 169 host-compiled C++ assertions plus **four** sketch-compile checks in `arduino/MaestroPCA/test` (`./run.sh`). v1.45.0 added 227 of them and v1.60.0 carries the gauges' 45, every one written red first |
 | Dist size | ≈8.21 MB single self-contained HTML (0.75 MB of it the twenty-one board photos, inlined) |
 | PCA Studio | 0.12.2 — built from `pca-studio/manifest.json` — 20 modules, 12 of them the sim's own |
 | Firmware profiles | 3 hand ports (mod2026, Maestro 2025 PWM, Maestro 2022 BETA) + one per imported `.ino`, side by side |
@@ -1212,6 +1212,121 @@ not missing, it was folded in here (noted 2026-08-17).
   touched it since.
 
 ## 10. Change log
+
+### 2026-08-22 - v1.69.0: the review release - 61 bugs, and the ones that move a real servo
+
+**Why.** Mike asked for a full deep dive: *"identify any bugs and issues that
+may bite us now or in the future"*, then *"act as a user who doesn't know how
+to use the software"*. Eight reviewers read every module in `src/js`, the build,
+all 37 suites and the Arduino library; four more drove the built app in a
+headless browser as first-time builders. The standing rule was **prove it or
+drop it** - most findings below were reproduced by executing the code, not by
+reading it.
+
+**Two reports, both with STATUS blocks:**
+`docs/CODE-REVIEW-2026-08-22.md` (61 fixed, 31 handed off, the refuted list) and
+`docs/UX-REVIEW-2026-08-22.md` (85 findings, 12 of them fixed here).
+
+**The five that reach hardware.** `HW.rebuild(true)` carried `target` across an
+engine rebuild but not **`aim`** - the field `pcaStepChannel` actually steers by
+- so *any* bench edit walked every driven channel back to its home, and a
+boot-Off channel hard into `c.min` where it stayed. `HW.drive` clamped inside
+the engine and then handed the **unclamped** value to the wire, so a frame from
+another droid drove a real servo past its calibrated stops while the model, the
+engine and the bench all read the endpoint correctly. `HW.applied()` re-streamed
+every position using a new pulse frequency it had never sent to the board -
+a 50 Hz board driven with 200 Hz tick maths emits a 6 ms pulse on every channel,
+and then the wizard disconnects and leaves it there. `mstrQuiet()` rewrote every
+channel's speed on the board without clearing `SER.lastSpeed`, so the next play
+suppressed Set Speed and the board ran the move flat out. And in the firmware,
+**two bytes of serial noise walked `MaestroLink::_arg[52]` off the end** -
+reproduced under AddressSanitizer from literally `feed(0x9F); feed(0x7F);`,
+firing ~127 `setTarget()` calls from out-of-bounds memory.
+
+**The seven that destroyed work, silently.** `chAssign()` wrote the panel to
+channel mapping into `MSTR.channels` and never called `HW.save()`, so an
+afternoon of Panels-step wiring was reverted by the next reload. A build answer
+naming a *smaller* board truncated the calibrated table, `servoStoreSave()`d the
+loss and never asked - while the comment two hundred lines below claimed it did
+ask, citing a `buildLiveIssues()` that has never existed in this tree. Pressing
+**Save** with a name already in the library overwrote the *other* routine and
+left two entries sharing a name. The review door of the frame-to-brick converter
+kept the original **in memory only**, so a tab switch destroyed an imported
+routine - while the module's own header says both doors keep a copy. Importing a
+model file committed it before validating a single record, so the project's own
+`examples/R2-model-simple-face.json` emptied the stage and toasted *"loaded 0
+part(s)"* in success styling. Clearing a part's **name** or **colour** deleted
+its hand-authored **motion** too, because three of the four override writers
+pruned the record on a subset of the keys it can carry. And `partsLoad()` pruned
+against whatever model was loaded - which at every boot is the shell-only
+payload - so the documented "drop the full `.r2m` and name the internal parts"
+workflow deleted that work on the next unrelated edit.
+
+**The four safety guards that were not holding.** `rcRestWarnings()` - the guard
+whose entire job is to say out loud when something is commanding an output with
+your hands off the set - read the *calibration record* rather than the stick, so
+an uncalibrated channel bound by hand sat at full reverse and reported nothing.
+Un-ticking **Advanced** did not disarm direct-to-output bindings: the row
+displayed "not assigned" while still writing `MOT.drive`. A proportional trigger
+delivered 128/255 at rest, silently changing which `restartScript()` slot every
+d-pad press fires. And in kiosk mode a stranger could click the droid and get
+the full part card, **including the Maestro channel re-map** - the sixth guard
+in a series where five had already been added one at a time.
+
+**The compiler.** An abutting brick blanked the interval before it, so a hold
+compiled as 0.8 s SHUT while the scrub preview said open - and the same timeline
+exported differently depending on the order the bricks were dropped. `blockSaveAs`
+dropped `stepMs`, silently downgrading a routine to the legacy 120 ms step that
+v1.66.0 exists to avoid. Two "new sequence" doors minted colliding names, and
+everything downstream resolves a board slot **by name**. Every compiled routine
+carried 400 ms of dead tail. Odd-length bricks produced half-millisecond
+boundaries, a junk 1 ms frame and two `<Frame>` elements sharing a name.
+
+**And `map_()` was off by one across the entire negative half** - it truncated
+the sum where Arduino truncates the quotient, so 32,765 of 65,536 throttle
+positions disagreed with the sketch, in an app whose whole premise is that they
+match. `profiles.test.js`'s "straight transcription of the .ino" carried its own
+private copy of the same bug, which is why nothing caught it.
+
+**Firmware, measured not guessed.** The track mask folded every channel above 31
+into bit 31, so on a three-board rig two sequences on genuinely disjoint
+channels cancelled each other - killing the library's headline feature over a
+real Maestro. Now a `uint32_t w[4]` covering the full 128 channels, which is the
+ceiling the rest of the system already has; going to 128 rather than 64 costs
+**32 bytes of RAM and 48 of flash**, measured on atmega2560 at `-Os`.
+`Track::seq` was an `int8_t`, so `restartScript(128)` stored negative, read as
+"track free" everywhere, and never played - while `sequenceRunning()` matched
+the same truncated value and reported it as running. Total firmware cost: +57
+bytes RAM, +352 flash, about 1.1 % of an ATmega328. Four new native tests, and
+the library copies in all three sketch folders re-synced with CRLF intact.
+
+**Two findings about the safety net itself.** `./test.sh` **cannot fail** -
+every branch ends `| grep ... || echo '(no summary)'`, which neutralises `set -e`
+and discards the suite's exit code, so a run full of `FAIL` lines exits 0. And
+nothing in the repo checks that the tracked `pca-studio/PCA-Studio.html` is
+current; `npm run build` runs only `tools/build.js`. Both live in files another
+session had uncommitted, so both are handed off in the report rather than fixed
+here - along with the `undefined` token the Maestro **script** exporter writes
+for a missing target, the loadout order that re-importing your own `.mstr`
+destroys, and the three starter buttons that wipe the whole library with one
+unconfirmed click.
+
+**Suite: 4658 -> 5309 assertions**, 36 suites x 2 builds plus PCA Studio, all
+green. Every fix carries a regression test that was watched red against the
+pre-fix tree first.
+
+**What the walkthroughs found, in one sentence:** the app is beautifully written
+and badly sequenced - its explanations are among the best in any tool of this
+kind, and almost all of them appear at the exits rather than the entrances.
+Time to first movement for a new visitor was four and a half minutes and four
+wrong turns, because pushing the stick while disarmed produces total silence.
+The setup wizard reopens at Question 1 on every page load forever, because
+answering all nine and dismissing it never sets `PREFS.build.done`. And
+`READY-MADE`, the one-click show builder that turns twenty minutes into three
+seconds, is below the fold at the default window size. Those three are the top
+of `docs/UX-REVIEW-2026-08-22.md` and are **not** fixed here - they are
+interface decisions, and they are Mike's to make.
+
 
 ### 2026-08-21 - v1.68.0: the ESP version, and the servo that would never have moved
 

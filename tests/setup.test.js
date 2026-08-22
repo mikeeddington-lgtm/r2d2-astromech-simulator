@@ -175,6 +175,75 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
     return inCfg && inStp;
   }));
 
+  /* ================================================================
+     2026-08-22 — A SETUP NAMING A FIRMWARE THIS SIM DOES NOT HAVE
+
+     `loadProfile(id)` is `const p = PROFILES[id]; if(!p) return;` — it fails
+     SILENTLY. The import used to shrug that off and carry on: it merged the
+     FILE's constants into whatever profile happened to be loaded, pointed
+     PREFS.build.firmware at the id it had just failed to load, and printed a
+     receipt naming the profile that was already there. It read as success.
+
+     This is not a corrupt-file case. An imported-sketch profile is registered
+     at RUNTIME out of localStorage, and a setup file carries neither the .ino
+     source nor any hint of where the id came from — so your own exported
+     setup does this on another machine, or on this one after a Reset. The
+     answer has to be the same one the Model Builder's import gives: land
+     everything that can be landed, refuse the part that cannot, and say which
+     — by name, with the way out of it.
+     ================================================================ */
+  console.log('\n════ a setup naming a firmware this sim does not have ════');
+  const ghost = await ev(()=>{
+    loadProfile('mod2026');
+    CFG.DRIVESPEED1 = 90;
+    delete CFG.MY_SKETCH_CONST;
+    if(!PREFS.build) PREFS.build = {};
+    PREFS.build.firmware = 'maestro25';
+    PREFS.bestLap = null;
+    const host = $('toasts'); if(host) host.remove();
+    const at = LOG.length;
+    const r = setupImportText(JSON.stringify({
+      format:'r2sim-setup', version:1,
+      profile:'sk_mydroid_ino',                       // an imported sketch that is not here
+      cfg:{DRIVESPEED1:77, MY_SKETCH_CONST:42},       // its constants, which belong to it
+      prefs:{bestLap:42.5}                            // ordinary settings, which do not
+    }), 'mydroid-setup.json');
+    const t = Array.from(document.querySelectorAll('#toasts .toastp'));
+    return {ok:r.ok,
+      profile:PROFILE.id, ds:CFG.DRIVESPEED1, sketchConst:CFG.MY_SKETCH_CONST,
+      firmware:(PREFS.build||{}).firmware, registered:!!PROFILES['sk_mydroid_ino'],
+      bestLap:PREFS.bestLap,
+      toast:t.map(x=>x.textContent).join(' | '), toastKind:t.map(x=>x.className).join(' | '),
+      log:LOG.slice(at).map(l=>l.k+': '+l.s)};
+  });
+  ok('the profile it names really is not registered here', !ghost.registered);
+  ok('the current profile is left alone — an unknown id does not silently keep it',
+     ghost.profile === 'mod2026', ghost.profile);
+  ok('the file\'s constants are REFUSED, not merged onto the wrong sketch',
+     ghost.ds === 90 && ghost.sketchConst === undefined,
+     'DRIVESPEED1='+ghost.ds+' MY_SKETCH_CONST='+ghost.sketchConst);
+  ok('PREFS.build.firmware is not left pointing at a profile that does not exist',
+     ghost.firmware === 'maestro25', String(ghost.firmware));
+  ok('everything else in the file still imports', ghost.bestLap === 42.5, String(ghost.bestLap));
+  ok('the toast says so, as a warning, and names the missing profile',
+     /warn/.test(ghost.toastKind) && /sk_mydroid_ino/.test(ghost.toast), ghost.toast);
+  ok('…and tells the user what to do about it — the sketch first, then the setup',
+     /\.ino/.test(ghost.toast) && /setup/i.test(ghost.toast), ghost.toast);
+  ok('the log carries the same warning, by name',
+     ghost.log.some(l=>/^warn: /.test(l) && /sk_mydroid_ino/.test(l)), ghost.log.join(' ~ '));
+  ok('…and the receipt no longer reads as a plain success',
+     ghost.log.some(l=>/setup imported/.test(l) && /sk_mydroid_ino/.test(l)), ghost.log.join(' ~ '));
+  /* the other half of the rule: a profile this sim DOES have still merges */
+  const known = await ev(()=>{
+    const r = setupImportText(JSON.stringify({
+      format:'r2sim-setup', version:1, profile:'maestro25', cfg:{DRIVESPEED1:63}
+    }), 'known-setup.json');
+    return {ok:r.ok, profile:PROFILE.id, ds:CFG.DRIVESPEED1, firmware:(PREFS.build||{}).firmware};
+  });
+  ok('a profile this sim does have still loads and still takes its constants',
+     known.ok && known.profile === 'maestro25' && known.ds === 63 && known.firmware === 'maestro25',
+     JSON.stringify(known));
+
   console.log('\n════ favourites, metals, and the Fusion colours ════');
   const doorName = await ev(()=>CAD.moving.find(m=>m.base==='FLBreadpanDoor').name);
   await page.evaluate(n=>selectPart(n), doorName);

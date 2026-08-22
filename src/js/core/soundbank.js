@@ -26,7 +26,11 @@ const SOUND_NAMES = {
   50:'SENT19', 51:'SENT20', 52:'HUM19', 53:'HUM20'
 };
 
-const SBANK = { bufs:{}, names:{}, decoded:{}, count:0, playing:null, ctx:null, gain:null };
+const SBANK = { bufs:{}, names:{}, decoded:{}, count:0, playing:null, ctx:null, gain:null,
+                /* the one IndexedDB connection, the writes a drop is waiting
+                   on, and what went wrong if any of them did — see the
+                   persistence section at the foot of this file */
+                db:null, _dbp:null, puts:[], failed:0, failWhy:null };
 
 function sbankCtx(){
   if(!SBANK.ctx){
@@ -38,12 +42,39 @@ function sbankCtx(){
   return SBANK.ctx;
 }
 
+/* A FILE NAME BECOMES A LABEL, AND MUST NOT COME OUT WORSE THAN IT WENT IN.
+
+   This was `name.replace(/\.\w+$/,'').replace(/^\d+/,'') || name`, which
+   stripped the extension and the leading track number and stopped — leaving
+   the SEPARATOR behind. "01 SCREAM2.mp3" became " SCREAM2", with the space;
+   "07-ALARM3.mp3" became "-ALARM3". Worse, "21.wav" became "21.wav": the
+   strip emptied the string and the `|| name` fallback handed back the raw
+   filename. trackDesc() (core/audio.js) prefers SBANK.names[n] over the
+   embedded SOUND_NAMES[n], so dropping the real pack's `21.mp3` REPLACED
+   the correct "MISC17" with "21.mp3" everywhere the sim names that sound.
+
+   So: take the separator with the number, trim what is left, and when there
+   is nothing left fall back to the PACK's name for that track before ever
+   falling back to the filename. */
+function sbankLabel(n, file){
+  const stem = String(file)
+    .replace(/\.\w+$/, '')                 // the extension
+    .replace(/^\s*\d+\s*[-_.\s]*/, '')     // the track number AND what separates it
+    .trim();
+  return stem
+      || (typeof SOUND_NAMES !== 'undefined' && SOUND_NAMES[n])
+      || String(file);
+}
+
 function sbankAdd(n, name, buf, persist){
   SBANK.bufs[n] = buf;
-  SBANK.names[n] = name.replace(/\.\w+$/,'').replace(/^\d+/,'') || name;
+  SBANK.names[n] = sbankLabel(n, name);
   delete SBANK.decoded[n];
   SBANK.count = Object.keys(SBANK.bufs).length;
-  if(persist !== false) sbankIdbPut(n, name, buf);
+  /* the write is queued, not fired and forgotten: sbankLoadFiles() waits on
+     these before it writes the receipt, so the receipt can say what was
+     actually STORED rather than what happened to decode */
+  if(persist !== false) SBANK.puts.push(sbankIdbPut(n, name, buf));
 }
 
 /* the boards call this on every playTrack/playSpecified */
@@ -107,6 +138,7 @@ async function sbankLoadZip(file){
 }
 
 async function sbankLoadFiles(files){
+  SBANK.puts.length = 0; SBANK.failed = 0; SBANK.failWhy = null;
   let loaded=0, skipped=0;
   for(const f of files){
     try{
@@ -119,33 +151,83 @@ async function sbankLoadFiles(files){
       }
     }catch(err){ lg('warn', 'sound load failed ('+f.name+'): '+err.message); skipped++; }
   }
+  /* THE RECEIPT IS ABOUT WHAT SURVIVES A RELOAD, so wait for the writes
+     sbankAdd() queued before saying anything. This used to count decodes
+     and call them tracks. */
+  const stored = await Promise.all(SBANK.puts.splice(0));
+  const lost = stored.filter(v => v === false).length;
   lg('mp3', 'sound bank: '+loaded+' file(s) loaded'+(skipped?', '+skipped+' skipped (need a leading track number)':'')
      + ' — '+SBANK.count+' of 53 tracks present');
+  if(lost) lg('warn', 'sound bank: '+lost+' of '+loaded+' file(s) could not be stored ('
+     + (SBANK.failWhy||'storage error') + ') — they play this session and are gone after a reload');
   /* one toast per drop/pick, never per file — the status line lives on the
      Controls tab, which is not where the zip was dropped */
   toast(loaded
     ? 'Sound bank: '+loaded+' file(s) loaded'+(skipped?', '+skipped+' skipped':'')+' — '+SBANK.count+' of 53 tracks'
+      + (lost ? ' · '+lost+' NOT SAVED ('+(SBANK.failWhy||'storage error')+') — gone after a reload' : '')
     : 'No usable sound files'+(skipped?' — '+skipped+' skipped (need a leading track number)':''),
-    loaded ? 'ok' : 'warn');
+    (loaded && !lost) ? 'ok' : 'warn');
   sbankSyncUI();
   return {loaded, skipped};
 }
 
-/* ------------------------------------------------------------- IndexedDB */
+/* ------------------------------------------------------------- IndexedDB
+   ONE CONNECTION, AND A FAILED WRITE THAT SAYS SO.
+
+   This was an `indexedDB.open()` per file with a `.catch(()=>{})` on the
+   end, and both halves of that were wrong. Dropping the 53-track Padawan
+   pack opened 53 connections, started 53 transactions nobody awaited and
+   closed none of the handles. And the catch only ever saw the OPEN fail: a
+   QuotaExceededError on put() aborts the TRANSACTION and fires `error`
+   there — on a handle with no listener, long after the promise had already
+   resolved. So a bank that failed to store a single byte reported "53 of 53
+   tracks" (a count of decodes), and the next reload came up empty with
+   nothing ever having been said.
+
+   Now: one cached connection, both transaction failure events hooked, and
+   every put resolves true/false so the drop's receipt can be about what
+   survives a reload. */
 function sbankIdb(){
-  return new Promise((res, rej)=>{
+  if(SBANK.db)  return Promise.resolve(SBANK.db);
+  if(SBANK._dbp) return SBANK._dbp;
+  SBANK._dbp = new Promise((res, rej)=>{
     try{
       const rq = indexedDB.open('r2sim-sounds', 1);
       rq.onupgradeneeded = ()=>rq.result.createObjectStore('files');
       rq.onsuccess = ()=>res(rq.result);
       rq.onerror   = ()=>rej(rq.error);
     }catch(err){ rej(err); }
-  });
+  }).then(db=>{
+    SBANK.db = db;
+    /* a handle the browser takes away underneath us — site data cleared,
+       another tab upgrading the store — must not be handed out again */
+    db.onclose = db.onversionchange = ()=>{
+      try{ db.close(); }catch(e){}
+      SBANK.db = null; SBANK._dbp = null;
+    };
+    return db;
+  }, err=>{ SBANK._dbp = null; throw err; });
+  return SBANK._dbp;
 }
+function sbankPersistFail(e){
+  SBANK.failed++;
+  const err = (e && e.target && e.target.error) || e;
+  if(!SBANK.failWhy) SBANK.failWhy = (err && (err.name || err.message)) || 'storage error';
+  return false;
+}
+/* resolves true when the file is on disk, false when it is not — never
+   rejects, because the caller's job is to COUNT failures, not to stop */
 function sbankIdbPut(n, name, buf){
-  sbankIdb().then(db=>{
-    db.transaction('files','readwrite').objectStore('files').put({name, buf}, n);
-  }).catch(()=>{});
+  return sbankIdb().then(db=>new Promise(res=>{
+    let settled = false;
+    const tx = db.transaction('files','readwrite');
+    const fail = e=>{ if(settled) return; settled = true; res(sbankPersistFail(e)); };
+    tx.onerror = fail;                       // the write itself was refused
+    tx.onabort = fail;                       // …or the quota killed the whole tx
+    tx.oncomplete = ()=>{ if(!settled){ settled = true; res(true); } };
+    try{ tx.objectStore('files').put({name, buf}, n); }
+    catch(err){ fail(err); }
+  })).catch(err=>sbankPersistFail(err));
 }
 function sbankClear(){
   SBANK.bufs={}; SBANK.names={}; SBANK.decoded={}; SBANK.count=0; sbankStop();

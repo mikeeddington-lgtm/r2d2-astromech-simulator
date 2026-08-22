@@ -305,7 +305,18 @@ function setupAdoptBoards(){
      domeServo currently says (learned the hard way in v1.64.0's fixtures) */
   const id = servoCoprocId(n);
   buildSet('domeServo', id); buildSet('bodyServo', id); buildSet('pcaBoards', n);
-  if(typeof wizFinish === 'function') wizFinish();
+  /* buildApply(), NOT wizFinish(). wizFinish() is the wizard's EXIT: it marks
+     the build done, logs "build configured", closes the startup card (which
+     sets PREFS.seenStartup) and burns the once-ever first-run card, none of
+     which anybody asked for by pressing "add the missing rows". Both callers
+     are hit in normal use — the bench's count line and the wizard's own
+     wizServoTableGap button — and the gap is there on a brand-new default
+     build, so a genuine first run was pressing this and watching the wizard
+     vanish. buildSet() above has already applied the build; what this wants
+     is the re-derivation that follows it, which is buildApply() alone. The
+     rest was an idiom copied out of the test suites, where it means "mark
+     this build done". Same fix as serialAdoptBoardCount()'s. */
+  if(typeof buildApply === 'function') buildApply();
   if(typeof buildEnsureMaestro === 'function') buildEnsureMaestro();
   HW.save();
   if(typeof rebuildMaestroUI === 'function') rebuildMaestroUI();
@@ -472,6 +483,14 @@ function setupRender(){
   }
   if(step.key === 'wiring' || step.key === 'expander') setupBindSimple();
   if(step.key === 'board' || step.key === 'sketch' || step.key === 'done') setupBindSimple();
+  /* the way across the gap setupExpanderGap() names. setupBindSimple()'s
+     click handler is the Channels step's and knows nothing about this
+     button, and it owns body.onclick outright — so bind the element itself
+     rather than fighting over the delegate. */
+  if(step.key === 'expander'){
+    const gb = body.querySelector('button[data-act="growboards"]');
+    if(gb) gb.onclick = ()=>{ if(typeof setupAdoptBoards === 'function' && setupAdoptBoards()) setupRender(); };
+  }
   setupScrollLoad(keep);          // put the reader back where they were
 }
 
@@ -499,6 +518,25 @@ function setupStepBoard(){
         + (m.v3?' · 3.3 V logic':'')+'</span>'
         + '<span class="why">'+m.note+'</span></label>').join('')
     + '</div>';
+}
+
+/* ------------- and what the DROID's build gives that number, if it is less
+   The same sentence the Channels step's count line carries (v1.65.0), on the
+   step where the number is actually typed. HW.short() is GROW ONLY and
+   returns null unless the bench wants more than the table holds, so this is
+   silent whenever the two agree — and the button is the bench's own, guarded
+   in setupAdoptBoards() rather than here, because the standing rule is to
+   guard the FUNCTION and never the button. */
+function setupExpanderGap(){
+  const gap = (typeof HW !== 'undefined' && typeof HW.short === 'function') ? HW.short() : null;
+  if(!gap) return '';
+  return '<p class="setp warn">The droid\'s build only gives this table <b>' + gap.have + ' rows</b>, not '
+    + gap.want + ', so channels ' + gap.have + '-' + (gap.want-1) + ' have nowhere to be configured. '
+    + 'Adding them leaves every name, endpoint and mapping you already have exactly where it is.'
+    + ((typeof setupCanAdoptBoards === 'function' && setupCanAdoptBoards())
+        ? ' <button class="mini" data-act="growboards">add the missing ' + gap.missing + ' rows</button>'
+        : '')
+    + '</p>';
 }
 
 /* -------------------------------------------------------- 2 · expanders */
@@ -537,8 +575,21 @@ function setupStepExpander(){
     + 'the sketches <b>scan for the boards</b> rather than insisting on particular addresses — so the '
     + 'jumper table below is a suggestion, not a requirement. Bridge whatever suits your build; the lowest '
     + 'address found becomes board 0.</p>'
-    + '<div class="setrow"><label>Boards <input type="number" data-f="boards" min="1" max="8" value="'+n+'"></label>'
-    + '<span class="stat">'+setupChannels()+' channels · highest channel number '+(setupChannels()-1)+'</span></div>'
+    /* v1.67.0 — THE NUMBER BESIDE THE SPINNER IS THE SPINNER'S.
+       This line printed setupChannels(), which is HW.count() — the LOADED
+       table's size, a build answer made long before this wizard opened. So
+       step 2 read "24 channels · highest channel number 23" three lines above
+       a jumper table listing board 2 as channels 32–47, and the reader had no
+       way to tell which of the two was the lie. The stat belongs to the
+       control it sits next to, so it is n×16; the disagreement with the
+       droid's build is then said out loud underneath, in the same words and
+       with the same button the Channels step already carries (v1.65.0).
+       The ceiling comes from PCA_MAX_BOARDS_UI rather than a literal 8 — the
+       wire protocol's ceiling has moved twice and this input has to move
+       with it. */
+    + '<div class="setrow"><label>Boards <input type="number" data-f="boards" min="1" max="'+PCA_MAX_BOARDS_UI+'" value="'+n+'"></label>'
+    + '<span class="stat">'+(n*16)+' channels · highest channel number '+(n*16-1)+'</span></div>'
+    + setupExpanderGap()
     /* v1.54.0 — eight boards became possible here the day the wire protocol
        grew a seventh channel bit, and an already-flashed board does not know
        that. Said at the point of the decision, not discovered later when a

@@ -38,11 +38,74 @@ header .spacer{flex:1}
    rule is only ever drawn between two visible cells — #chFault (hidden
    until a fault) is never first, its rule vanishes with it */
 #hdrBezel > * + *{border-left:1px solid var(--line)}
-/* when the (long) fault cell lights mid-width, every cell gives ground
-   with an ellipsis rather than the last one being guillotined — the words
-   are always in the tooltip anyway (main.js syncs them every tick) */
+/* ---------- the cluster FITS, it does not truncate (2026-08-22) ----------
+   This used to read `text-overflow:ellipsis` on every cell, "so every cell
+   gives ground rather than the last one being guillotined". It gave ground
+   all the way down: at the DEFAULT 1440×900 every chip was cut mid-word
+   (`DRIVE O_`, `NO BOA_`) and at 150% two of them had no characters left.
+   An ellipsis is right for prose; for a six-word instrument cluster it
+   turns every reading into a guess, and `Drive off` vs `Drive armed` is the
+   state a first-time user cannot get past.
+
+   So the cluster sheds in TIERS instead — full words → compact words → dot
+   only — and main.js picks the tier by measuring the rendered boxes and
+   stepping down until nothing clips. Deliberately not a media query: those
+   are blind to applyUiScale()'s `body{zoom}` (they read the un-zoomed
+   viewport), which is exactly how 150% ended up with empty chips. The
+   overflow:hidden below is what makes that measurement possible, so it
+   stays; the ellipsis does not. */
 #hdrBezel .chip{padding:0 10px;border-radius:0;min-width:0}
-#hdrBezel .chip span+span{overflow:hidden;text-overflow:ellipsis}
+#hdrBezel .chip > span:not(.dot){overflow:hidden;white-space:nowrap}
+/* the compact twin main.js keeps in step with the full words. It rides in
+   FRONT of them, never in place of them, so the chip's last span is still
+   the state text every other module and suite reads. */
+#hdrBezel .chip > .chipab,
+#hdrBezel .chip > .chipst{display:none}
+body.hdrshort #hdrBezel .chip{padding:0 7px;gap:5px}
+body.hdrshort #hdrBezel .chip > .chipab{display:block}
+body.hdrshort #hdrBezel .chip > span:last-child{display:none}
+body.hdrshort header .brand #verTag{display:none}
+/* dot only, and the words are in the title + aria-label (main.js) */
+body.hdrdots #hdrBezel .chip{padding:0 7px;gap:0}
+body.hdrdots #hdrBezel .chip > span:not(.dot){display:none}
+body.hdrdots header .chip .dot{width:8px;height:8px}
+body.hdrdots header .brand #verTag{display:none}
+/* …except the feet. Armed or not is the difference between a droid that
+   drives and one that does nothing, and this chip is the only always-
+   visible statement of it, so it keeps its words one tier longer than the
+   rest of the cluster. */
+body.hdrdots #hdrBezel #chDrive{gap:6px;padding:0 8px}
+body.hdrdots #hdrBezel #chDrive > .chipab{display:block}
+/* tighter still — the feet keep the STATE word with the name stripped off,
+   `OFF` / `ARMED`, which is the half a stuck user is actually reading */
+body.hdrtiny #hdrBezel .chip{padding:0 7px;gap:0}
+body.hdrtiny #hdrBezel .chip > span:not(.dot){display:none}
+body.hdrtiny header .chip .dot{width:8px;height:8px}
+body.hdrtiny header .brand #verTag{display:none}
+body.hdrtiny #hdrBezel #chDrive{gap:5px;padding:0 7px}
+body.hdrtiny #hdrBezel #chDrive > .chipst{display:block}
+/* Once the cluster is down to dots the APP TITLE gives ground before it
+   does — it is the one thing in the header that says nothing you do not
+   already know, and at 150% it was clipping anyway. "Astromech Simulator"
+   is a bare text node between <b>R2-D2</b> and the version tag, so there is
+   no element to hide: collapse it by zeroing the container's font-size and
+   putting the size back on the piece that stays. */
+body.hdrdots header .brand,
+body.hdrtiny header .brand,
+body.hdrbare header .brand{font-size:0;letter-spacing:0}
+body.hdrdots header .brand b,
+body.hdrtiny header .brand b,
+body.hdrbare header .brand b{font-size:12px;letter-spacing:.14em}
+/* and the workspace switcher tightens its cells rather than let the last
+   readable word in the cluster go — it is the widest thing in the header */
+body.hdrdots .wsbtn,
+body.hdrtiny .wsbtn,
+body.hdrbare .wsbtn{padding:5px 7px}
+/* the last resort: there is genuinely no room for a word anywhere */
+body.hdrbare #hdrBezel .chip{padding:0 7px;gap:0}
+body.hdrbare #hdrBezel .chip > span:not(.dot){display:none}
+body.hdrbare header .chip .dot{width:8px;height:8px}
+body.hdrbare header .brand #verTag{display:none}
 /* the firmware tag is the cluster's profile cell — its readout stays the
    data cyan. The old standalone pill border is gone; the bezel frames it. */
 #hdrBezel .fwtag{
@@ -118,15 +181,12 @@ select.msel:focus{outline:none;border-color:var(--cta)}
 #hdrBezel .chip.clickable{cursor:pointer}
 #hdrBezel .chip.clickable:hover{background:var(--ctaD)}
 
-/* Below ~1400px the status cluster sheds its text: the dot keeps the state
-   by colour and the words move into a tooltip (main.js keeps the chips'
-   title attributes in sync with the hidden text every UI tick). The bezel
-   cells are id-scoped, so the shed rules must be too. */
+/* The header's own breathing room still narrows with the viewport. The
+   chips' text no longer does: what they shed, and when, is main.js's
+   measured job above — a media query reads the UN-zoomed viewport and so
+   cannot be trusted with it. */
 @media (max-width:1400px){
   header{gap:10px}
-  header .chip span+span{display:none}
-  #hdrBezel .chip{gap:0;padding:0 7px}
-  header .chip .dot{width:8px;height:8px}
 }
 @media (max-width:1300px){
   header{gap:8px}

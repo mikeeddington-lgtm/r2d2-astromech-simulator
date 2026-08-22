@@ -141,10 +141,20 @@ function stagePicker(btnId, items, cur, pick){
   document.body.appendChild(pop);
   /* anchor above the button, right edges aligned, clamped to the viewport;
      stageTools sits at the bottom of the stage so above is the open side */
+  /* THE ANCHOR IS IN VIEWPORT px, THE `left`/`top` WE WRITE ARE NOT.
+     #stagePick is position:fixed but it hangs off the body, which carries
+     applyUiScale()'s zoom, so a length set on it is a LAYOUT px and is
+     multiplied by the zoom on its way to the glass, while
+     getBoundingClientRect() and innerWidth are already on it. At 150% that
+     put the picker 267px right of its button and 200px down, over the
+     stage. Divide the anchor back into layout px — pop.offsetWidth/Height
+     are already layout px — and the whole calculation, viewport clamp
+     included, is in one unit system. */
+  const z = (typeof uiZoomFactor === 'function') ? uiZoomFactor() : 1;
   const r = b.getBoundingClientRect();
-  pop.style.left = Math.max(8, Math.min(innerWidth - pop.offsetWidth - 8, r.right - pop.offsetWidth)) + 'px';
-  const top = r.top - 6 - pop.offsetHeight;
-  pop.style.top = (top >= 8 ? top : r.bottom + 6) + 'px';
+  pop.style.left = Math.max(8, Math.min(innerWidth/z - pop.offsetWidth - 8, r.right/z - pop.offsetWidth)) + 'px';
+  const top = r.top/z - 6 - pop.offsetHeight;
+  pop.style.top = (top >= 8 ? top : r.bottom/z + 6) + 'px';
   const onDown = e=>{
     const t = e.target;
     if(t && t.closest && (t.closest('#stagePick') || t.closest('#'+btnId))) return;
@@ -169,22 +179,147 @@ document.addEventListener('click', e=>{
   if(b) b.blur();
 });
 
-/* Below 1400px the header chips hide their text (02-layout.css) and the words
-   live in the tooltip instead. hud.js rewrites the chip text every UI tick,
-   so the titles are synced here on the same cadence — CSS cannot do it. */
-/* chDrive is deliberately left out (2026-08-15, UX 1.5a — see hud.js): it
-   is a button now and carries its own fixed action title ("arm / disarm
-   the foot motors (START)") instead of a state mirror. Syncing it here
-   on the same cadence would clobber that title back to the visible text
-   every tick. */
-const CHIP_IDS = ['chFault','chGamepad','chAuto','chSpeed','chHP'];
-function syncChipTitles(){
-  for(const id of CHIP_IDS){
-    const e = $(id); if(!e || !e.lastElementChild) continue;
-    const t = e.lastElementChild.textContent;
-    if(e.title !== t) e.title = t;
+/* =====================================================================
+   THE HEADER STATUS CLUSTER HAS TO BE READABLE — AT EVERY SIZE AND SCALE
+
+   Four first-time walkthroughs stalled in the same place: the droid would
+   not move, and the one always-visible statement of WHY read `DRIVE O_`.
+   At the default 1440×900/100% all six chips truncated mid-word; at 150%
+   two of them showed no characters at all. Two separate causes, both here:
+
+     · `text-overflow:ellipsis` (02-layout.css) let the cells shrink to
+       nothing rather than the cluster giving up its words. An ellipsis is
+       the right answer for prose; for a six-word instrument cluster it
+       turns every reading into a guess.
+     · the only rule that DID shed the words was a `max-width` media query,
+       and a media query cannot see `body{zoom}`. At 150% it still believed
+       there was 1440px of room when the layout had 960.
+
+   So the cluster now has TIERS — full words, compact words, dot only — and
+   which one is showing is decided by MEASURING the rendered boxes and
+   stepping down until nothing is clipped, not by guessing a breakpoint.
+   That is inherently zoom-correct, because the measurement happens inside
+   the zoomed subtree, and it re-measures when the words change length as
+   well as when the window does.
+
+   The compact label rides in a span IN FRONT of the state words, never in
+   place of them: a chip's LAST span stays exactly the state text that
+   hud.js, maestro/hw-ui.js and the suites all read.
+   ===================================================================== */
+/* chDrive is deliberately left out of the TITLE sync (2026-08-15, UX 1.5a
+   — see hud.js): it is a button now and carries its own fixed action title
+   ("arm / disarm the foot motors (START)") instead of a state mirror.
+   Syncing it here on the same cadence would clobber that title back to the
+   visible text every tick. #chLink is out for the same reason — hw-ui.js
+   gives it a title that says what a click does. Both still get their state
+   as an aria-label below, and #chDrive keeps its words a tier longer than
+   anything else, because feet-armed-or-not is the state a first-time user
+   cannot get past. */
+const CHIP_IDS  = ['chFault','chGamepad','chAuto','chSpeed','chHP'];
+const HDR_CHIPS = ['chFault','chGamepad','chDrive','chAuto','chSpeed','chHP','chLink'];
+
+/* The compact form of every state word the cluster can carry. Derived from
+   the words a chip ALREADY shows rather than written next to each of them,
+   because one of the seven cells (#chLink) is painted by maestro/hw-ui.js —
+   this way a chip written by another module gets a compact label for free,
+   and there is one table to read instead of three. Where a label has to
+   lose something it loses the NAME, never the state word: `Spd 1 · 90`
+   becomes `SPD 1`, but `Drive off` becomes `FEET OFF`. */
+const CHIP_AB = [
+  [/^Virtual pad$/i,  'PAD'],
+  [/^Pad\b/i,         'PAD'],
+  [/^Disconnected/i,  'NO PAD'],
+  [/^Drive armed$/i,  'FEET ARMED'],
+  [/^Drive off$/i,    'FEET OFF'],
+  [/^Auto on$/i,      'AUTO ON'],
+  [/^Auto off$/i,     'AUTO'],
+  [/^Spd\s*(\d)/i,    'SPD $1'],
+  [/^HP on$/i,        'HP ON'],
+  [/^HP off$/i,       'HP OFF'],
+  [/^No board$/i,     'NO BOARD'],
+  [/^Board linked$/i, 'LINKED'],
+  [/^Monitor only$/i, 'MONITOR'],
+  [/^LOOP BLOCKED/i,  'BLOCKED'],
+  [/^S\/T TIMEOUT/i,  'TIMEOUT']
+];
+function chipAb(text){
+  for(const pair of CHIP_AB){
+    const m = text.match(pair[0]);
+    if(m) return pair[1].replace('$1', m[1] || '');
+  }
+  return text;
+}
+
+/* the tiers, widest first — see 02-layout.css for what each one hides */
+const HDR_TIERS = ['', 'hdrshort', 'hdrdots', 'hdrtiny', 'hdrbare'];
+let HDR_FITKEY = '';
+
+/* is any label the cluster is currently SHOWING cut off? The spans carry
+   overflow:hidden, so a clipped one reports scrollWidth > clientWidth —
+   measured geometry, in the zoomed subtree, which is the only reading that
+   survives both a window resize and a ui-scale change. */
+function hdrChipsClipped(){
+  for(const id of HDR_CHIPS){
+    const e = $(id); if(!e || e.style.display === 'none') continue;
+    for(const s of e.children){
+      if(s.classList.contains('dot')) continue;
+      if(getComputedStyle(s).display === 'none') continue;
+      if(s.scrollWidth > s.clientWidth + 0.5) return true;
+    }
+  }
+  return false;
+}
+function syncHeaderFit(){
+  const b = document.body;
+  for(const tier of HDR_TIERS){
+    b.classList.remove('hdrshort','hdrdots','hdrtiny','hdrbare');
+    if(tier) b.classList.add(tier);
+    if(!hdrChipsClipped()) return;
   }
 }
+
+function syncChipTitles(){
+  /* the fit is only re-measured when something that can change the answer
+     has changed: the viewport, the ui scale, or the words themselves. Every
+     other tick this is seven string compares. */
+  let key = document.documentElement.clientWidth + '/' + uiZoomFactor();
+  for(const id of HDR_CHIPS){
+    const e = $(id); if(!e || !e.lastElementChild) continue;
+    const t = e.lastElementChild.textContent;
+    key += '|' + (e.style.display === 'none' ? '-' : t);
+    let ab = e.querySelector('.chipab');
+    if(!ab){ ab = el('span','chipab'); e.insertBefore(ab, e.lastElementChild); }
+    const s = chipAb(t);
+    if(ab.textContent !== s) ab.textContent = s;
+    /* the tightest reading of the one chip that keeps its words longest:
+       the state word with the name stripped off it entirely. Only #chDrive
+       carries this — it is the chip a stuck user is looking for, and 20px
+       of "OFF" is the difference between a readable header and six
+       anonymous dots on a small screen at a large text size. */
+    if(id === 'chDrive'){
+      let st = e.querySelector('.chipst');
+      if(!st){ st = el('span','chipst'); e.insertBefore(st, ab); }
+      const w = /armed/i.test(t) ? 'ARMED' : 'OFF';
+      if(st.textContent !== w) st.textContent = w;
+    }
+    if(CHIP_IDS.indexOf(id) >= 0 && e.title !== t) e.title = t;
+    /* a chip down to its dot has nothing but the tooltip left, and the two
+       chips whose title says what a CLICK does would otherwise have nothing
+       at all naming their state */
+    if(e.getAttribute('aria-label') !== t) e.setAttribute('aria-label', t);
+  }
+  /* sim-only mode hides the whole header (10-kiosk.css), and every box in it
+     then measures zero — which reads as "nothing is clipped" and would leave
+     the cluster parked on the widest tier when the header comes back. So the
+     fit is not measured while it is not rendered, and the key is poisoned so
+     that returning always re-measures. */
+  const hdr = document.querySelector('header');
+  if(!hdr || hdr.offsetParent === null){ HDR_FITKEY = 'hidden'; return; }
+  if(key !== HDR_FITKEY){ HDR_FITKEY = key; syncHeaderFit(); }
+}
+/* the UI tick is 0.06 s, which is a visible lag on a window drag and a race
+   for anything that resizes and reads in the same breath */
+window.addEventListener('resize', syncChipTitles);
 
 /* ---- boot ---- */
 window.addEventListener('load',()=>{
@@ -245,8 +380,11 @@ window.addEventListener('load',()=>{
   if($('btnManualStp'))  $('btnManualStp').addEventListener('click', manualOpen);
   $('btnModel').addEventListener('click',()=>stagePicker('btnModel', modelOptions(), modelGet(), id=>modelSet(id)));
   modelSyncBtn();
-  $('btnScaleUp').addEventListener('click',()=>applyUiScale(PREFS.uiScale+0.05));
-  $('btnScaleDn').addEventListener('click',()=>applyUiScale(PREFS.uiScale-0.05));
+  /* the header cluster re-fits on the 0.06 s UI tick, which is a whole
+     frame of truncated chips on the one gesture whose entire purpose is to
+     change the text size — so the two buttons that do it say so at once */
+  $('btnScaleUp').addEventListener('click',()=>{ applyUiScale(PREFS.uiScale+0.05); syncChipTitles(); });
+  $('btnScaleDn').addEventListener('click',()=>{ applyUiScale(PREFS.uiScale-0.05); syncChipTitles(); });
   applyUiScale(PREFS.uiScale);
   bindUiScaleReset();
   /* workspaces replaced the three view modes in v1.17.0 — wsInit() does the

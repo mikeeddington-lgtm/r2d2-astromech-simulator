@@ -286,7 +286,13 @@ function serialAdoptBoardCount(n){
     return false;
   }
   buildSet('pcaBoards', n);
-  if(typeof wizFinish === 'function') wizFinish();
+  /* buildApply(), NOT wizFinish(). wizFinish() is the wizard's EXIT: it marks
+     the build done, closes the startup card and burns the once-ever first-run
+     card, none of which anybody asked for by pressing "add the missing rows".
+     buildSet() has already applied the build by the time we get here; what
+     this wants is the re-derivation that follows it, which is buildApply()
+     alone — the rest was an idiom copied out of the test suites. */
+  if(typeof buildApply === 'function') buildApply();
   if(typeof buildEnsureMaestro === 'function') buildEnsureMaestro();
   HW.save();
   if(typeof rebuildMaestroUI === 'function') rebuildMaestroUI();
@@ -513,6 +519,12 @@ async function serialDisconnect(){
   try{ if(port) await port.close(); }catch(e){}
   SER.writer=null; SER.reader=null; SER.blocked=false;
   SER.kind='';
+  /* the mode banner goes with the link it describes. hwLinkRender() ends with
+     monWarn(SER.modeWarn) and runs on every setupRender() — so a message left
+     standing here comes back on the next keystroke on the Channels step,
+     saying "the board draws the ramps" beside a chip reading "No board" and
+     offering buttons with nothing on the other end to press them at. */
+  SER.modeWarn='';
   if(typeof mstrReset === 'function') mstrReset();
   serialUiSync();
   monWarn('');

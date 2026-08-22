@@ -47,6 +47,14 @@ body.kiosk #padwrap{grid-template-rows:0 auto minmax(0,1fr)}
 body.kiosk #pupbar,
 body.kiosk #pupside{display:none}        /* the puppet rig owns the servos — not at a show */
 body.kiosk #dropzone{display:none}       /* the drop itself is refused in kiosk.js */
+/* the part card. It lives on the STAGE, not in #side, so hiding the sidebar
+   never touched it — and the stage is the one surface sim only leaves fully
+   live, so this line is the visible half of a guard that has to be real:
+   selectPart() refuses the pick outright (cad/select.js) and kioskEnter()
+   closes a card that was already open. This rule beats #selcard.on
+   (07-startup.css) on specificity, so nothing that reaches buildSelCard()
+   by another road can put it back on screen either. */
+body.kiosk #selcard{display:none}        /* rename, colour, Port, pivot/travel, new group */
 /* the stage/pad splitter goes too: dragging it to nothing is a fine way
    for a stranger to lose the controller. The track collapses to 0 so the
    pad keeps the height Mike sized it at before he handed the laptop over.

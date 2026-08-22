@@ -42,12 +42,26 @@ function updateCadTransform(){
   CAD.root.rotation.copy(R2.body.rotation);
   CAD.dome.rotation.y = R2.domeYaw;
 }
+/* A KIND NOBODY LISTED IS SHOWN, NOT HIDDEN (v1.46.0).
+   `!!CAD.show[kind]` made hidden the default for every kind outside the seven
+   the MK4 happens to have, and the Show section only ever offered those seven
+   — so a container with any other vocabulary loaded, and then stood there
+   completely invisible with no checkbox to bring it back and nothing logged
+   as wrong. The project's own second container does exactly that: the Polar
+   Mouse .r2m (which maestro/ui-files.js routes here by extension) is
+   {body, wheel, chariot}, 130 parts, an empty stage.
+   `!== false` keeps `internal` and `outlier` — the two that are deliberately
+   off in CAD.show — exactly as they were, and keeps every checkbox the user
+   ticks working the same way, while an unknown kind is visible until someone
+   says otherwise. cad/ui.js builds the checkbox list from the kinds actually
+   present, so there is always a way back. */
+function cadShown(kind){ return CAD.show[kind] !== false; }
 function applyCadVisibility(){
   for(const key in CAD.kindGroups){
     const kind = key.split(':')[0];
-    CAD.kindGroups[key].visible = !!CAD.show[kind];
+    CAD.kindGroups[key].visible = cadShown(kind);
   }
-  for(const m of CAD.moving) m.group.visible = !!CAD.show[m.kind];
+  for(const m of CAD.moving) m.group.visible = cadShown(m.kind);
 }
 function setCadActive(on){
   CAD.active = on && CAD.loaded;
@@ -91,7 +105,15 @@ async function loadCadFromFile(file){
     setCadActive(true);
     lg('sys','CAD loaded from '+file.name);
   }catch(e){
+    /* buildCad rolls its own state back now (cad/build.js), so the model that
+       was on the stage before the drop is still the one CAD describes and
+       CAD.loaded is still true about it — which is why this does NOT blank
+       the flag wholesale. What it must never do is leave CAD claiming a model
+       it has not got, so say so when there is nothing to fall back on
+       (v1.46.0). */
+    if(!CAD.root || !CAD.header) CAD.loaded = false;
     lg('warn','could not read '+file.name+': '+e.message);
     const el = $('cadMsg'); if(el){ el.style.color='var(--rd)'; el.textContent='Could not read that file: '+e.message; }
+    if(typeof toast === 'function') toast('could not read '+file.name+' — '+e.message, 'err');
   }
 }

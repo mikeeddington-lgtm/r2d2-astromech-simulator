@@ -19,6 +19,23 @@ g++ -std=c++11 -O1 -Wall -Wno-unused-variable \
 timeout 30 /tmp/maestrolink_test
 
 echo
+echo "== protocol: the one command that announces its own length =="
+# 0x9F is the only command whose argument count comes off the wire, so it
+# is the only one that can be told to walk off the end of _arg — and the
+# parser's own self-resync is what turns a single dropped byte into the
+# two bytes that do it. Compiled a SECOND time under AddressSanitizer,
+# because the first version of this bug executed happily and silently in
+# a normal build and only a sanitizer said where the reads went.
+g++ -std=c++11 -O1 -Wall -Wno-unused-variable \
+    -I shim link_multi_test.cpp ../src/MaestroPCA.cpp ../src/MaestroLink.cpp \
+    -o /tmp/maestromulti_test
+timeout 30 /tmp/maestromulti_test
+g++ -std=c++11 -O1 -g -fsanitize=address -Wall -Wno-unused-variable \
+    -I shim link_multi_test.cpp ../src/MaestroPCA.cpp ../src/MaestroLink.cpp \
+    -o /tmp/maestromulti_asan
+timeout 60 /tmp/maestromulti_asan > /dev/null && echo "  PASS  and again under AddressSanitizer, with nothing to report"
+
+echo
 echo "== engine: beyond the Maestro =="
 g++ -std=c++11 -O1 -Wall -Wno-unused-variable \
     -I shim features_test.cpp ../src/MaestroPCA.cpp -o /tmp/maestrofeat_test
@@ -29,6 +46,26 @@ echo "== engine: concurrent tracks and looping =="
 g++ -std=c++11 -O1 -Wall -Wno-unused-variable \
     -I shim tracks_test.cpp ../src/MaestroPCA.cpp -o /tmp/maestrotracks_test
 timeout 30 /tmp/maestrotracks_test
+
+echo
+echo "== engine: disjoint sequences on a THREE-BOARD rig =="
+# Everything above runs on one board, and the channel mask used to be one
+# uint32_t with every channel from 31 up folded into bit 31 — so a suite
+# that never went past 16 channels could not see that "several sequences
+# at once, on disjoint channels" had stopped working on every rig with
+# three PCA9685s on it. 48 channels, which is what the README describes.
+g++ -std=c++11 -O1 -Wall -Wno-unused-variable \
+    -I shim mask_test.cpp ../src/MaestroPCA.cpp -o /tmp/maestromask_test
+timeout 30 /tmp/maestromask_test
+
+echo
+echo "== engine: sequence slots past 127 =="
+# A track's `seq` doubles as "this track is free" by going negative, so
+# slot 128 in an int8_t was a track that was born free: it never played,
+# and sequenceRunning() matched the truncated value and said it had.
+g++ -std=c++11 -O1 -Wall -Wno-unused-variable \
+    -I shim slots_test.cpp ../src/MaestroPCA.cpp -o /tmp/maestroslots_test
+timeout 30 /tmp/maestroslots_test
 
 echo
 echo "== engine: the ESP32's direct-pin backend, on BOTH arduino-esp32 cores =="
@@ -61,6 +98,16 @@ echo "== engine: split across two boards, one down a wire =="
 g++ -std=c++11 -O1 -Wall -Wno-unused-variable \
     -I shim split_test.cpp ../src/MaestroPCA.cpp -o /tmp/maestrosplit_test
 timeout 30 /tmp/maestrosplit_test
+
+echo
+echo "== two bounds that used to be checked one step too late =="
+# The split link's channel number, computed in a uint8_t before being
+# tested against 127 — so board 16 wrapped to 0 and a channel the wire
+# cannot address went out as channel 0. And update()'s stall clamp, which
+# gave the frame timers 250 ms and the kinematics 200 of it.
+g++ -std=c++11 -O1 -Wall -Wno-unused-variable \
+    -I shim bounds_test.cpp ../src/MaestroPCA.cpp -o /tmp/maestrobounds_test
+timeout 30 /tmp/maestrobounds_test
 
 echo
 echo "== the I2C bus scan: the All Call trap, and the address order =="

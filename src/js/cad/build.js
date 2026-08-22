@@ -72,10 +72,55 @@ const RIG_CORRECTIONS = {
     axis:[0,-1,0], range:1.40, src:'build:side-hinge (lower pivots viewer-left)'}),
 };
 
+/* WHAT A HEADER HAS TO HAVE before anything is taken off the stage (v1.46.0).
+   buildCad's first statement used to dispose the model that was loaded, and
+   the first unguarded read of the INCOMING header came six lines later
+   (`header.materials.map`). CAD.loaded / header / fileName / stats are only
+   assigned on success and there was no rollback, so a truncated or foreign
+   .r2m left CAD.loaded true with the OLD header, CAD.moving emptied,
+   CAD.slots pointing at disposed materials, nothing on the stage — and the
+   Model pane still cheerfully reporting the old model's part and moving
+   counts. The two arrays this reads are the two the build cannot start
+   without; everything else it can survive a gap in. */
+function cadHeaderCheck(header){
+  if(!header || typeof header !== 'object') throw new Error('no header in that container');
+  if(!Array.isArray(header.parts) || !header.parts.length) throw new Error('the header lists no parts');
+  if(!Array.isArray(header.materials)) throw new Error('the header lists no materials');
+}
+
 function buildCad(decoded, fileName){
   const {header, pos, nrm, idx} = decoded;
+  cadHeaderCheck(header);
 
-  if(CAD.root){ R2.root.remove(CAD.root); disposeTree(CAD.root); disposeCadMats(); }
+  /* BUILD BESIDE THE OLD MODEL, then swap (v1.46.0). The previous tree stays
+     on R2.root, whole and undisposed, for as long as the new one is being
+     assembled; `prev` is what gets freed at the end, and what is put back if
+     anything in between throws. The fields are the ones a reader of CAD can
+     see — a half-built CAD is exactly what left the Model pane describing a
+     model that was no longer there. */
+  const prev = {
+    root:CAD.root, dome:CAD.dome, body:CAD.body, moving:CAD.moving, kindGroups:CAD.kindGroups,
+    mats:CAD.mats, slotMats:CAD.slotMats, slots:CAD.slots, partIndex:CAD.partIndex,
+    header:CAD.header, loaded:CAD.loaded, fileName:CAD.fileName, stats:CAD.stats
+  };
+  try{
+    return cadBuildInto(decoded, fileName, prev);
+  }catch(e){
+    /* only while there is still something to go back TO: past the swap the
+       old tree is disposed, and the new one is fully assigned, so putting the
+       old fields back would be the very lie this exists to stop */
+    if(!prev.swapped){
+      Object.assign(CAD, prev);        // the model on the stage is the one CAD describes again
+      if(typeof lg === 'function') lg('warn','CAD build failed, kept the model already loaded: '+e.message);
+    }else if(typeof lg === 'function'){
+      lg('warn','CAD built but the finishing pass failed: '+e.message);
+    }
+    throw e;
+  }
+}
+function cadBuildInto(decoded, fileName, prev){
+  const {header, pos, nrm, idx} = decoded;
+
   CAD.root = new THREE.Group();
   CAD.dome = new THREE.Group();
   CAD.body = new THREE.Group();
@@ -227,14 +272,22 @@ function buildCad(decoded, fileName){
     if(r){ r.parts++; r.tris += p.tris; }
   });
 
-  R2.root.add(CAD.root);
-  CAD.header = header; CAD.loaded = true; CAD.fileName = fileName || (header.source||[]).join(' + ');
-  CAD.stats = {parts:header.parts.length, tris:header.triCount, verts:header.vertexCount,
-               moving:CAD.moving.length, movingTris, staticTris,
-               draws:CAD.moving.length + Object.keys(bucket).length};
-
   // default pie mapping order comes from the container; sort for a tidy UI
   CAD.moving.sort((a,b)=>(a.kind+a.name).localeCompare(b.kind+b.name));
+  const stats = {parts:header.parts.length, tris:header.triCount, verts:header.vertexCount,
+                 moving:CAD.moving.length, movingTris, staticTris,
+                 draws:CAD.moving.length + Object.keys(bucket).length};
+
+  /* THE SWAP. Everything above built into fresh objects; only now does the
+     model that was on the stage come off it, and only now is it freed —
+     which is also why every step that could still fail is above this line
+     rather than below it, and why `prev.swapped` stops the catch putting a
+     tree back that has already been disposed. */
+  if(prev.root){ R2.root.remove(prev.root); disposeTree(prev.root); disposeCadMats(prev); }
+  prev.swapped = true;
+  R2.root.add(CAD.root);
+  CAD.header = header; CAD.loaded = true; CAD.fileName = fileName || (header.source||[]).join(' + ');
+  CAD.stats = stats;
   applyCadVisibility();
   fitProcLegs();
   lg('sys',`CAD: ${CAD.stats.parts} parts, ${CAD.stats.tris} triangles, ${CAD.stats.moving} moving, ~${CAD.stats.draws} draw calls`);
@@ -244,8 +297,11 @@ function buildCad(decoded, fileName){
 function disposeTree(obj){
   obj.traverse(o=>{ if(o.geometry) o.geometry.dispose(); });
 }
-/* re-importing an .r2m rebuilds every material — free the old GPU programs */
-function disposeCadMats(){
-  (CAD.mats||[]).forEach(m=>m.dispose());
-  for(const k in (CAD.slotMats||{})) CAD.slotMats[k].dispose();
+/* re-importing an .r2m rebuilds every material — free the old GPU programs.
+   Takes WHICH set to free (v1.46.0): by the time buildCad swaps, CAD already
+   holds the new model's materials, so the old ones have to be named. */
+function disposeCadMats(src){
+  const s = src || CAD;
+  (s.mats||[]).forEach(m=>m.dispose());
+  for(const k in (s.slotMats||{})) s.slotMats[k].dispose();
 }

@@ -18,6 +18,18 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
   await page.waitForFunction('typeof CAD!=="undefined" && CAD.loaded', {timeout:40000});
   await page.evaluate(()=>{ PREFS.seenStartup=true; closeStartup(); });
   const ev = f => page.evaluate(f);
+  /* WAIT FOR THE HEADER TO HAVE SEEN THIS SIZE.
+     What the status cluster sheds is measured by main.js on the UI tick (and
+     on `resize`), not decided by a media query, because a media query cannot
+     see applyUiScale()'s body zoom. So a read after a viewport or scale
+     change has to wait for the app's own answer to be current: main.js
+     caches the fit under a key whose first field is exactly
+     "<clientWidth>/<zoom>". This waits for that to agree with the live
+     values — and fails loudly rather than quietly reading a stale layout. */
+  const settled = ()=>page.waitForFunction(()=> typeof HDR_FITKEY === 'string'
+    && HDR_FITKEY.split('|')[0] === document.documentElement.clientWidth + '/' + uiZoomFactor(),
+    null, {timeout:8000});
+  await settled();
 
   console.log('\n════ nothing clips on a 1280×780 laptop ════');
   ok('the document is no wider than the viewport', await ev(()=>
@@ -72,16 +84,182 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
     getComputedStyle($('verTag')).display==='none'));
 
   await page.setViewportSize({ width: 1150, height: 780 });
+  await settled();
   ok('still nothing clips at 1150', await ev(()=>
     document.documentElement.scrollWidth <= window.innerWidth
     && Math.round($('tabCad').getBoundingClientRect().right) <= window.innerWidth),
     await ev(()=>document.documentElement.scrollWidth+' vs '+window.innerWidth));
 
   await page.setViewportSize({ width: 1500, height: 950 });
+  await settled();
   ok('chip labels and the version tag return on a wide screen', await ev(()=>
     getComputedStyle($('chDrive').lastElementChild).display!=='none'
     && getComputedStyle($('verTag')).display!=='none'));
   await page.setViewportSize({ width: 1280, height: 780 });
+  await settled();
+
+  /* ══════════════════════════════════════════════════════════════════════
+     THE STATUS CHIPS HAVE TO BE READABLE, AT EVERY SIZE AND EVERY UI SCALE
+
+     Four first-time walkthroughs all stalled in the same place: the droid
+     would not move, and the one always-visible statement of why — the
+     Drive chip — read `DRIVE O_`. Every chip truncated mid-word at the
+     DEFAULT 1440×900/100%, and at 150% two of them showed no characters at
+     all, because `text-overflow:ellipsis` let the cells shrink to nothing
+     while the only rule that sheds the words (a max-width media query) is
+     blind to `body{zoom}` — the media query measures the un-zoomed
+     viewport, so at 1.5 it thinks there is 1440px of room when the layout
+     has 960.
+
+     So these assertions are all MEASURED GEOMETRY on the rendered spans,
+     never stylesheet text: under file:// a linked stylesheet's cssRules
+     throws, and a rule-reading assertion would pass on the dist and read
+     nothing at all on dev.html.
+     ══════════════════════════════════════════════════════════════════════ */
+  console.log('\n════ the header status chips fit instead of truncating ════');
+  await ev(()=>{
+    /* what a chip is actually SHOWING: the label spans that are not
+       display:none, their text, and whether the box clips them */
+    window.__chips = ()=>['chGamepad','chDrive','chAuto','chSpeed','chHP','chLink'].map(id=>{
+      const e = document.getElementById(id);
+      if(!e) return {id, missing:true};
+      const spans = [...e.children].filter(s=>!s.classList.contains('dot'));
+      const vis = spans.filter(s=>getComputedStyle(s).display!=='none');
+      return {
+        id,
+        shown: vis.map(s=>s.textContent).join(' ').trim(),
+        clipped: vis.some(s=>s.scrollWidth > s.clientWidth + 0.5),
+        title: e.title || ''
+      };
+    });
+  });
+  /* The tier is chosen on the 0.06 s UI tick, so a read has to wait for the
+     sync to have SEEN this width and this zoom — not for an arbitrary
+     number of milliseconds. main.js caches the fit under a key whose first
+     field is exactly "<clientWidth>/<zoom>", so waiting for that to agree
+     with the live values is waiting for the app's own answer to be current,
+     and it fails loudly rather than silently reading a stale layout. */
+  const chipsAt = async (w,h,scale)=>{
+    await page.setViewportSize({ width:w, height:h });
+    await page.evaluate(s=>{ applyUiScale(s); }, scale);
+    await settled();
+    return ev(()=>window.__chips());
+  };
+  const say = (tag,rows)=>console.log('      '+tag+'  '+rows.map(r=>r.id.replace('ch','')+'="'+r.shown+'"'+(r.clipped?'✂':'')).join('  '));
+
+  for(const [w,h] of [[1440,900],[1024,700],[800,600]]){
+    for(const s of [0.9,1.0,1.15,1.5]){
+      const rows = await chipsAt(w,h,s);
+      say(w+'×'+h+' @'+s, rows);
+      ok('no chip label is cut off at '+w+'×'+h+' / '+Math.round(s*100)+'%',
+         rows.every(r=>!r.clipped), JSON.stringify(rows.filter(r=>r.clipped).map(r=>r.id)));
+      ok('every chip still names itself at '+w+'×'+h+' / '+Math.round(s*100)+'% — words or a tooltip',
+         rows.every(r=>r.shown || r.title), JSON.stringify(rows.filter(r=>!r.shown && !r.title).map(r=>r.id)));
+    }
+  }
+  /* THE FEET ARE THE PRIORITY. Armed or not is the difference between a
+     droid that drives and one that sits there, and this chip is the only
+     always-visible statement of it — every stalled walkthrough was stuck on
+     exactly this. So it is the LAST cell to give up its words: wherever any
+     chip in the cluster still has text, this one does, and it is still
+     saying which state it is in — never a bare name like "FEET". */
+  for(const [w,h] of [[1440,900],[1024,700],[800,600]]){
+    for(const s of [0.9,1.0,1.15,1.5]){
+      const rows = await chipsAt(w,h,s);
+      const d = rows.find(r=>r.id==='chDrive');
+      const others = rows.filter(r=>r.id!=='chDrive');
+      ok('the Drive chip outlasts every other chip\'s words at '+w+'×'+h+' / '+Math.round(s*100)+'%',
+         !others.some(r=>r.shown) || /off|armed/i.test(d.shown),
+         JSON.stringify({drive:d.shown, others:others.filter(r=>r.shown).map(r=>r.shown)}));
+      ok('…and never shows a name without its state at '+w+'×'+h+' / '+Math.round(s*100)+'%',
+         !d.shown || /off|armed/i.test(d.shown), JSON.stringify(d));
+    }
+  }
+  /* the default window, the default text size — the one every screenshot and
+     every first run is taken at. Words, not dots. */
+  const dflt = await chipsAt(1440,900,1.0);
+  ok('at the default 1440×900 / 100% the Drive chip says it in words',
+     /off|armed/i.test(dflt.find(r=>r.id==='chDrive').shown),
+     JSON.stringify(dflt.find(r=>r.id==='chDrive')));
+  ok('…and so does every other chip in the cluster',
+     dflt.every(r=>r.shown), JSON.stringify(dflt.map(r=>r.shown)));
+  await ev(()=>{ FW.isDriveEnabled = true; updateHUD(); });
+  await page.waitForTimeout(220);
+  ok('…and it changes to the armed word when the feet arm', await ev(()=>
+    /armed/i.test(window.__chips().find(r=>r.id==='chDrive').shown)),
+    await ev(()=>window.__chips().find(r=>r.id==='chDrive').shown));
+  await ev(()=>{ FW.isDriveEnabled = false; updateHUD(); });
+  /* every chip that IS down to a dot has to be nameable some other way —
+     this is the fallback the shed tiers lean on */
+  const dots = await chipsAt(1024,700,1.5);
+  say('1024×700 @1.5 titles', dots);
+  ok('a chip that is down to its dot still names itself in a tooltip',
+     dots.every(r=>r.shown || r.title), JSON.stringify(dots.map(r=>[r.id,r.title])));
+  ok('…and the two click-chips, whose title says what a click does, carry their state as an aria-label',
+     await ev(()=>['chDrive','chLink'].every(id=>{
+       const e = $(id);
+       return (e.getAttribute('aria-label')||'') === e.lastElementChild.textContent;
+     })),
+     await ev(()=>['chDrive','chLink'].map(id=>$(id).getAttribute('aria-label')).join(' | ')));
+
+  /* ══════════════════════════════════════════════════════════════════════
+     POPOVERS LAND ON THEIR BUTTON, NOT 360px AWAY
+
+     #stagePick and #faultPop are position:fixed and appended to the body —
+     which carries `zoom` — but were positioned from getBoundingClientRect()
+     and innerWidth, which are the UN-zoomed viewport. At 1.5 a picker
+     anchored on a button at x=600 rendered at x=900. Both numbers are
+     measured after the fact here, in the one space that matters: where the
+     boxes actually end up on the glass.
+     ══════════════════════════════════════════════════════════════════════ */
+  console.log('\n════ the stage picker and the fault popover follow their button under zoom ════');
+  await page.setViewportSize({ width: 1440, height: 900 });
+  for(const s of [1.0, 1.5]){
+    await page.evaluate(sc=>{ applyUiScale(sc); }, s);
+    await page.waitForTimeout(150);
+    const sp = await ev(()=>{
+      stagePickerClose();
+      $('btnEnv').click();
+      const p = $('stagePick').getBoundingClientRect(), b = $('btnEnv').getBoundingClientRect();
+      const r = {pop:[p.left,p.top,p.right,p.bottom].map(n=>Math.round(n)),
+                 btn:[b.left,b.top,b.right,b.bottom].map(n=>Math.round(n)), iw:innerWidth, ih:innerHeight};
+      stagePickerClose();
+      return r;
+    });
+    console.log('      @'+s+'  picker '+JSON.stringify(sp.pop)+'  button '+JSON.stringify(sp.btn));
+    ok('the stage picker is right-aligned on its button at '+Math.round(s*100)+'%',
+       Math.abs(sp.pop[2]-sp.btn[2]) <= 3, JSON.stringify(sp));
+    ok('…sits directly above it, not over the stage, at '+Math.round(s*100)+'%',
+       Math.abs(sp.pop[3]-sp.btn[1]) <= 14, JSON.stringify(sp));
+    ok('…and stays inside the viewport at '+Math.round(s*100)+'%',
+       sp.pop[0] >= 0 && sp.pop[2] <= sp.iw, JSON.stringify(sp));
+  }
+  for(const s of [1.0, 1.5]){
+    await page.evaluate(sc=>{ applyUiScale(sc); }, s);
+    await page.waitForTimeout(150);
+    const fp = await ev(()=>{
+      SIM.blockUntil = SIM.millis + 60000;      // a blocking delay() lights #chFault
+      updateHUD();
+      faultPopClose();
+      $('chFault').click();
+      const p = $('faultPop').getBoundingClientRect(), c = $('chFault').getBoundingClientRect();
+      const r = {pop:[p.left,p.top,p.right,p.bottom].map(n=>Math.round(n)),
+                 chip:[c.left,c.top,c.right,c.bottom].map(n=>Math.round(n)), iw:innerWidth};
+      faultPopClose();
+      SIM.blockUntil = 0; updateHUD();
+      return r;
+    });
+    console.log('      @'+s+'  faultPop '+JSON.stringify(fp.pop)+'  chip '+JSON.stringify(fp.chip));
+    ok('the fault popover hangs off the fault chip at '+Math.round(s*100)+'%',
+       Math.abs(fp.pop[1]-fp.chip[3]) <= 14, JSON.stringify(fp));
+    ok('…starts at the chip\'s left edge, not a third of a screen away, at '+Math.round(s*100)+'%',
+       Math.abs(fp.pop[0]-fp.chip[0]) <= 26, JSON.stringify(fp));
+    ok('…and stays inside the viewport at '+Math.round(s*100)+'%',
+       fp.pop[0] >= 0 && fp.pop[2] <= fp.iw, JSON.stringify(fp));
+  }
+  await ev(()=>applyUiScale(1.0));
+  await page.setViewportSize({ width: 1280, height: 780 });
+  await settled();
 
   console.log('\n════ the app menu ════');
   await page.click('#btnAppMenu');
@@ -562,6 +740,26 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
      manKiosk.refused === false && manKiosk.duringKiosk === 0, JSON.stringify(manKiosk));
   ok('…and works again once you leave it',
      manKiosk.off && manKiosk.allowed === true && manKiosk.after === 1, JSON.stringify(manKiosk));
+  /* The header is display:none in sim only, so every box in the status
+     cluster measures ZERO — which reads as "nothing is clipped" and would
+     re-fit the whole cluster onto the widest tier. Arm the feet while it is
+     hidden, so the words change and a re-fit really is attempted with
+     nothing to measure, then come back out. */
+  await ev(()=>kioskEnter(''));
+  /* arm the feet WHILE it is hidden: the words change, so a re-fit is
+     genuinely attempted against boxes that all measure zero */
+  await page.waitForTimeout(200);
+  await ev(()=>{ FW.isDriveEnabled = true; });
+  await page.waitForTimeout(200);
+  /* …and come back out without touching the words again, so nothing but the
+     header reappearing can be what triggers the re-measure */
+  await ev(()=>kioskLeave());
+  await settled();
+  await page.waitForTimeout(200);
+  ok('the status cluster re-fits on the way out of sim only, rather than keeping the tier it "fitted" while invisible',
+     await ev(()=>window.__chips().every(r=>!r.clipped)),
+     await ev(()=>JSON.stringify(window.__chips().map(r=>[r.id,r.shown,r.clipped]))));
+  await ev(()=>{ FW.isDriveEnabled = false; });
   await ev(()=>{ document.querySelector('#tabs button[data-p="pHelp"]').click(); });
 
   console.log(`\n${pass} passed, ${fail} failed`);

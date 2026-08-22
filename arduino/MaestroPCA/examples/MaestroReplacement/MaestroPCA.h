@@ -133,10 +133,34 @@ typedef struct {
 /* How many sequences may run AT ONCE. Sequences that drive disjoint
    channels play together; one that claims a channel another is using
    displaces it (and if that one was BACKGROUND, it comes back later).
-   ~14 bytes of RAM per track. */
+   ~28 bytes of RAM per track. */
 #ifndef MPCA_MAX_TRACKS
 #define MPCA_MAX_TRACKS 4
 #endif
+
+/* How wide the "which channels does this track own" mask is, in 32-bit
+   words. FOUR, so 128 channels — which is every channel anything in this
+   project can produce: the generator numbers channels board*16+pin over
+   at most eight PCA9685s, and MpcaSplitOutput's wire header is seven bits
+   and cannot address more. So there is no ceiling here below the ceiling
+   the rest of the system already has, and nothing to warn about.
+
+   It was one uint32_t, with every channel from 31 up folded into bit 31,
+   which is not a limit but a LIE: on three boards two sequences sharing no
+   servo at all looked like they overlapped, so they displaced each other
+   and "several sequences at once, on disjoint channels" — the whole reason
+   this exists rather than a Maestro — stopped working on exactly the rigs
+   big enough to want it.
+
+   The cost is 12 bytes per track more than the single word, 48 at the
+   default MPCA_MAX_TRACKS of 4, and a four-word loop instead of one AND
+   in restartScript() and releaseSeqSpeeds(). Neither is a hot path: both
+   sit downstream of seqMask(), which walks the whole sequence out of
+   PROGMEM and dwarfs them. A uint64_t would have cost 16 bytes less and
+   capped the droid at 64 channels — four boards — for no gain the AVR can
+   measure. */
+#define MPCA_MASK_WORDS 4
+#define MPCA_MAX_MASK_CHANNELS (MPCA_MASK_WORDS * 32)
 
 /* =====================================================================
    THE OUTPUT — where positions actually go
@@ -279,7 +303,9 @@ public:
 
   /* ------ extras ------ */
   bool     scriptRunning() const;
-  int8_t   currentScript() const;       /* most recently started, or -1   */
+  /* int16_t because a sequence slot goes to 255 and an int8_t stops
+     telling the truth at 128 — see Track::seq. */
+  int16_t  currentScript() const;       /* most recently started, or -1   */
   bool     sequenceRunning(uint8_t n) const;
   void     stopSequence(uint8_t n);
   uint8_t  runningCount() const;
@@ -312,11 +338,39 @@ private:
                            releases it (v1.66.0) */
   };
 
+  /* The set of channels one track has claimed — one bit per channel,
+     MPCA_MASK_WORDS words wide. See the note by that #define for why it is
+     not a single word any more. A channel at or above the ceiling simply
+     never joins a mask, which loses it the collision check rather than
+     handing it somebody else's. */
+  struct Mask {
+    uint32_t w[MPCA_MASK_WORDS];
+    void clear()            { for(uint8_t i=0;i<MPCA_MASK_WORDS;i++) w[i] = 0; }
+    void set(uint8_t c)     { if(c < MPCA_MAX_MASK_CHANNELS) w[c >> 5] |= 1UL << (c & 31); }
+    bool has(uint8_t c) const {
+      return c < MPCA_MAX_MASK_CHANNELS && (w[c >> 5] & (1UL << (c & 31))) != 0;
+    }
+    bool empty() const      { for(uint8_t i=0;i<MPCA_MASK_WORDS;i++) if(w[i]) return false; return true; }
+    void add(const Mask& o) { for(uint8_t i=0;i<MPCA_MASK_WORDS;i++) w[i] |= o.w[i]; }
+    bool overlaps(const Mask& o) const {
+      for(uint8_t i=0;i<MPCA_MASK_WORDS;i++) if(w[i] & o.w[i]) return true;
+      return false;
+    }
+  };
+
   struct Track {
-    int8_t   seq;
+    /* int16_t, not int8_t. The field doubles as "this track is free" by
+       going negative, and a slot number of 128 stored in an int8_t IS
+       negative — so a high slot was born free: update() skipped it and it
+       never played, while sequenceRunning() compared against the same
+       truncated value, matched, and reported it as running. A board that
+       says it is doing the thing and is not is worse than one that is
+       silent. Two bytes a track buys the whole 0..255 range _seqCount can
+       hold. */
+    int16_t  seq;
     int16_t  frame;
     uint32_t frameT;    /* ms into the frame, or ms since a generator began */
-    uint32_t mask;
+    Mask     mask;
     uint32_t started;
   };
 
@@ -329,20 +383,24 @@ private:
 
   ChanState* _st;
   Track    _tk[MPCA_MAX_TRACKS];
-  int8_t   _bgWait[MPCA_MAX_TRACKS];   /* displaced background sequences */
+  int16_t  _bgWait[MPCA_MAX_TRACKS];   /* displaced background sequences */
   uint32_t _startCount;
   uint32_t _lastMs;
-  uint8_t  _tickAcc;
+  uint16_t _tickAcc;   /* ms not yet spent on 10 ms kinematics ticks. Wide
+                          enough to hold update()'s whole 250 ms stall clamp
+                          plus the remainder, which a uint8_t was not — so
+                          the frame timers used to advance 250 ms while the
+                          servos only ever got 200 of it. */
   uint32_t _rng;
 
   void     initCommon();
   void     applyFrame(uint8_t track, uint16_t f);
-  uint32_t seqMask(uint8_t n) const;
+  Mask     seqMask(uint8_t n) const;
   /* words per frame row — doubles when the sequence carries speeds */
   uint16_t seqStride(uint8_t flags) const {
     return (uint16_t)1 + ((flags & MPCA_SEQ_SPEEDS) ? (uint16_t)2*_count : (uint16_t)_count);
   }
-  void releaseSeqSpeeds(uint32_t mask);
+  void releaseSeqSpeeds(const Mask& mask);
   void     bgRemember(uint8_t n);
   void     bgResume();
   void     stepChannel(uint8_t ch);

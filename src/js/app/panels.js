@@ -428,6 +428,23 @@ function buildConfig(){
     host.appendChild(l);
   }
 
+  /* THE SIM BOX IS A RATE, NOT A FREE NUMBER.
+     These inputs had no min and no max, so `maestroRate` could be typed
+     negative — and a negative ramp rate makes every actuator step AWAY from
+     its target for ever (app/animate.js has the whole story and the clamp
+     that now catches it). main.js has always clamped CFG.loopHz at the
+     point of use, 20–2000; these are the same limits said out loud, on the
+     box, where a typed value can be refused before it ever reaches the
+     model. Anything not named here keeps its old free-number behaviour —
+     the entry is the claim that we know what a sane range IS. */
+  const CFG_LIMITS = {
+    loopHz:     {min:20,   max:2000},
+    maestroRate:{min:0.05, max:60},
+    servoSpeed: {min:10,   max:20000},
+    maxSpeed:   {min:0.1,  max:20},
+    maxYaw:     {min:0.1,  max:20},
+    domeRate:   {min:0.1,  max:30}
+  };
   const numGrid=(parent,list)=>{
     const g=el('div','cfggrid2');
     list.forEach(([k,label])=>{
@@ -436,8 +453,17 @@ function buildConfig(){
       const i=document.createElement('input');
       i.type='number'; i.value=CFG[k];
       i.step=(k==='maxSpeed'||k==='maxYaw'||k==='domeRate'||k==='maestroRate')?0.1:1;
+      const lim=CFG_LIMITS[k];
+      if(lim){
+        i.min=lim.min; i.max=lim.max;
+        lb.title += '  ·  ' + lim.min + '–' + lim.max;
+      }
       i.addEventListener('change',()=>{
-        const v=parseFloat(i.value); if(isNaN(v)){ i.value=CFG[k]; return; }
+        let v=parseFloat(i.value); if(isNaN(v)){ i.value=CFG[k]; return; }
+        /* the browser only ENFORCES min/max on a stepper click or a form
+           submit — a typed number arrives whatever it says — so the box is
+           pulled back here and the input repainted with what was taken */
+        if(lim){ v=clamp(v, lim.min, lim.max); if(v!==parseFloat(i.value)) i.value=v; }
         CFG[k]=v;
         if(k==='vol') SND.vol=v;
         if(k==='FOOT_CONTROLLER'){

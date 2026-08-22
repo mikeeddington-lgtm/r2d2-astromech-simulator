@@ -161,10 +161,30 @@ const clickText = async (page, txt) => {
   ok('the unmapped channel is NAMED, not silently dropped',
      r.issues.some(i=>i.k === 'unmapped'), JSON.stringify(r.issues));
   ok('the bricks it cannot reproduce are flagged on the timeline', r.flagged > 0, String(r.flagged));
-  ok('nothing was saved yet — the original frames are still held',
+  ok('the review is holding the whole original frame list',
      r.origKept === (await page.evaluate(()=>BLK.conv.orig.length)) && r.origKept > 0);
-  ok('no "(frames)" copy exists until you accept',
-     !(await page.evaluate(()=>MSTR.sequences.some(s=>s.name === 'Imported wave (frames)'))));
+  /* 2026-08-22 — this used to assert `no "(frames)" copy exists until you
+     accept`, and that WAS the behaviour: the review door held `orig` in
+     BLK.conv and nowhere else. It is the behaviour a critical work-loss bug
+     was made of. buildSequencer() ends in servoStoreTouch(), so the CONVERTED
+     routine reached the browser store 500 ms later; the only path that put
+     the frames back, blkConvCheckSeq(), runs from buildBlocks(), which
+     leaving the desk never calls. A review somebody walked away from replaced
+     their imported frame list with a guess at it, with nothing to go back to.
+     blocks-ui.js's own header had said all along that BOTH doors save the
+     original frame list as a copy first; now the review door does too, so the
+     copy exists from the moment the door opens rather than from accept. */
+  const kept = await page.evaluate(()=>{
+    const copy = MSTR.sequences.find(s=>s.name === 'Imported wave (frames)');
+    return {there: !!copy, isList: copy ? !blockIsRoutine(copy) : false,
+            same: copy ? JSON.stringify(copy.frames) === JSON.stringify(BLK.conv.orig) : false,
+            byIdentity: !!copy && BLK.conv.kept === copy,
+            copies: MSTR.sequences.filter(s=>/\(frames\)/.test(s.name)).length};
+  });
+  ok('the "(frames)" copy is made when the door OPENS, not when you accept',
+     kept.there && kept.isList && kept.copies === 1, JSON.stringify(kept));
+  ok('…and it is the original frame list, byte for byte, held by identity',
+     kept.same && kept.byIdentity, JSON.stringify(kept));
 
   console.log('\n════ the readout is the measurement, not a second opinion ════');
   const line = await page.evaluate(()=>{
@@ -227,14 +247,18 @@ const clickText = async (page, txt) => {
     const seq = MSTR.sequences[EDIT.seq];
     const want = JSON.stringify(BLK.conv.orig);
     const left = BLK.conv.issues.length;
+    const was = BLK.conv.kept;                 // the copy the review door already made
     blkConvAccept();
     const copy = MSTR.sequences.find(s=>s.name === 'Imported wave (frames)');
     return {conv: !!BLK.conv, isRoutine: blockIsRoutine(seq), left,
-            copy: !!copy, copySame: copy ? JSON.stringify(copy.frames) === want : false};
+            copy: !!copy, copySame: copy ? JSON.stringify(copy.frames) === want : false,
+            kept: copy === was, copies: MSTR.sequences.filter(s=>/\(frames\)/.test(s.name)).length};
   });
   ok('accepting with issues outstanding is allowed — and says so', acc.left > 0 && !acc.conv, JSON.stringify(acc));
   ok('the routine stays bricks', acc.isRoutine);
   ok('the untouched original is in the library, byte for byte', acc.copy && acc.copySame, JSON.stringify(acc));
+  ok('…and it is the SAME copy the review made — accepting keeps one, it does not make a second',
+     acc.kept && acc.copies === 1, JSON.stringify(acc));
 
   console.log('\n════ leaving the routine abandons a pending review ════');
   await droid(page, false);
@@ -250,6 +274,38 @@ const clickText = async (page, txt) => {
   });
   ok('the review is dropped and the frame list restored', !away.conv && !away.isRoutine && away.same,
      JSON.stringify(away));
+
+  /* THE FAILURE THE COPY EXISTS TO PREVENT (2026-08-22). Leaving the ROUTINE
+     goes through buildBlocks() → blkConvCheckSeq(), which puts the frames
+     back. Leaving the SEQUENCER does not: setStripMode('pad') never calls
+     buildBlocks(), so the review is still pending and the routine is still
+     bricks — while buildSequencer() has already called servoStoreTouch() and
+     the converted routine is on its way into the browser store. That is the
+     reload, the tab switch and the walk-away, and before the review door kept
+     a copy it was somebody's imported frame list gone for good. */
+  console.log('\n════ leaving the SEQUENCER does not take the original with it ════');
+  await droid(page, false);
+  await asFrameList(page, 'Imported wave');
+  await clickText(page, 'Work them out and review…');
+  const gone = await page.evaluate(()=>{
+    const seq = MSTR.sequences[EDIT.seq];
+    const want = JSON.stringify(BLK.conv.orig);
+    const name = seq.name + ' (frames)';
+    setStripMode('pad');                  // out of the sequencer altogether
+    servoStoreSave();                     // what servoStoreTouch()/pagehide write anyway
+    const copy = MSTR.sequences.find(s=>s.name === name);
+    const stored = JSON.parse(localStorage.getItem(SERVO_STORE_KEY) || '{}');
+    const sc = (stored.sequences || []).find(s=>s.name === name);
+    return {converted: blockIsRoutine(seq), copy: !!copy,
+            same: copy ? JSON.stringify(copy.frames) === want : false,
+            inStore: !!sc && JSON.stringify(sc.frames) === want};
+  });
+  ok('the routine left the desk as bricks — nothing put its frames back',
+     gone.converted, JSON.stringify(gone));
+  ok('…but the original frame list is still in the library, byte for byte',
+     gone.copy && gone.same, JSON.stringify(gone));
+  ok('…and it is in what the browser store persists, so a reload cannot lose it',
+     gone.inStore, JSON.stringify(gone));
 
   console.log('\n════ nothing to convert is refused, with the reason ════');
   const none = await page.evaluate(()=>{

@@ -91,9 +91,30 @@ function setupImportObj(o){
   if(!o || o.format !== SETUP_FORMAT) throw new Error('not an R2 setup file (missing "'+SETUP_FORMAT+'" marker)');
   if(o.version > SETUP_VERSION) throw new Error('this setup file is from a newer sim (v'+o.version+') — update the sim first');
 
-  /* profile + constants */
-  if(o.profile && PROFILES[o.profile]) loadProfile(o.profile);
-  if(o.cfg) Object.assign(CFG, o.cfg);
+  /* profile + constants.
+
+     A PROFILE THIS SIM DOES NOT HAVE IS REFUSED, NOT SHRUGGED OFF (2026-08-22).
+     `loadProfile(id)` is `const p = PROFILES[id]; if(!p) return;` — it fails
+     SILENTLY, and the two lines below used to carry on regardless: the FILE's
+     constants were merged into whatever profile happened to already be loaded,
+     and PREFS.build.firmware (further down) was pointed at the id that had just
+     failed to load. The receipt then named the profile that WAS loaded, so the
+     whole thing read as a success.
+
+     This is not the corrupt-file case. Imported-sketch profiles are registered
+     at runtime out of localStorage (profiles/sketch-import.js), and a setup
+     file carries neither the .ino source nor any hint of where its id came
+     from — so this is what your own exported setup does on another machine, or
+     on this one after a Reset has wiped the store. CFG belongs to a profile:
+     merging one sketch's constants onto another's is not a partial import, it
+     is a wrong one, and DRIVESPEED1 lands on the throttle either way.
+
+     So the constants and the build's firmware answer are held back together,
+     the loaded profile is left exactly as it was, and `missingProfile` carries
+     the id out to the receipt — everything else in the file still imports. */
+  const missingProfile = (o.profile && !PROFILES[o.profile]) ? o.profile : null;
+  if(o.profile && !missingProfile) loadProfile(o.profile);
+  if(o.cfg && !missingProfile) Object.assign(CFG, o.cfg);
   if(o.isLeftStickDrive !== undefined){ FW.isLeftStickDrive = o.isLeftStickDrive; applyStickMapping(); }
   if(CFG.DRIVESPEED1 !== undefined) FW.drivespeed = CFG.DRIVESPEED1;
   if(CFG.vol !== undefined) SND.vol = CFG.vol;
@@ -204,8 +225,11 @@ function setupImportObj(o){
   }
 
   /* the file's profile is authoritative — it is what its constants belong to,
-     so a hand-edited build block never silently reloads a different sketch */
-  if(o.profile && PREFS.build) PREFS.build.firmware = o.profile;
+     so a hand-edited build block never silently reloads a different sketch.
+     Unless it is a profile this sim does not have: then it is not authoritative
+     over anything, and writing it here would persist a dangling id into the
+     build answers (see the note by the refusal above). */
+  if(o.profile && !missingProfile && PREFS.build) PREFS.build.firmware = o.profile;
 
   /* labels, colours, groups — pruned against the loaded model as usual */
   if(typeof partsLoad==='function'){ partsLoad(); registerGroupAnims(); }
@@ -216,17 +240,30 @@ function setupImportObj(o){
   if(typeof rebuildProfileUI==='function') rebuildProfileUI();
   if(typeof rebuildMaestroUI==='function') rebuildMaestroUI();
   if(typeof buildCadPane==='function') buildCadPane();
-  lg('sys','setup imported — profile '+PROFILE.short+', '
+  if(missingProfile)
+    lg('warn','setup import: firmware profile “'+missingProfile+'” is not installed in this sim. An imported '
+      + 'sketch is registered from THIS browser, not carried inside a setup file, so its constants have no '
+      + 'sketch to belong to here — they were left out, and so was the build\'s firmware answer. “'
+      + PROFILE.short+'” is still loaded, exactly as it was. Drop the .ino in first, then import this setup again.');
+  lg('sys','setup imported — profile '+PROFILE.short
+    + (missingProfile ? ' (unchanged; the file asked for “'+missingProfile+'”, which is not installed here, '
+                        + 'so its constants were skipped — see the warning above)' : '')+', '
     + (o.maestro ? MSTR.channels.length+' Maestro channels, '+MSTR.sequences.length+' sequences, ' : '')
     + Object.keys((o.prefs&&o.prefs.parts&&o.prefs.parts.overrides)||{}).length+' part label/colour override(s)');
-  return true;
+  return {ok:true, missingProfile:missingProfile};
 }
 function setupImportText(text, name){
   try{
-    setupImportObj(JSON.parse(text));
-    /* a drop imports with no pane open at all — the toast is the answer */
-    toast('Setup loaded from '+(name||'file'));
-    return {ok:true};
+    const r = setupImportObj(JSON.parse(text)) || {};
+    /* a drop imports with no pane open at all — the toast is the answer, and
+       a part that did not land has to be part of that answer or it is not an
+       answer at all (2026-08-22 — see the refusal note in setupImportObj) */
+    if(r.missingProfile)
+      toast('Setup loaded from '+(name||'file')+' — but its firmware “'+r.missingProfile+'” is not installed '
+        + 'here, so its constants were left out and “'+PROFILE.short+'” is still loaded. Import the .ino '
+        + 'sketch first, then load this setup again.', 'warn');
+    else toast('Setup loaded from '+(name||'file'));
+    return {ok:true, missingProfile:r.missingProfile || null};
   }catch(e){
     lg('warn','setup import failed ('+(name||'file')+'): '+e.message);
     toast('Could not load '+(name||'file')+': '+e.message, 'err');
@@ -238,7 +275,11 @@ function setupImportFile(file){
   fr.onload = ()=>{
     const r = setupImportText(fr.result, file.name);
     const m = $('expMsg') || $('cadMsg');
-    if(m) m.textContent = r.ok ? 'Setup loaded from '+file.name+'.' : 'Could not load '+file.name+': '+r.error;
+    if(m) m.textContent = !r.ok ? 'Could not load '+file.name+': '+r.error
+      : r.missingProfile
+        ? 'Setup loaded from '+file.name+', except its firmware “'+r.missingProfile+'” — that sketch is not '
+          + 'installed here, so its constants were left out. Import the .ino first, then load this setup again.'
+        : 'Setup loaded from '+file.name+'.';
     if(typeof buildStartup==='function' && $('startup').classList.contains('on')) buildStartup();
   };
   fr.readAsText(file);

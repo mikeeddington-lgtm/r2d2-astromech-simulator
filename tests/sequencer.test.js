@@ -672,6 +672,167 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
      ocCarry.at700===ocCarry.closed && ocCarry.at999===ocCarry.closed, JSON.stringify(ocCarry));
 
   /* ================================================================
+     FIVE DEFECTS IN THE COMPILER (2026-08-22)
+     Everything below reads the COMPILED FRAMES, because that is what the
+     board is handed and what the export carries — the timeline and the
+     scrub preview were right about all five and the frames were not.
+     ================================================================ */
+  console.log('\n════ a brick\'s START INSTANT must not claim the interval before it ════');
+  /* Act bricks are sampled at the END of each interval, and a brick's
+     window is inclusive at its start — so at `next === B.t0` the later
+     brick B answered with its value at local 0 (fully shut) and, being
+     later in blockList, beat brick A which was genuinely mid-hold. The
+     whole interval leading up to B compiled SHUT, contradicting both the
+     timeline and blockValueAt, and which brick won depended on the order
+     they were dropped in. */
+  const abut = await ev(()=>{
+    const act = blockActions()[0].act;
+    const c = blockChan(act);
+    /* the same two bricks, dropped in each order: "Opens" [0,1000] then
+       "Opens then closes" [1000,2000], abutting on ONE channel */
+    const mk = order => {
+      const seq = MSTR.sequences[blockNewRoutine('Abut '+order)];
+      const A = () => blockAdd(seq,'act',act,0,   {dur:1000, rise:200, fall:200, mode:'o'});
+      const B = () => blockAdd(seq,'act',act,1000,{dur:1000, rise:200, fall:200});
+      if(order === 'ab'){ A(); B(); } else { B(); A(); }
+      const at = ms=>{ let t=0, v=seq.frames[0].targets[c.i];
+        for(const f of seq.frames){ t+=f.duration; v=f.targets[c.i]||v; if(t>=ms) break; } return v; };
+      return {at600: at(600), scrub: blockValueAt(blockList(seq).find(b=>b.t0===0), 600),
+              shape: seq.frames.map(f=>f.name+' '+f.duration+' '+f.targets[c.i]).join(' · ')};
+    };
+    return {closed:blockClosed(c), open:blockOpen(c), ab:mk('ab'), ba:mk('ba')};
+  });
+  ok('an abutting brick does not blank the hold that runs into it',
+     abut.ab.at600===abut.open && abut.ab.at600===abut.ab.scrub,
+     'at 600 ms the frames say '+abut.ab.at600+', the timeline says '+abut.ab.scrub
+     +' (open '+abut.open+', closed '+abut.closed+') — '+abut.ab.shape);
+  ok('…and the compiled frames no longer depend on the order the bricks were dropped',
+     abut.ab.shape === abut.ba.shape, abut.ab.shape+'  ≠  '+abut.ba.shape);
+
+  /* the other half of the same rule: a DELIBERATE overlap must still layer,
+     which is what the compiler's own comment promises — "later blocks win" */
+  const layer = await ev(()=>{
+    const act = blockActions()[0].act;
+    const c = blockChan(act);
+    const seq = MSTR.sequences[blockNewRoutine('Deliberate overlap')];
+    blockAdd(seq,'act',act,0,  {dur:2000, rise:200, fall:200, mode:'o'});           // holds open throughout
+    blockAdd(seq,'act',act,500,{dur:1000, rise:200, fall:200, amp:0.4});            // …dipped by a later brick
+    const at = ms=>{ let t=0, v=seq.frames[0].targets[c.i];
+      for(const f of seq.frames){ t+=f.duration; v=f.targets[c.i]||v; if(t>=ms) break; } return v; };
+    const closed = blockClosed(c), open = blockOpen(c);
+    return {closed, open, part: Math.round(closed + (open-closed)*0.4),
+            at400: at(400), at1000: at(1000), at1600: at(1600),
+            shape: seq.frames.map(f=>f.name+' '+f.duration+' '+f.targets[c.i]).join(' · ')};
+  });
+  ok('a deliberate overlap still behaves like a layer — the later brick wins inside its own window',
+     layer.at1000===layer.part && layer.at1600===layer.open, JSON.stringify(layer));
+  ok('…without the layer reaching back into the interval before it starts',
+     layer.at400===layer.open, 'at 400 ms '+layer.at400+' (want open '+layer.open+') — '+layer.shape);
+
+  console.log('\n════ Save As carries the whole routine, not three keys of it ════');
+  /* blockSaveAs built {name, frames, blocks} by hand, so the copy lost
+     `stepMs` and fell back to the legacy 120 — and because the copy
+     REPLACES the live library object, the next brick edit rewrote the
+     routine at 3–4× the frames. v1.66.0 exists to stop exactly that. */
+  const kept = await ev(()=>{
+    const seq = MSTR.sequences[blockNewRoutine('Step keeper')];
+    seq.cat = 'Regression';                       // …and the library category the user typed
+    blockAdd(seq,'act',blockActions()[0].act,0,{dur:2000, rise:800, fall:800});
+    const authored = {step: blockStepMs(seq), frames: seq.frames.length};
+    const copy = blockSaveAs(seq, 'Step keeper (saved)');
+    const after = {step: copy.stepMs, eff: blockStepMs(copy), cat: copy.cat};
+    blockSync(copy);                              // exactly what the next brick edit does
+    return {authored, after, resync: copy.frames.length, want: BLK_STEP_DEFAULT,
+            live: MSTR.sequences.find(s=>s.name==='Step keeper (saved)') === copy};
+  });
+  ok('the saved copy carries the routine\'s own ramp step',
+     kept.after.step===kept.want && kept.after.eff===kept.want, JSON.stringify(kept));
+  ok('…and the library category', kept.after.cat==='Regression', JSON.stringify(kept.after));
+  ok('…so the first edit after saving recompiles to the same frames, not three times as many',
+     kept.live && kept.resync===kept.authored.frames,
+     'authored '+kept.authored.frames+' frames at step '+kept.authored.step
+     +', after one resync '+kept.resync+' at step '+kept.after.eff);
+
+  console.log('\n════ a new routine can never take a name the library already holds ════');
+  /* Everything downstream resolves a board slot to a sequence BY NAME
+     (loadoutSeqs → find(s => s.name === n)), so a duplicate makes one
+     routine unreachable while another slot fires the wrong one. The
+     library's + minted 'Sequence ' + (lib.length + 1) and checked nothing;
+     the pane's + (ui-pane.js) counts from MSTR.sequences.length, so the two
+     doors collide — ['Sequence 0','Sequence 2','Sequence 2'] in Mike's run.
+     Reduced here to the one door this file owns: the library must not mint
+     a name the library already holds, whatever put it there. */
+  const dupe = await ev(()=>{
+    const L = MSTR.sequences.length;
+    MSTR.sequences.push({name:'Sequence '+(L+2), frames:[{name:'Frame 0',duration:500,targets:[]}]});
+    const i = blockNewRoutine();
+    const minted = MSTR.sequences[i].name;
+    const h = (typeof seqUniqueName === 'function')
+      ? {fresh: seqUniqueName('A name nobody has'), taken: seqUniqueName(minted)} : null;
+    return {minted, holders: MSTR.sequences.filter(s=>s.name===minted).length,
+            resolves: MSTR.sequences.indexOf(MSTR.sequences.find(s=>s.name===minted)) === i,
+            helper: h, takenFree: h ? !MSTR.sequences.some(s=>s.name===h.taken) : false};
+  });
+  ok('the library\'s + steps aside rather than minting a name that is already taken',
+     dupe.holders===1 && dupe.resolves, JSON.stringify(dupe));
+  ok('seqUniqueName leaves an unused name exactly as it was, and steps a taken one aside',
+     !!dupe.helper && dupe.helper.fresh==='A name nobody has'
+     && dupe.helper.taken!==dupe.minted && dupe.takenFree, JSON.stringify(dupe.helper));
+
+  console.log('\n════ no dead tail — a compiled routine is as long as its bricks ════');
+  /* The final boundary emitted a frame of its own (next = t + 200) and the
+     home frame was then appended unconditionally, so the last two frames
+     were byte-identical and every routine ran 400 ms long: buildSequencer
+     printed seqTotal() while the inspector printed blockEnd(). */
+  const tail = await ev(()=>{
+    const act = blockActions()[0].act;
+    const c = blockChan(act);
+    const mk = (name, mode) => {
+      const seq = MSTR.sequences[blockNewRoutine(name)];
+      blockAdd(seq,'act',act,0,{dur:2000, rise:200, fall:200, mode});
+      const f = seq.frames, last = f[f.length-1], prev = f[f.length-2];
+      return {end: blockEnd(seq), total: seqTotal(seq), n: f.length,
+              lastName: last.name, lastAt: last.targets[c.i],
+              twin: !!prev && prev.duration===last.duration
+                    && JSON.stringify(prev.targets)===JSON.stringify(last.targets)};
+    };
+    return {closed: blockClosed(c), oc: mk('Tail oc','oc'), o: mk('Tail o','o')};
+  });
+  ok('a routine that already ends shut compiles to exactly its own length',
+     tail.oc.total===tail.oc.end && !tail.oc.twin, JSON.stringify(tail.oc));
+  ok('…and still ends on the home pose, so a compiled routine can never end open',
+     tail.oc.lastName==='home' && tail.oc.lastAt===tail.closed, JSON.stringify(tail.oc));
+  ok('a routine left mid-open by an \'o\' brick still gets its home frame appended',
+     tail.o.lastName==='home' && tail.o.lastAt===tail.closed && tail.o.total===tail.o.end+200,
+     JSON.stringify(tail.o));
+
+  console.log('\n════ every frame boundary is a whole millisecond ════');
+  /* blockEffRamps capped a ramp at b.dur/2 — an x.5 value on an odd-length
+     brick — and blockBoundaries then held both t0+rise and Math.round(t0+rise).
+     Frame names are 't'+Math.round(t), so the compiler emitted a junk 1 ms
+     frame and two <Frame> elements sharing a name. */
+  const halfMs = await ev(()=>{
+    const act = blockActions()[0].act;
+    const seq = MSTR.sequences[blockNewRoutine('Half a millisecond')];
+    const b = blockAdd(seq,'act',act,0,{dur:681, rise:400, fall:400});   // ramps capped at dur/2
+    const r = blockEffRamps(b);
+    const whole = a => a.every(t=>Number.isInteger(t));
+    const odd = {ramps:[r.rise, r.fall], bounds: blockBoundaries(seq, blockStepMs(seq))};
+    /* …and an import can hand the compiler a fractional t0/dur directly */
+    b.t0 = 100.4; b.dur = 681.2; blockSync(seq);
+    const names = seq.frames.map(f=>f.name);
+    const imp = {bounds: blockBoundaries(seq, blockStepMs(seq)), names};
+    return {odd, imp, oddWhole: whole(odd.bounds), impWhole: whole(imp.bounds),
+            uniqueNames: names.length === new Set(names).size};
+  });
+  ok('an odd-length brick\'s ramps land on whole milliseconds',
+     Number.isInteger(halfMs.odd.ramps[0]) && Number.isInteger(halfMs.odd.ramps[1])
+     && halfMs.oddWhole, JSON.stringify(halfMs.odd));
+  ok('…and so does every boundary, even when the brick itself arrived fractional',
+     halfMs.impWhole, JSON.stringify(halfMs.imp.bounds));
+  ok('…so no two frames end up sharing a name', halfMs.uniqueNames, halfMs.imp.names.join(' · '));
+
+  /* ================================================================
      v1.40.0 — Mike: "imported routines when placed on the timeline
      should be expanded into each servo's block so they can be edited,
      not just a single block."

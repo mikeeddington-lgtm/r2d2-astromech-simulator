@@ -970,6 +970,12 @@ function wizServoTableGap(host, b){
     + 'exactly where it is; the new ones arrive as Input, ready to be set to Servo on the ones you '
     + 'have wired. ';
   const btn = el('button','mini','add the missing ' + gap.missing + ' rows');
+  /* buildStartup() repaints the step this notice is ON — the row count, the
+     channel figures and this notice itself have all just changed. It only
+     became the right call in v1.67.0: setupAdoptBoards() used to end in
+     wizFinish(), which closed the startup card, so this line was repainting a
+     wizard it had just shut underneath itself. It calls buildApply() now and
+     the wizard stays where it was. */
   btn.addEventListener('click', ()=>{
     if(typeof setupAdoptBoards === 'function' && setupAdoptBoards()) buildStartup();
   });
@@ -1160,7 +1166,22 @@ function wizServoSetupStep(host, step){
     kbtn.id = 'btnServoKeep';
     const useThem = ()=>{
       const bb = buildGet();
-      if(!bb.servoCfg) bb.servoCfg = {how:'', name:'', n:0, when:''};
+      /* v1.67.0 — a record servoCfgSrc() can actually SEE. This seeded
+         `{how:'', …}`, and servoCfgSrc() is
+         `b.servoCfg && b.servoCfg.how ? b.servoCfg : null` — an empty string
+         is falsy, so it returned null, the render's
+         `!!(servoCfgSrc() && src.kept)` stayed false, and the button was
+         inert every single time: toast, log, and a card that never showed as
+         chosen. Reachable whenever the table carries travel but nothing wrote
+         provenance — a dropped .mstr, a starter table, a bench session left
+         by × or Esc. 'kept' IS the provenance: somebody looked at what was
+         here and said keep it. servoCfgStory() has no branch for it and needs
+         none — it falls to "already in this build", which is exactly what
+         happened. Never over the top of a real source: a bench or import
+         record already says something truer than this does. */
+      if(!servoCfgSrc())
+        bb.servoCfg = {how:'kept', name:'', n:servoCfgConfigured(),
+                       when:new Date().toISOString()};
       bb.servoCfg.kept = true;
       if(typeof prefsSave === 'function') prefsSave();
       lg('sys','servo setup: keeping the '+servoCfgConfigured()+' channels already configured');
@@ -1806,20 +1827,63 @@ function dmapRender(){
     ? 'Placing <b>ch '+sel.i+' · '+xmlEsc(sel.name||'')+'</b> — click its panel'
     : 'Every servo channel is placed. Click a channel below to move it.';
   left.appendChild(cue);
-  buildDomeMap(left, {
-    channels: MSTR.channels,
-    selected: DMAP.sel,
-    hoverKey: DMAP.hover,
-    onPick: (key)=>{
-      if(DMAP.sel < 0) return;
-      /* route through HW.setPart so the one-part-one-channel clear-then-set
-         rule holds — same seam the pin-first Panels rows and the Bench use */
-      if(typeof HW !== 'undefined' && typeof HW.setPart === 'function') HW.setPart(DMAP.sel, key);
-      else MSTR.channels[DMAP.sel].act = key;   // no HW seam (e.g. a bare test page) — fall back
-      DMAP.sel = dmapNextUnmapped(DMAP.sel);
-      dmapRender();
+  /* ------------------------------ ONE DRAWING, ONE ORIENTATION (v1.67.0)
+     This called buildDomeMap() with no `rotate`, so it defaulted to 0 while
+     the bench's copy of the same drawing passes setupDomeRot() — and
+     setupDomeSetRot() persists that to PREFS.domeRot precisely because "a
+     builder's bench does not move between sessions and neither should the
+     map". Two doors onto one picture, disagreeing about which way the dome
+     faces, and this one had no rotate control to correct it with. So it
+     reads the same angle, and offers the same slider under the same
+     `.domrotbar` the bench uses. */
+  const dmapRot = ()=>(typeof setupDomeRot === 'function') ? setupDomeRot() : (+PREFS.domeRot || 0);
+  const svgHost = el('div');
+  const onPick = (key)=>{
+    if(DMAP.sel < 0) return;
+    /* route through HW.setPart so the one-part-one-channel clear-then-set
+       rule holds — same seam the pin-first Panels rows and the Bench use */
+    if(typeof HW !== 'undefined' && typeof HW.setPart === 'function') HW.setPart(DMAP.sel, key);
+    else MSTR.channels[DMAP.sel].act = key;   // no HW seam (e.g. a bare test page) — fall back
+    DMAP.sel = dmapNextUnmapped(DMAP.sel);
+    dmapRender();
+  };
+  const drawMap = ()=>{
+    svgHost.innerHTML = '';
+    buildDomeMap(svgHost, {
+      channels: MSTR.channels,
+      selected: DMAP.sel,
+      hoverKey: DMAP.hover,
+      rotate: dmapRot(),
+      onPick: onPick
+    });
+  };
+  left.appendChild(svgHost);
+  drawMap();
+  const rotbar = el('div','domrotbar');
+  rotbar.innerHTML = '<label class="domrot" title="turn the drawing so it matches how you are looking at '
+    + 'your dome. The FRONT marker turns with it; the labels stay upright. It is the same angle the bench\'s '
+    + 'dome map uses.">rotate '
+    + '<input type="range" id="dmapRot" min="0" max="359" step="1" value="'+dmapRot()+'">'
+    + '<b id="dmapRotN">'+dmapRot()+'°</b></label>'
+    + '<button class="mini" id="dmapRot0" title="put the drawing back with the droid’s front at the bottom">reset</button>';
+  left.appendChild(rotbar);
+  /* redraw the MAP only, never dmapRender() — rebuilding the input under the
+     thumb would end the drag on the first pixel (the same lesson the bench's
+     slider and the calibration dial both learned) */
+  const setRot = deg=>{
+    if(typeof setupDomeSetRot === 'function') setupDomeSetRot(deg);
+    else if(typeof PREFS !== 'undefined'){
+      PREFS.domeRot = ((Math.round(+deg||0) % 360) + 360) % 360;
+      if(typeof prefsSave === 'function') prefsSave();
     }
-  });
+    const n = rotbar.querySelector('#dmapRotN'); if(n) n.textContent = dmapRot()+'°';
+    drawMap();
+  };
+  rotbar.querySelector('#dmapRot').oninput = e=>setRot(e.target.value);
+  rotbar.querySelector('#dmapRot0').onclick = ()=>{
+    setRot(0);
+    const r = rotbar.querySelector('#dmapRot'); if(r) r.value = dmapRot();
+  };
   const key = el('div','iwkey');
   key.innerHTML = '<span class="k has"></span>mapped <span class="k dup"></span>two channels'+
                   ' <span class="k lit"></span>lighting on the reference <span class="k"></span>free';

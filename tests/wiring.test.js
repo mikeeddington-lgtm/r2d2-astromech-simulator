@@ -100,6 +100,57 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
   ok('it names the profile it was generated for', html.includes(await ev(()=>PROFILE.name)));
 
   /* ================================================================
+     TWO BOARDS ARE TWO BOXES
+
+     wiringSource() was deliberately fixed to walk BOTH board locations, so
+     `rows` legitimately carries rows from two different boards — and the
+     default build is a two-board build (servoSplit:'two'). The diagram then
+     titled the whole sheet from wired[0].board, drew ONE box, and hung
+     every channel off it, so the pin column read 0,0,1,1,2,2… Two physically
+     separate boards, printed as one, on the page a builder takes to the
+     bench and wires from.
+     ================================================================ */
+  console.log('\n════ the wiring diagram draws one box per board ════');
+  const twoBoard = await ev(()=>{
+    const rows = wiringRows().filter(r=>r.board);
+    const svg  = wiringDiagramSvg(wiringRows());
+    const doc  = new DOMParser().parseFromString(svg.replace(/^[\s\S]*?(?=<svg)/,''), 'image/svg+xml');
+    const gs   = [...doc.querySelectorAll('g[data-board]')];
+    return {
+      boards: [...new Set(rows.map(r=>r.board))],
+      /* the board box is the only dark-green rect in the picture, so
+         counting them counts boards without leaning on the fix's markup */
+      boxes: (svg.match(/fill="#1c4d2e"/g)||[]).length,
+      groups: gs.map(g=>g.getAttribute('data-board')),
+      dupPins: gs.map(g=>{
+        const p = [...g.querySelectorAll('text.pin')].map(t=>t.textContent);
+        return p.length - new Set(p).size;
+      })
+    };
+  });
+  console.log('      boards: '+JSON.stringify(twoBoard.boards));
+  ok('the default build really does have two boards on it', twoBoard.boards.length===2,
+     JSON.stringify(twoBoard.boards));
+  ok('the sheet names BOTH of them, not just the first', await ev(()=>{
+    const svg = wiringDiagramSvg(wiringRows());
+    return [...new Set(wiringRows().filter(r=>r.board).map(r=>r.board))].every(b=>svg.indexOf(b)>=0);
+  }), JSON.stringify(twoBoard));
+  ok('…and draws one board box per board, not one for both',
+     twoBoard.boxes === twoBoard.boards.length, twoBoard.boxes+' boxes for '+twoBoard.boards.length+' boards');
+  ok('…each channel group tagged with the board it belongs to',
+     twoBoard.groups.length === twoBoard.boards.length
+     && twoBoard.groups.slice().sort().join('|') === twoBoard.boards.slice().sort().join('|'),
+     JSON.stringify(twoBoard.groups));
+  ok('…and no pin number appears twice on one board',
+     twoBoard.dupPins.length>0 && twoBoard.dupPins.every(n=>n===0), JSON.stringify(twoBoard.dupPins));
+  ok('a one-board build still draws exactly one box', await ev(()=>{
+    const rows = wiringRows().filter(r=>r.board);
+    const one  = rows.filter(r=>r.board===rows[0].board);
+    const svg  = wiringDiagramSvg(one);
+    return (svg.match(/fill="#1c4d2e"/g)||[]).length === 1 && svg.indexOf(one[0].board) >= 0;
+  }));
+
+  /* ================================================================
      v1.45.0 — Mike: "Mark wiring images as Beta." The badge is drawn
      INSIDE each SVG so it cannot be separated from the picture, in the
      app and in the exported sheet — which is the copy that gets printed
@@ -167,6 +218,46 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
   }));
   ok('the four doors the firmware cannot drive are listed as undriven', pca.filter(r=>
     ['doorRL','doorRR','smallDoor','drawer'].includes(r.act)).every(r=>!r.board));
+
+  /* ================================================================
+     ONE CLOCK ON THE SHEET
+
+     The filename comes from fileStamp() (core/util.js), whose contract is
+     explicitly LOCAL time — "the stamp exists to be recognised by the
+     person who pressed the button". The header line inside the same
+     document was UTC. Export at 09:00 in UTC+10 and you download
+     `…-0900.html` that prints "generated 2026-08-21 23:00": a different
+     clock time AND a different date, on the same page.
+
+     This needs its own context, in a timezone that is not the runner's:
+     under UTC the bug is invisible, which is exactly why it survived.
+     ================================================================ */
+  console.log('\n════ the sheet and its filename agree on the clock ════');
+  const tzPage = await browser.newPage({ viewport:{width:1400,height:900}, timezoneId:'Australia/Brisbane' });
+  await tzPage.goto('file://'+path.resolve(__dirname, '..', process.env.R2_TARGET || 'R2D2-Simulator.html')+R2_Q);
+  await tzPage.waitForFunction('typeof CAD!=="undefined" && CAD.loaded', {timeout:40000});
+  await tzPage.evaluate(()=>{ PREFS.seenStartup=true; closeStartup(); });
+  const clocks = await tzPage.evaluate(()=>{
+    const html  = wiringHtml();
+    const m     = html.match(/generated ([0-9]{4}-[0-9]{2}-[0-9]{2}[ T][0-9]{2}:[0-9]{2})/);
+    const d     = new Date();
+    const p     = n => String(n).padStart(2,'0');
+    return {
+      onSheet: m ? m[1] : null,
+      stamp:   fileStamp(),
+      local:   d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+' '+p(d.getHours())+':'+p(d.getMinutes()),
+      utc:     new Date().toISOString().slice(0,16).replace('T',' '),
+      offset:  -d.getTimezoneOffset()/60
+    };
+  });
+  console.log('      sheet "'+clocks.onSheet+'"  local "'+clocks.local+'"  utc "'+clocks.utc+'"  filename '+clocks.stamp+'  (UTC'+(clocks.offset>=0?'+':'')+clocks.offset+')');
+  ok('the test context really is off UTC, or this proves nothing', clocks.offset !== 0, 'UTC'+clocks.offset);
+  ok('the "generated" line is LOCAL time, the same clock the filename uses',
+     clocks.onSheet === clocks.local, clocks.onSheet+' vs '+clocks.local);
+  ok('…and it matches fileStamp(), which is what the download is named after',
+     clocks.stamp === clocks.onSheet.replace(/[-: ]/g,'').replace(/^(\d{4})(\d{2})(\d{2})(\d{4})$/,'$1-$2-$3-$4'),
+     clocks.stamp+' vs '+clocks.onSheet);
+  await tzPage.close();
 
   console.log(`\n${pass} passed, ${fail} failed`);
   console.log('page errors:', errs.length?errs:'none');

@@ -9,7 +9,13 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
 
 /* --- reference implementation of mixHubDrive(), transcribed straight from the .ino --- */
 function refMix(stickX, stickY, maxDriveSpeed, C, st){
-  const map_=(x,a,b,c,d)=>Math.trunc((x-a)*(d-c)/(b-a)+c);
+  /* C's map(): the QUOTIENT is truncated (integer division, toward zero) and
+     out_min is added to the result. This copy used to truncate the SUM, the
+     same off-by-one core/util.js carried until 2026-08-22 — so the reference
+     agreed with the sim only because both were wrong in the same place, on
+     every reverse reading. A transcription that reproduces the bug is not a
+     transcription. See the map_() note in core/util.js. */
+  const map_=(x,a,b,c,d)=>Math.trunc((x-a)*(d-c)/(b-a))+c;
   const DZ=C.DRIVEDEADZONERANGE*258;
   if(stickX<=-DZ||stickX>=DZ||stickY<=-DZ||stickY>=DZ) st.RampingMillis=st.now;
   if(stickX<=-DZ||stickX>=DZ||stickY<=-DZ||stickY>=DZ||(st.now-st.RampingMillis<C.RampingDeadzoneDelay)){
@@ -205,6 +211,63 @@ function refMix(stickX, stickY, maxDriveSpeed, C, st){
     return after;
   });
   ok('mod2026 does swap them', stick2==='R3/L3', stick2);
+
+  /* ================================================================
+     2026-08-22 — map_() IS ARDUINO'S map(), ON BOTH HALVES OF THE STICK
+
+     Arduino's is, in C:
+         long map(x, a, b, c, d){ return (x - a) * (d - c) / (b - a) + c; }
+     where the DIVISION truncates toward zero and `+ c` happens afterwards.
+     core/util.js truncated the SUM instead, and Math.trunc(q + c) equals
+     Math.trunc(q) + c only once q + c has reached zero — so every reading
+     from the negative half of a stick came out one short of the sketch's.
+     Reverse throttle, reverse turn, dome-left and the leftDirection===0
+     foot-PWM path are all on the wrong side of that line (the call sites are
+     in profiles/maestro-shared.js and profiles/mod2026.js).
+
+     One off-by-one is not much of a droid problem; it is a total problem for
+     an app whose whole premise is that its numbers ARE the sketch's numbers.
+     So this sweeps every input rather than sampling, in all three shapes the
+     call sites use: a symmetric signed range, a REVERSED one (dome, where
+     out_min > out_max), and the unconstrained overshoot the foot PWM relies
+     on going outside its input range.
+     ================================================================ */
+  console.log('\n════ map_() matches Arduino across the whole stick ════');
+  const mp = await ev(()=>{
+    /* Arduino's map() with C's integer semantics spelled out: truncate the
+       QUOTIENT (C integer division truncates toward zero), then add out_min. */
+    const ref = (x,a,b,c,d)=>Math.trunc((x-a)*(d-c)/(b-a)) + c;
+    const sweep = (lo,hi,a,b,c,d)=>{
+      let bad = 0, first = null;
+      for(let x=lo; x<=hi; x++){
+        const g = map_(x,a,b,c,d), r = ref(x,a,b,c,d);
+        if(g !== r){ bad++; if(!first) first = {x, got:g, want:r}; }
+      }
+      return {bad, first};
+    };
+    return {
+      throttle: sweep(-32768,32767,-32768,32767,-50,50),   // map_(hat, …, -drivespeed, drivespeed)
+      dome:     sweep(-32768,32767,-32768,32767,80,-80),   // map_(hat, …, DOMESPEED, -DOMESPEED)
+      hub:      sweep(-32768,32767,-32768,32767,-100,100), // mixHubDrive()'s XDist/YDist
+      foot:     sweep(-200,200,-100,100,132,48),           // map_(LeftSpeed,-100,100,fwd,rev), overshoot and all
+      one:      map_(-1,-32768,32767,-50,50),
+      ends:     [map_(-32768,-32768,32767,-50,50), map_(32767,-32768,32767,-50,50)],
+      centre:   map_(0,-32768,32767,-50,50)
+    };
+  });
+  ok('every one of the 65,536 throttle positions agrees with the sketch',
+     mp.throttle.bad === 0, mp.throttle.bad+' mismatches, first '+JSON.stringify(mp.throttle.first));
+  ok('…and every one of the dome\'s, where the output range runs backwards',
+     mp.dome.bad === 0, mp.dome.bad+' mismatches, first '+JSON.stringify(mp.dome.first));
+  ok('…and mixHubDrive()\'s own -100..100 stick distances',
+     mp.hub.bad === 0, mp.hub.bad+' mismatches, first '+JSON.stringify(mp.hub.first));
+  ok('…and the foot-PWM servo mix, past both ends of its input range',
+     mp.foot.bad === 0, mp.foot.bad+' mismatches, first '+JSON.stringify(mp.foot.first));
+  ok('one click below centre reads -1, not 0 — the whole negative half was off by one',
+     mp.one === -1, String(mp.one));
+  ok('the ends still land exactly on the output range and centre is still centre',
+     mp.ends[0] === -50 && mp.ends[1] === 50 && mp.centre === 0,
+     JSON.stringify(mp.ends)+' centre '+mp.centre);
 
   console.log(`\n${pass} passed, ${fail} failed`);
   console.log('page errors:', errs.length?errs:'none');

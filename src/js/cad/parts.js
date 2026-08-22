@@ -14,7 +14,7 @@
    exported as a pair of Maestro sequences in one click.
    ===================================================================== */
 const PARTS = {
-  overrides: {},   // part name -> {label?, color?}
+  overrides: {},   // part name -> {label?, color?, finish?, motion?} — see partOvPrune()
   groups: []       // {id, name, color|null, members:[part names]}
 };
 let PARTS_NEXT_ID = 1;
@@ -23,21 +23,58 @@ function partsSave(){
   PREFS.parts = JSON.parse(JSON.stringify({overrides:PARTS.overrides, groups:PARTS.groups, nextId:PARTS_NEXT_ID}));
   prefsSave();
 }
-/* called once the CAD is in — drop saved state that no longer matches a part */
+/* called once the CAD is in — the saved registry, WHOLE (v1.46.0)
+
+   This used to keep only the overrides and group members whose names are in
+   CAD.partIndex, "state that no longer matches a part". The trouble is which
+   model happens to be loaded when it runs: at every boot that index is the
+   BUNDLED payload — 175 parts, kinds shell/leg/anim/outlier/panel/pie and no
+   `internal` at all, which is exactly what the Model pane's own "Drop the
+   full .r2m in to add the internal mechanism" is about. partsLoad() does not
+   save, but partsSave() serialises whatever PARTS holds and every rename,
+   colour, motion and group edit calls it — so the documented workflow (drop
+   the full .r2m, name and group the internal parts, reload, rename anything)
+   permanently deleted the internal-part work, even with the full .r2m dropped
+   in again afterwards.
+
+   Nothing downstream needs the prune: partLabel(), effectivePartHex(),
+   applyPaint(), motionApply() and groupActs() all look a name UP in
+   CAD.partIndex / CAD.moving / CAD.header.parts and simply pass over the ones
+   that are not there, so an entry for a part this payload does not carry is
+   inert until the payload that does carry it is loaded. A display list that
+   wants only the parts on the stage should filter where it displays. */
 function partsLoad(){
   const p = PREFS.parts;
   if(!p) return;
   PARTS.overrides = {};
-  for(const name in (p.overrides||{}))
-    if(CAD.partIndex[name]) PARTS.overrides[name] = p.overrides[name];
+  for(const name in (p.overrides||{})) PARTS.overrides[name] = p.overrides[name];
   PARTS.groups = (p.groups||[]).map(g=>({
     id:g.id, name:g.name, color:g.color||null,
-    members:(g.members||[]).filter(n=>CAD.partIndex[n])
+    members:(g.members||[]).slice()
   }));
   PARTS_NEXT_ID = p.nextId || (Math.max(0,...PARTS.groups.map(g=>g.id))+1);
 }
 
 /* ------------------------------------------------------------ per part */
+/* DROP AN OVERRIDE RECORD ONLY WHEN THERE IS NOTHING LEFT IN IT (v1.46.0).
+   An override carries a label, a colour, a finish and a motion, and each of
+   the four writers pruned the record on the keys IT knew about: setPartLabel
+   and setPartColor checked label+color, setPartFinish added finish, and only
+   setPartMotion — written last — checked all four. So clearing a colour, or
+   clearing a name, deleted the whole record and with it `ov.motion`, which is
+   what motionApply()/motionApplyAll() rebuild the rig from. It was silent
+   twice over: neither writer calls motionApply, so the part goes on moving
+   correctly for the rest of the session, and the loss only shows up as the
+   part sitting back on the CAD's own rig after the next reload.
+   One helper, no list of keys to keep in step with four call sites: a record
+   is worth keeping while ANY key in it still holds something, whatever a
+   later version adds. */
+function partOvPrune(name){
+  const ov = PARTS.overrides[name];
+  if(!ov) return;
+  for(const k in ov) if(ov[k]) return;
+  delete PARTS.overrides[name];
+}
 function partBase(name){
   const hp = CAD.header && CAD.header.parts.find(x=>x.name===name);
   return hp ? hp.base : name;
@@ -59,14 +96,14 @@ function setPartLabel(name, label){
   const ov = PARTS.overrides[name] || (PARTS.overrides[name]={});
   const v = (label||'').trim();
   if(v && v !== partBase(name)) ov.label = v; else delete ov.label;
-  if(!ov.label && !ov.color) delete PARTS.overrides[name];
+  partOvPrune(name);
   partsSave();
   lg('sys', v ? `part "${partBase(name)}" labelled "${v}"` : `part "${partBase(name)}" label cleared`);
 }
 function setPartColor(name, hex){
   const ov = PARTS.overrides[name] || (PARTS.overrides[name]={});
   if(hex) ov.color = hex; else delete ov.color;
-  if(!ov.label && !ov.color) delete PARTS.overrides[name];
+  partOvPrune(name);
   applyPaint();
   partsSave();
 }
@@ -136,7 +173,7 @@ function partMotion(name){
 function setPartMotion(name, mo){
   const ov = PARTS.overrides[name] || (PARTS.overrides[name] = {});
   if(mo) ov.motion = mo; else delete ov.motion;
-  if(!ov.label && !ov.color && !ov.finish && !ov.motion) delete PARTS.overrides[name];
+  partOvPrune(name);
   motionApply(name);
   partsSave();
   lg('sys', mo

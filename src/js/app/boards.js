@@ -257,7 +257,11 @@ function chAssign(loc, ch, act){
   if(hw==='mod2026') return false;                        // fixed by the sketch
   const live = PROFILE.hasMaestro && MSTR.loaded && MSTR.board===hw;
   if(live){
-    if(act) MSTR.channels.forEach(c=>{ if(c.act===act) c.act=''; });
+    /* `c &&` for the same reason HW.setPart() has it: a table that came back
+       through the servo store has explicit NULLS where the JSON had holes
+       (JSON.stringify writes null for a sparse slot), and forEach visits an
+       explicit null even though it skips a real hole. */
+    if(act) MSTR.channels.forEach(c=>{ if(c && c.act===act) c.act=''; });
     const c = MSTR.channels[ch];
     if(c){
       c.act = act||'';
@@ -267,6 +271,14 @@ function chAssign(loc, ch, act){
       }
     }
     if(typeof rebuildMaestroUI==='function') rebuildMaestroUI();
+    /* AND SAVE IT (v1.66.3). The planned branch below has always ended in
+       prefsSave(); this one redrew three surfaces and wrote nothing, and
+       servoStoreSave() — which HW.save() calls — is the only writer of
+       r2sim.servo.v1. So every panel→channel assignment made on the Panels
+       step or in the Outputs detail panel looked right for the rest of the
+       session and was silently replaced by servoStoreLoad() on the next
+       reload. HW.setPart() calls this.save() for exactly this reason. */
+    if(typeof HW !== 'undefined') HW.save();
   }else{
     if(!PREFS.hwMap) PREFS.hwMap = {};
     if(!PREFS.hwMap[loc]) PREFS.hwMap[loc] = {};

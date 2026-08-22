@@ -281,6 +281,178 @@ const REFUSAL = 'this build has no servo board yet — answer the servo question
     return p.ws==='bench' && p.adv===true && !('view' in p);
   }));
 
+  /* ══════════════════════════════════════════════════════════════════════
+     A DRAGGED PANE EDGE HAS TO END UP UNDER THE POINTER
+
+     The drag reads VIEWPORT px (getBoundingClientRect, ev.clientX) and
+     stores the answer into --sideW, which #main consumes INSIDE the
+     zoomed subtree — so at 150% every pixel of pointer travel moved the
+     edge 1.5px, and the gap grew for as long as you dragged. Measured
+     here the only way that means anything: where the edge actually is on
+     the glass versus where the pointer actually is.
+     ══════════════════════════════════════════════════════════════════════ */
+  console.log('\n════ splitters drag true at every ui scale ════');
+  for(const z of [1.0, 1.5]){
+    const drag = await (async()=>{
+      await page.evaluate(s=>{ applyUiScale(s); splitReset('sideW'); }, z);
+      await page.waitForTimeout(200);
+      const v = await ev(()=>{ const r=$('splitV').getBoundingClientRect(); return [r.x+r.width/2, r.y+r.height/2]; });
+      const targetX = Math.round(v[0] - 150);
+      await page.mouse.move(v[0], v[1]);
+      await page.mouse.down();
+      await page.mouse.move(targetX, v[1], {steps:8});
+      await page.mouse.up();
+      await page.waitForTimeout(200);
+      const got = await ev(()=>({
+        edge: $('side').getBoundingClientRect().left,
+        vis:  $('side').getBoundingClientRect().width,
+        stored: PREFS.split.sideW
+      }));
+      return Object.assign({targetX, z}, got);
+    })();
+    console.log('      @'+z+'  pointer x='+drag.targetX+'  sidebar edge x='+Math.round(drag.edge)
+              +'  visual width='+Math.round(drag.vis)+'  stored --sideW='+drag.stored);
+    ok('the sidebar edge lands under the pointer at '+Math.round(z*100)+'%',
+       Math.abs(drag.edge - drag.targetX) <= 10, JSON.stringify(drag));
+    ok('…and the stored --sideW is the LAYOUT width, so the clamp means something at '+Math.round(z*100)+'%',
+       Math.abs(drag.stored*z - drag.vis) <= 6, JSON.stringify(drag));
+    ok('…and the clamp is still honoured at '+Math.round(z*100)+'%',
+       await ev(()=>PREFS.split.sideW <= SPLIT_LIMITS.sideW.max && PREFS.split.sideW >= SPLIT_LIMITS.sideW.min),
+       JSON.stringify(drag));
+  }
+  /* the strip handle drives a different variable on a different axis, and
+     had the same bug — one assertion so the fix cannot be half-applied */
+  const tall = await (async()=>{
+    await page.evaluate(()=>{ applyUiScale(1.5); splitReset('padH'); });
+    await page.waitForTimeout(200);
+    const h = await ev(()=>{ const r=$('splitH').getBoundingClientRect(); return [r.x+r.width/2, r.y+r.height/2]; });
+    const targetY = Math.round(h[1] - 110);
+    await page.mouse.move(h[0], h[1]); await page.mouse.down();
+    await page.mouse.move(h[0], targetY, {steps:8}); await page.mouse.up();
+    await page.waitForTimeout(200);
+    return Object.assign({targetY}, await ev(()=>({edge: $('padwrap').getBoundingClientRect().top})));
+  })();
+  console.log('      @1.5  pointer y='+tall.targetY+'  strip top y='+Math.round(tall.edge));
+  ok('the strip edge lands under the pointer at 150% too',
+     Math.abs(tall.edge - tall.targetY) <= 10, JSON.stringify(tall));
+  await page.evaluate(()=>{ applyUiScale(1.0); splitReset('sideW'); splitReset('padH'); });
+  await page.waitForTimeout(150);
+
+  /* ══════════════════════════════════════════════════════════════════════
+     `act` MEANS THE FEATURE IS ON — the Grid button said the opposite
+     ══════════════════════════════════════════════════════════════════════ */
+  console.log('\n════ the Grid button tells the truth about the grid ════');
+  await ev(()=>{ envSet('studio'); });
+  await page.waitForTimeout(150);
+  ok('the grid starts visible and the button starts lit', await ev(()=>
+    grid.visible === true && $('btnGrid').classList.contains('act')),
+    await ev(()=>'grid.visible='+grid.visible+' act='+$('btnGrid').classList.contains('act')));
+  await page.click('#btnGrid');
+  await page.waitForTimeout(150);
+  ok('one click hides the grid and the light goes OUT with it', await ev(()=>
+    grid.visible === false && !$('btnGrid').classList.contains('act')),
+    await ev(()=>'grid.visible='+grid.visible+' act='+$('btnGrid').classList.contains('act')));
+  await page.click('#btnGrid');
+  await page.waitForTimeout(150);
+  ok('…and back on together', await ev(()=>
+    grid.visible === true && $('btnGrid').classList.contains('act')));
+  /* envApply() turns the grid off for every non-studio environment and knows
+     nothing about this button, so picking Workshop used to leave the two
+     permanently unrelated */
+  await ev(()=>envSet('workshop'));
+  await page.waitForTimeout(200);
+  ok('picking an environment that hides the grid takes the light with it', await ev(()=>
+    grid.visible === false && !$('btnGrid').classList.contains('act')),
+    await ev(()=>'env='+ENV.id+' grid.visible='+grid.visible+' act='+$('btnGrid').classList.contains('act')));
+  await ev(()=>envSet('studio'));
+  await page.waitForTimeout(200);
+  ok('…and going back to the studio puts both back', await ev(()=>
+    grid.visible === true && $('btnGrid').classList.contains('act')),
+    await ev(()=>'env='+ENV.id+' grid.visible='+grid.visible+' act='+$('btnGrid').classList.contains('act')));
+
+  /* ══════════════════════════════════════════════════════════════════════
+     AN ANIMATION RATE THE USER CAN TYPE MUST NOT BE ABLE TO RUN AWAY
+
+     `(CFG.maestroRate||2.2)*dt` with no validation: a NEGATIVE rate makes
+     `Math.abs(d) <= step` false forever, so every actuator is stepped AWAY
+     from its target without bound — doors spinning continuously, with no
+     recovery short of reloading the profile — and the input that sets it
+     had no min or max, while main.js:26 clamps CFG.loopHz correctly.
+     ══════════════════════════════════════════════════════════════════════ */
+  console.log('\n════ a typed anim rate cannot make the droid spin forever ════');
+  /* an actuator the PCA9685s do NOT own — those are re-read from
+     servoTravel() every frame, so they hide the ramp this is about. The
+     side panels, rear doors and drawer are ramped by the same expression
+     the Maestro path uses, which is the one that ran away. */
+  const rateRun = await ev(()=>{
+    const k = Object.keys(ACT).find(a=>typeof SERVO_ACT_SET==='undefined' || !SERVO_ACT_SET.has(a));
+    const keep = CFG.maestroRate;
+    const out = {act:k};
+    /* open the door: target 1, start at 0, run 11 s of frames. Whatever a
+       user managed to type into the box, the horn ends up AT the target and
+       nowhere else — it may take longer or shorter, it may not diverge. */
+    for(const rate of [-1, 0, NaN, 1e9, 2.2]){
+      CFG.maestroRate = rate;
+      ACT[k] = 0; ACT_T[k] = 1;
+      for(let i=0;i<220;i++) syncActuators(0.05);      // 11 s of frames
+      out[String(rate)] = +ACT[k].toFixed(3);
+    }
+    CFG.maestroRate = keep;
+    ACT[k] = 0; ACT_T[k] = 0;
+    return out;
+  });
+  console.log('      ACT.'+rateRun.act+' after 11 s chasing a target of 1: '+JSON.stringify(rateRun));
+  ok('a NEGATIVE rate cannot walk the actuator away from its target for ever',
+     Math.abs(rateRun['-1'] - 1) < 1e-6, JSON.stringify(rateRun));
+  ok('nor can a typed 0, a NaN or an absurd rate — each still arrives at the target',
+     ['0','NaN','1000000000','2.2'].every(k=>Math.abs(rateRun[k] - 1) < 1e-6), JSON.stringify(rateRun));
+  ok('the Sim inputs carry a min and a max, the way loopHz always should have', await ev(()=>{
+    wsSet('config');
+    const rows = [...document.querySelectorAll('#pCfg .cfgrow')].filter(r=>{
+      const l = r.querySelector('label');
+      return l && /^(loopHz|maestroRate|servoSpeed|maxSpeed|maxYaw|domeRate)\b/.test(l.title||'');
+    });
+    return rows.length > 0 && rows.every(r=>{
+      const i = r.querySelector('input[type=number]');
+      return i && i.min !== '' && i.max !== '' && parseFloat(i.min) > 0;
+    });
+  }), await ev(()=>[...document.querySelectorAll('#pCfg .cfgrow')]
+       .filter(r=>{const l=r.querySelector('label');return l && /^(loopHz|maestroRate|servoSpeed|maxSpeed|maxYaw|domeRate)\b/.test(l.title||'');})
+       .map(r=>{const l=r.querySelector('label'),i=r.querySelector('input');return (l.title||'').split(' ')[0]+'['+i.min+'..'+i.max+']';}).join(' ')));
+  ok('…and typing past a limit is pulled back rather than accepted', await ev(()=>{
+    const row = [...document.querySelectorAll('#pCfg .cfgrow')]
+      .find(r=>{ const l=r.querySelector('label'); return l && /^loopHz\b/.test(l.title||''); });
+    if(!row) return false;
+    const i = row.querySelector('input[type=number]');
+    i.value = '-40';
+    i.dispatchEvent(new Event('change'));
+    const low = CFG.loopHz;
+    i.value = '999999';
+    i.dispatchEvent(new Event('change'));
+    const high = CFG.loopHz;
+    CFG.loopHz = PROFILE.defaults.loopHz; i.value = CFG.loopHz;
+    return low >= parseFloat(i.min) && high <= parseFloat(i.max);
+  }));
+  /* maestroRate — the box that started this — only exists on a Maestro
+     sketch's Sim list, so it is checked on one */
+  const mRate = await ev(()=>{
+    const was = PROFILE.id;
+    loadProfile('maestro25');
+    const row = [...document.querySelectorAll('#pCfg .cfgrow')]
+      .find(r=>{ const l=r.querySelector('label'); return l && /^maestroRate\b/.test(l.title||''); });
+    const i = row && row.querySelector('input[type=number]');
+    let typed = null;
+    if(i){ i.value = '-1'; i.dispatchEvent(new Event('change')); typed = CFG.maestroRate; }
+    const got = i ? {min:i.min, max:i.max, typed, box:i.value} : {missing:true};
+    loadProfile(was);
+    return got;
+  });
+  console.log('      maestroRate box: '+JSON.stringify(mRate));
+  ok('the anim-rate box itself refuses a negative rate at the door',
+     !mRate.missing && parseFloat(mRate.min) > 0 && parseFloat(mRate.max) > parseFloat(mRate.min)
+     && mRate.typed >= parseFloat(mRate.min), JSON.stringify(mRate));
+  await ev(()=>wsSet('bench'));
+
   console.log('\n════ no page errors ════');
   ok('nothing threw', errs.length===0, errs.join(' | '));
 

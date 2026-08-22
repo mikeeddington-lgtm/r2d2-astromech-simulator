@@ -78,6 +78,12 @@ function kioskEnter(pass){
      be no way back to it either. */
   if(typeof modelGet === 'function' && modelGet() === 'servos'
      && typeof modelSet === 'function') modelSet('droid');
+  /* v1.61.0 — and the PART CARD. selectPart() is guarded from here on
+     (cad/select.js), but a card that was already open when the laptop was
+     handed over would simply stay open, with every control on it live. The
+     card is the one piece of furniture the STAGE owns rather than #side, so
+     hiding the sidebar wholesale never reached it. */
+  if(typeof deselectPart === 'function') deselectPart();
   if(typeof appMenuClose === 'function') appMenuClose();
   if(typeof saveLoadClose === 'function') saveLoadClose();
   if(typeof stagePickerClose === 'function') stagePickerClose();
@@ -127,17 +133,35 @@ async function kioskExit(){
     if(!go) return false;
     return kioskLeave();
   }
-  const typed = (typeof appPrompt === 'function')
-    ? await appPrompt('Type the password to put the full app back.',
-                      {title:'Sim only — locked', password:true, placeholder:'password', yes:'Unlock'})
-    : null;
-  if(typed === null) return false;                 // cancelled — stay locked, say nothing
-  if(typed !== KIOSK.pass){
+  /* A wrong password used to close the prompt and drop a toast, which is
+     the wrong shape twice over. The message lands bottom-left over the
+     stage while the operator is looking at the middle of the screen, and
+     z-index 7 puts it UNDER .dlgwrap's 300 — so the only moment it is
+     visible is the moment the thing it is about has vanished. Worse, the
+     prompt going away silently is itself a leak: someone who fat-fingers
+     their own password and keeps typing is now typing at a LIVE pad, and
+     the w and the r in it drive the droid and change gear.
+
+     So the question is asked again, in place, with the answer to the last
+     attempt at the top of it. No lockout and no counter — this is a laptop
+     on a table at a convention, not a bank; the operator has to be able to
+     get back in, and the password is a session string they typed ten
+     minutes ago, not a secret. Cancel still means "never mind, stay in sim
+     only", so nothing that awaits this can hang. */
+  const ASK  = 'Type the password to put the full app back.';
+  const MISS = 'That is not the password — have another go. '
+             + 'It is the one you typed when you started sim only, and it is only for this session. '
+             + 'Cancel stays in sim only.';
+  if(typeof appPrompt !== 'function') return false;
+  let msg = ASK;
+  for(;;){
+    const typed = await appPrompt(msg, {title:'Sim only — locked', password:true,
+                                        placeholder:'password', yes:'Unlock'});
+    if(typed === null) return false;               // cancelled — stay locked, say nothing
+    if(typed === KIOSK.pass) return kioskLeave();
     lg('warn','sim only — wrong password');
-    if(typeof toast === 'function') toast('that is not the password','warn');
-    return false;
+    msg = MISS;
   }
-  return kioskLeave();
 }
 
 /* ---------------------------------------------------------- the enable */

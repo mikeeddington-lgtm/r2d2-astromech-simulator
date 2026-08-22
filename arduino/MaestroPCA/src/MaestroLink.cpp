@@ -105,8 +105,17 @@ uint8_t MaestroLink::feed(uint8_t b, uint8_t* out){
       if(_cmd != 0xFF) crcAdd(b);
       if(_got < sizeof(_arg)) _arg[_got] = b;
       _got++;
-      /* set-multiple-targets announces its own length in the first byte */
-      if(_cmd == 0x9F && _got == 1) _need = 2 + _arg[0] * 2;
+      /* Set-multiple-targets announces its own length in the first byte,
+         and that byte is the only length in this protocol we do not
+         choose ourselves. A count the buffer cannot hold is REFUSED here
+         and the parser goes back to idle to resync — clamping it would
+         silently drive a different set of channels than the host asked
+         for, and believing it overruns _arg, because `2 + count*2` is a
+         uint8_t and 0x7F makes that 0. */
+      if(_cmd == 0x9F && _got == 1){
+        if(_arg[0] > MPCA_LINK_MAX_MULTI){ _bad++; _state = S_IDLE; return 0; }
+        _need = (uint8_t)(2 + _arg[0] * 2);
+      }
       break;
 
     case S_CRC:
@@ -151,7 +160,13 @@ uint8_t MaestroLink::execute(uint8_t* out){
       break;                                     /* no equivalent — accepted and ignored */
 
     case 0x9F: {                                 /* set multiple targets */
+      /* The parser above already refused an oversized count, so this can
+         only bite if a future path reaches execute() another way. It is
+         one comparison, on a command that fires ~127 setTarget() calls
+         from a buffer it can read past the end of, in a droid that weighs
+         100 kg — that is a cheap belt to wear with the braces. */
       uint8_t n = _arg[0], first = _arg[1];
+      if(n > MPCA_LINK_MAX_MULTI) n = MPCA_LINK_MAX_MULTI;
       for(uint8_t i = 0; i < n; i++) _engine.setTarget(first + i, val14(2 + i * 2));
       break;
     }

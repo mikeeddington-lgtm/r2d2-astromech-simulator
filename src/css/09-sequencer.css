@@ -227,3 +227,15 @@ button.b.act.warn:hover{background:var(--am);color:var(--onAcc)}
 
 /* Pose and Frames are Advanced-only (v1.52.0, ui-sequencer.js sqAdvViews) */
 #sqViewPose.hide, #sqViewTable.hide{display:none}
+/* …and so is the Ramp step (v1.66.0, ui-sequencer.js sqStepSync). It ships
+   as class="blkswitch hide" and nothing in the build ever made that mean
+   anything, so .blkswitch{display:flex} (07-startup.css) won and the control
+   was on screen at every setting.
+
+   NAMED, not a generic `.hide{display:none}`. `.hide` is a bare class on five
+   elements across four stylesheets, and each of the other four already spells
+   out its own rule — a generic one at class specificity would be decided by
+   source order against every later `display` in 10-…-15, which is exactly the
+   silent, load-order-dependent failure being fixed here. An id plus a class
+   beats `.blkswitch` outright, wherever either lands. */
+#sqStepWrap.hide{display:none}

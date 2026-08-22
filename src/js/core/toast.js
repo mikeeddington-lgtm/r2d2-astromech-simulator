@@ -55,7 +55,19 @@ function toastDrop(p){
 function toast(msg, kind){
   const k = (kind === 'warn' || kind === 'err') ? kind : 'ok';
   const host = toastHost();
-  while(host.childElementCount >= TOAST_MAX) host.firstElementChild.remove();
+  /* An evicted plate has to take its 3.5 s timer with it. This was a bare
+     `.remove()`, which bypassed toastDrop() and left every pushed-out plate
+     holding a live timeout on a node that was no longer in the document.
+     Deliberately NOT a toastDrop() call: that fades for 180 ms before it
+     removes anything, so the loop would never see childElementCount fall
+     and would spin. Clear the timer by hand instead, and mark the plate
+     dropped so a click or a stray toastDrop() on it is a no-op. */
+  while(host.childElementCount >= TOAST_MAX){
+    const old = host.firstElementChild;
+    old._toastGone = true;
+    clearTimeout(old._toastTimer);
+    old.remove();
+  }
   const p = el('div','toastp ' + k, String(msg));
   p.title = 'click to dismiss';
   p.addEventListener('click', ()=>toastDrop(p));

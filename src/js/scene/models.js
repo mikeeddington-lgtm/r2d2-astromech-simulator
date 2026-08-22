@@ -60,12 +60,22 @@ function modelGet(){
   return MODEL_IDS.indexOf(id) >= 0 ? id : 'droid';
 }
 
+/* WHAT IS ACTUALLY STANDING THERE, as opposed to what PREFS.model asks for
+   (v1.46.0). The two are the same almost always — but not at boot, where the
+   preference is read long before the payloads have finished loading, and not
+   when something writes PREFS.model straight (app/setup-io.js's import, the
+   wizard, a suite). modelSet() skips the re-apply only when BOTH agree, so
+   "pick the model already on the stage" costs nothing while "the stage is out
+   of step with the preference" still gets put right. */
+let MODEL_ON_STAGE = null;
+
 /* Put the current selection into effect. Split out from modelSet() because
    boot has to re-apply it once the payloads have finished loading, and
    modelSet() deliberately does nothing when the id has not changed. */
 function modelApply(opts){
   const id = modelGet();
   const o = opts || {};
+  MODEL_ON_STAGE = id;
 
   /* the droid: one switch covers the procedural body, the legs and the CAD,
      because CAD.root hangs off R2.root */
@@ -93,6 +103,21 @@ function modelSet(id, opts){
   const next = MODEL_IDS.indexOf(id) >= 0 ? id : 'droid';
   const prev = modelGet();
   if(typeof PREFS !== 'undefined'){ PREFS.model = next; if(typeof prefsSave === 'function') prefsSave(); }
+  /* THE RULE modelApply()'s own comment states — "modelSet() deliberately
+     does nothing when the id has not changed" — which only the log line
+     below obeyed (v1.46.0). Everything after it ran on every pick, so
+     choosing the model ALREADY on the stage reset it: modelApply →
+     anzSetShown → anzRegister() writes ACT[a.id] = a.home unconditionally
+     for all eleven Anzellan face channels, and modelFrame() throws the
+     camera back to its default. Mid-sequence, that is the head snapping to
+     home because you re-picked the model you were already looking at.
+     scene/builder.js states the same law for its own channels and keeps it
+     (mbRegisterPart is idempotent, mbSetShown acts only on the was/!was
+     edge); this is the seam that was breaking it for the others.
+     MODEL_ON_STAGE, not just `prev`: a preference that was written straight
+     rather than picked has not been put into effect yet, and that case still
+     has to apply — it is the same case modelApply() is split out for. */
+  if(next === prev && MODEL_ON_STAGE === next) return next;
   if(next !== prev && typeof lg === 'function') lg('sys', 'stage → ' + modelById(next).label);
   return modelApply(opts);
 }

@@ -1,4 +1,21 @@
 'use strict';
+/* ---- the app's two coordinate systems ----
+   applyUiScale() (look/theme.js) sets `document.body.style.zoom`, so from
+   the body down there are TWO units in play: the LAYOUT px a stylesheet and
+   an offsetWidth speak, and the VIEWPORT px getBoundingClientRect(),
+   ev.clientX, innerWidth and the glass itself speak. They differ by exactly
+   this factor, and every place that mixes one with the other — a drag that
+   measures the viewport and writes a CSS length, a popover that positions
+   itself from a client rect — is wrong by it. Three of them were.
+
+   Read from the computed style rather than PREFS.uiScale: what is actually
+   on the body is the truth, and this is called from splitters.js and
+   main.js as well as here (all three load after this file). */
+function uiZoomFactor(){
+  const z = parseFloat(getComputedStyle(document.body).zoom);
+  return (z > 0 && isFinite(z)) ? z : 1;
+}
+
 /* ---- console ---- */
 const FILT={sab:true,syr:true,pwm:true,pwmf:true,mp3:true,i2c:true,mae:true,sys:true,warn:true};
 const FILT_GROUP={pwm:['pwm','pwmf']};
@@ -88,9 +105,19 @@ function faultPopOpen(){
     pop.appendChild(b);
   }
   document.body.appendChild(pop);
+  /* THE ANCHOR IS IN VIEWPORT px, THE `left`/`top` WE WRITE ARE NOT.
+     #faultPop is position:fixed but it hangs off the body, which carries
+     the ui-scale zoom, so a length set on it is a LAYOUT px and gets
+     multiplied by the zoom on its way to the glass. getBoundingClientRect()
+     and innerWidth are already on the glass. At 150% that mismatch put this
+     panel 200px below the chip it belongs to and a third of a screen to the
+     right — and the innerWidth clamp could not save it, because the clamp
+     was in the other unit system. Divide the anchor back into layout px and
+     everything, clamp included, is in one space. */
+  const z = uiZoomFactor();
   const r = chip.getBoundingClientRect();
-  pop.style.top  = (r.bottom + 6) + 'px';
-  pop.style.left = Math.max(8, Math.min(innerWidth - pop.offsetWidth - 8, r.left - 10)) + 'px';
+  pop.style.top  = (r.bottom/z + 6) + 'px';
+  pop.style.left = Math.max(8, Math.min(innerWidth/z - pop.offsetWidth - 8, r.left/z - 10)) + 'px';
   const onDown = e=>{
     const t = e.target;
     if(t && t.closest && (t.closest('#faultPop') || t.closest('#chFault'))) return;
@@ -198,6 +225,8 @@ function updateHUD(){
   $('sndNum').textContent = SND.track? String(SND.track).padStart(2,'0') : '--';
   $('sndDesc').textContent = SND.track? trackDesc(SND.track) : 'idle';
   $('sndVol').textContent = CFG.vol;
+
+  if(typeof syncGridBtn === 'function') syncGridBtn();
 }
 
 /* ---- on-screen pad mirroring ---- */
@@ -223,10 +252,22 @@ function updatePad(){
 /* ---- stage buttons ---- */
 function syncFollowBtn(){ $('btnFollow').classList.toggle('act',CAM.follow); }
 $('btnFollow').addEventListener('click',()=>{ CAM.follow=!CAM.follow; syncFollowBtn(); });
-$('btnGrid').addEventListener('click',e=>{
+/* `act` means THE FEATURE IS ON, everywhere in this app — syncFollowBtn two
+   lines up is the model. This one was negated, so the grid started visible
+   with an unlit button and the first click hid the grid and lit it: the
+   button said the opposite of the stage in both states.
+
+   It is also SYNCED, not just toggled, and from updateHUD() rather than only
+   from the click. envApply() (scene/env.js) turns the grid off for every
+   non-studio environment and back on for studio, and it knows nothing about
+   this button; syncing on the UI tick means picking Workshop or Desert
+   cannot leave the two disagreeing, without a hand-off into a file this
+   change does not own. It is one classList.toggle against a boolean. */
+function syncGridBtn(){ const b=$('btnGrid'); if(b && typeof grid!=='undefined' && grid) b.classList.toggle('act', !!grid.visible); }
+$('btnGrid').addEventListener('click',()=>{
   grid.visible=!grid.visible;
   if(typeof ENV!=='undefined') ENV.gridWanted = grid.visible;   // survives an environment switch
-  e.target.classList.toggle('act',!grid.visible);
+  syncGridBtn();
 });
 $('btnReset').addEventListener('click',()=>{ R2.pos.set(0,0,0); R2.yaw=0; R2.domeYaw=0; CAM.target.set(0,0.6,0);
   if(typeof anzResetPose==='function') anzResetPose();

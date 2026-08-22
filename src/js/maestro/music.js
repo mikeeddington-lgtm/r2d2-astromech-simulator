@@ -270,10 +270,26 @@ function musicBuildSequence(targetKey, pattern, everyN, maxBeats){
   /* v1.46.0 — one rule: max IS the open end (chanNorm(), playback.js). This
      line used to sort the pair and then consult the retired `invert` flag,
      so a beat routine on a reversed channel drove that panel to its shut
-     end and called it open. */
+     end and called it open.
+
+     The travel work fixed that half and left the other one behind: the CLOSE
+     pose was still `c.home`, a number that says nothing about which end is
+     shut. Tick `inv` in the Maestro pane and a starter channel's min and max
+     swap while home stays 4000 — so home became the OPEN end, the routine's
+     two poses collapsed onto one number, and the panel sat open and never
+     moved. Both ends come from chanEnds() now, which is the whole point of
+     there being one place that decides which end is which. */
   const openOf = c => chanEnds(c).open;
+  const shutOf = c => chanEnds(c).shut;
+  /* …and where the REST of the board parks is a question about the actuator,
+     not about a number: chanRest() (boards.js) is THE one reader for it, and
+     is deliberately not `c.home`. An imported homemode="Off" channel carries
+     `home:0`, the board having been told not to drive it at power-up, and a
+     frame target of 0 means "leave this channel alone" (applyFrameTargets,
+     playback.js) — so seeding from home built a base pose that never wrote,
+     and the routine's own opening move was the last thing to touch the panel. */
   const base = new Array(MSTR.servoCount).fill(0);
-  MSTR.channels.forEach(c=>{ if(/^servo/i.test(c.mode)) base[c.i]=c.home; });
+  MSTR.channels.forEach(c=>{ if(/^servo/i.test(c.mode)) base[c.i]=chanRest(c); });
 
   const frames=[]; let cur=base.slice();
   const push=(untilSec)=>{ const prev=frames.reduce((a,f)=>a+f.duration,0);
@@ -281,18 +297,18 @@ function musicBuildSequence(targetKey, pattern, everyN, maxBeats){
   for(let k=0;k<beats.length-1;k++){
     cur = cur.slice();
     if(pattern==='chase'){
-      chans.forEach(c=>cur[c.i]=c.home);
+      chans.forEach(c=>cur[c.i]=shutOf(c));
       cur[chans[k%chans.length].i] = openOf(chans[k%chans.length]);
       push(beats[k+1]);
     }else if(pattern==='alternate'){
       const open = k%2===0;
-      chans.forEach(c=>{ cur[c.i] = open ? openOf(c) : c.home; });
+      chans.forEach(c=>{ cur[c.i] = open ? openOf(c) : shutOf(c); });
       push(beats[k+1]);
-    }else{ /* pulse: open on the beat, home on the half-beat */
+    }else{ /* pulse: open on the beat, shut on the half-beat */
       chans.forEach(c=>{ cur[c.i]=openOf(c); });
       push((beats[k]+beats[k+1])/2);
       cur = cur.slice();
-      chans.forEach(c=>{ cur[c.i]=c.home; });
+      chans.forEach(c=>{ cur[c.i]=shutOf(c); });
       push(beats[k+1]);
     }
   }

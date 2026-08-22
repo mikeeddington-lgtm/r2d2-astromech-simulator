@@ -20,6 +20,35 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
   await page.goto('file://'+path.resolve(__dirname, '..', process.env.R2_TARGET || 'R2D2-Simulator.html')+R2_Q);
   await page.waitForFunction('typeof CAD!=="undefined" && CAD.loaded', {timeout:40000});
   const ev = f => page.evaluate(f);
+  /* v1.67.0 — a build answer that would SHRINK a loaded channel table now
+     OFFERS instead of doing it (hardware.js, buildAskBoardShrink), because it
+     was deleting measured travel, part mappings and frame targets and saving
+     the result. Several sections below arrange a smaller board as SETUP
+     rather than as the thing under test, and used to get the truncation for
+     free. This is them answering the question they are now asked; the
+     behaviour itself is asserted at the bottom of this file. */
+  /* …and for the sections that need the LIVE, MSTR-backed view of the build's
+     board (hwPins() only treats a table as live when MSTR.board matches what
+     the build asked for), the same answer plus an explicit catch-up. A build
+     and a table that disagree is a real state now — it is what declining the
+     offer leaves behind — so a section that cannot work in it says so here
+     instead of relying on a silent truncation three screens up. */
+  const syncBoard = async ()=>{
+    await takeBoardShrink();
+    await ev(()=>{
+      const want = buildMaestroBoard();
+      if(want && MSTR.loaded && MSTR.board !== want) setBoard(want);
+    });
+  };
+  const takeBoardShrink = async ()=>{
+    const asked = await ev(()=>{
+      const d = document.querySelector('.dlgwrap');
+      if(!d || !/off the table\?/.test(d.textContent||'')) return false;
+      d.querySelector('.dlgyes').click(); return true;
+    });
+    if(asked) await page.waitForFunction('!document.querySelector(".dlgwrap")', {timeout:5000});
+    return asked;
+  };
 
   console.log('\n════ first run ════');
   ok('the wizard opens by itself when nothing is configured', await ev(()=>
@@ -705,6 +734,7 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
      want outright rather than relying on the setup to infer it. */
   await ev(()=>{ buildSet('domeServo','mini24'); buildSet('bodyServo','mini12'); buildSet('sound','dysv5w');
                  buildSet('firmware','maestro25'); buildApply(); });
+  await takeBoardShrink();
   await page.waitForTimeout(300);
   await page.click('#tabs button[data-p="pServo"]');
   const opened = await ev(()=>{
@@ -747,6 +777,7 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
     rows[0].tr.click();
     return OUT_OPEN === rows[0].det.act && rows[0].det.tr.style.display !== 'none';
   }), await ev(()=>PROFILE.short));
+  await takeBoardShrink();
 
   console.log('\n════ draggable splitters ════');
   ok('both handles exist and sit between their panes', await ev(()=>{
@@ -1268,22 +1299,28 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
      which is what "doesnt show enough servos" meant. It goes through
      buildApply() → setBoard() rather than poking MSTR, because that is the
      path a click takes. */
-  const grow = await ev(()=>{
+  /* v1.67.0 — one step per turn, rather than one evaluate() for the walk:
+     the FIRST of these is a shrink (the section above leaves a bigger table
+     behind) and a shrink is an offer now, which cannot be answered from
+     inside a synchronous page function. The steps themselves are unchanged,
+     and every one after the first is a straight grow that needs no answer. */
+  const grow = await (async()=>{
     const seen = [];
-    const step = n => {
-      buildSet('pcaBoards', n); buildApply();
-      seen.push({n, board:MSTR.board, ch:MSTR.channels.length,
-                 count:HW.setupCount(), boards:HW.boards()});
-    };
-    buildSet('servoDevice','pca'); buildSet('servoTopo','p1x2');
-    buildSet('pcaBoards',2); buildApply(); buildEnsureMaestro();
-    seen.push({n:2, board:MSTR.board, ch:MSTR.channels.length,
-               count:HW.setupCount(), boards:HW.boards()});
-    step(3); step(4); step(8);
+    const at = ()=>ev(()=>({board:MSTR.board, ch:MSTR.channels.length,
+                            count:HW.setupCount(), boards:HW.boards()}));
+    await ev(()=>{ buildSet('servoDevice','pca'); buildSet('servoTopo','p1x2');
+                   buildSet('pcaBoards',2); buildApply(); });
+    await takeBoardShrink();
+    await ev(()=>{ buildEnsureMaestro(); });
+    seen.push(Object.assign({n:2}, await at()));
+    for(const n of [3,4,8]){
+      await page.evaluate(n0=>{ buildSet('pcaBoards', n0); buildApply(); }, n);
+      await takeBoardShrink();
+      seen.push(Object.assign({n}, await at()));
+    }
     /* the mapping work survives going UP — the table is padded, not rebuilt */
-    const named = MSTR.channels[0] && MSTR.channels[0].name;
-    return {seen, named};
-  });
+    return {seen, named: await ev(()=>MSTR.channels[0] && MSTR.channels[0].name)};
+  })();
   ok('two boards is 32 channels, as it always was',
      grow.seen[0].ch === 32 && grow.seen[0].board === 'pca32',
      JSON.stringify(grow.seen[0]));
@@ -1519,6 +1556,11 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
     buildSet('servoDevice','maestro');
     return buildGet().servoDevice==='maestro' && servoFamily(buildGet().bodyServo)==='maestro';
   }));
+  /* this block walks the build through half a dozen boards to check the
+     INVARIANTS, and several of those steps are shrinks — so answer the offer
+     they now raise rather than leaving a modal standing over the next
+     thousand lines. */
+  await takeBoardShrink();
 
   console.log('\n════ the firmware is the last question again ════');
   ok('controller, board, servos ... and the sketch at the end', await ev(()=>
@@ -2462,6 +2504,7 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
      One rule now (chLabel, app/boards.js): the servo-config name first,
      the driven part's label only once the channel itself was never named.
      ================================================================ */
+  await syncBoard();
   console.log('\n════ Panels: the driven-by label follows the servo-config name (v1.40.0) ════');
   const label = await ev(()=>{
     wizOpen(wizSteps().findIndex(s=>s.key==='_panels'));
@@ -2583,16 +2626,28 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
      assert the rendered STRING, not the model behind it — the model was
      never wrong, which is exactly why three releases missed this. */
   console.log('\n════ the expander count, as the step words it ════');
-  const said = await ev(()=>[1,2,3,5,8].map(n=>{
-    buildSet('domeServo', servoCoprocId(n)); wizFinish(); buildEnsureMaestro();
-    const host = document.createElement('div'); wizServosStep(host, {});
-    const txt = (host.textContent||'').replace(/\s+/g,' ');
-    return { set:n,
-             says: (txt.match(/\d+ × PCA9685 — \d+ channels/)||['(none)'])[0],
-             rows: MSTR.channels.length,
-             summary: buildServoAnswer(buildGet()).short,
-             total: buildPcaTotal(buildGet()) };
-  }));
+  /* v1.67.0 — a step at a time, so the smaller counts can answer the offer
+     a shrink now puts up (see the grow walk above). `rows` is read AFTER the
+     answer, which is the whole point: the table follows the count, it is just
+     no longer allowed to do it behind the builder's back. */
+  const said = await (async()=>{
+    const out = [];
+    for(const n of [1,2,3,5,8]){
+      const r = await page.evaluate(n0=>{
+        buildSet('domeServo', servoCoprocId(n0)); wizFinish(); buildEnsureMaestro();
+        const host = document.createElement('div'); wizServosStep(host, {});
+        const txt = (host.textContent||'').replace(/\s+/g,' ');
+        return { set:n0,
+                 says: (txt.match(/\d+ × PCA9685 — \d+ channels/)||['(none)'])[0],
+                 summary: buildServoAnswer(buildGet()).short,
+                 total: buildPcaTotal(buildGet()) };
+      }, n);
+      await takeBoardShrink();
+      r.rows = await ev(()=>MSTR.channels.length);
+      out.push(r);
+    }
+    return out;
+  })();
   said.forEach(r=>console.log('  '+JSON.stringify(r)));
   ok('the step names the number of boards you actually set, 1 through 8',
      said.every(r=>r.says === r.set + ' × PCA9685 — ' + (r.set*16) + ' channels'),
@@ -2637,6 +2692,225 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
      gap.kept === 'MIKES ROW/4321/pie0', gap.kept);
   ok('and the new rows arrive as Input, not silently driving something',
      gap.newRowMode === 'Input', String(gap.newRowMode));
+
+
+  /* ==================================================================
+     v1.67.0 — THE FOUR PLACES THE BUILD LAYER WAS LYING
+
+     Everything below is a bug somebody could lose an afternoon to, and
+     each one is asserted through the seam it actually broke: the running
+     channel table, the stored build blob, the rendered step.
+     ================================================================== */
+  const clearDlg = async ()=>{
+    await ev(()=>{ const d = document.querySelector('.dlgwrap'); if(d && d._dlgCancel) d._dlgCancel(); });
+  };
+  /* a 24-row Maestro table with an afternoon's work in the rows a Mini 12
+     would delete, and a build that agrees with it */
+  const maestro24 = ()=>ev(()=>{
+    PREFS.build = buildDefault();
+    loadProfile('maestro25');
+    MSTR.loaded = false;
+    setBoard('mini24'); makeStarter('dome','mini24');
+    MSTR.loaded = true;
+    MSTR.channels[18].name = 'MIKES ROW'; MSTR.channels[18].min = 4321; MSTR.channels[18].act = 'pie0';
+    buildSet('domeServo','mini24'); buildSet('bodyServo','mini24');
+    return {rows: MSTR.channels.length, board: MSTR.board,
+            targets: (MSTR.sequences[0] && MSTR.sequences[0].frames[0])
+                     ? MSTR.sequences[0].frames[0].targets.length : 0};
+  });
+
+  console.log('\n════ a smaller board is an OFFER, not a side effect ════');
+  await clearDlg();
+  const base24 = await maestro24();
+  console.log('  '+JSON.stringify(base24));
+  const shrink = await ev(()=>{
+    /* Setup ▸ Servo hardware ▸ Mini Maestro 12, on a calibrated 24 */
+    buildSet('servoSize1','mini12');
+    const d = document.querySelector('.dlgwrap');
+    return {asked: !!d, text: d ? (d.textContent||'').replace(/\s+/g,' ') : '',
+            rows: MSTR.channels.length, board: MSTR.board,
+            name: MSTR.channels[18] && MSTR.channels[18].name,
+            targets: (MSTR.sequences[0] && MSTR.sequences[0].frames[0])
+                     ? MSTR.sequences[0].frames[0].targets.length : 0};
+  });
+  console.log('  '+JSON.stringify(shrink));
+  ok('a build answer that would SHRINK the loaded table asks first', shrink.asked, shrink.text.slice(0,160));
+  ok('...and names the rows and the mapped channels it would cost',
+     /12 rows/.test(shrink.text) && /\d+ of them mapped to a part/.test(shrink.text), shrink.text.slice(0,240));
+  ok('...and has not touched a single row while the question is open',
+     shrink.rows === 24 && shrink.board === 'mini24' && shrink.name === 'MIKES ROW' && shrink.targets === 24,
+     JSON.stringify(shrink));
+  await ev(()=>{ const n = document.querySelector('.dlgwrap .dlgno'); if(n) n.click(); });
+  await page.waitForFunction('!document.querySelector(".dlgwrap")', {timeout:5000}).catch(()=>{});
+  const declined = await ev(()=>({rows: MSTR.channels.length, board: MSTR.board,
+                                  name: MSTR.channels[18] && MSTR.channels[18].name,
+                                  act: MSTR.channels[18] && MSTR.channels[18].act,
+                                  min: MSTR.channels[18] && MSTR.channels[18].min}));
+  console.log('  '+JSON.stringify(declined));
+  ok('Cancel keeps the table — name, travel, part mapping and all',
+     declined.rows === 24 && declined.board === 'mini24' && declined.name === 'MIKES ROW'
+     && declined.act === 'pie0' && declined.min === 4321, JSON.stringify(declined));
+  const again = await ev(()=>{
+    const q0 = !!document.querySelector('.dlgwrap');
+    buildSet('servoSize1','mini24');            // same size again — nothing to lose
+    const q1 = !!document.querySelector('.dlgwrap');
+    buildSet('servoSize1','mini12');            // and ask me again, I have changed my mind
+    return {q0, q1, q2: !!document.querySelector('.dlgwrap')};
+  });
+  ok('a board the same size or bigger is still applied without a question', !again.q0 && !again.q1, JSON.stringify(again));
+  ok('...and the offer comes back the next time the answer moves', again.q2, JSON.stringify(again));
+  await ev(()=>{ const y = document.querySelector('.dlgwrap .dlgyes'); if(y) y.click(); });
+  await page.waitForFunction('typeof MSTR!=="undefined" && MSTR.channels.length===12', {timeout:5000}).catch(()=>{});
+  const took = await ev(()=>({rows: MSTR.channels.length, board: MSTR.board,
+                              targets: (MSTR.sequences[0] && MSTR.sequences[0].frames[0])
+                                       ? MSTR.sequences[0].frames[0].targets.length : 0}));
+  ok('and saying yes is the ONLY thing that shrinks it',
+     took.rows === 12 && took.board === 'mini12' && took.targets === 12, JSON.stringify(took));
+  await clearDlg();
+
+  console.log('\n════ "add the missing rows" is not the way out of the wizard ════');
+  const adopt = await ev(()=>{
+    PREFS.build = buildDefault();
+    loadProfile('maestro25');
+    MSTR.loaded = false; setBoard('mini24'); makeStarter('dome','mini24'); MSTR.loaded = true;
+    buildSet('domeServo','mini24'); buildSet('bodyServo','mini24');
+    /* a GENUINE first run: nothing finished, nothing seen */
+    buildGet().done = false;
+    delete PREFS.seenStartup; delete PREFS.seenNextCard;
+    WIZ.firstRun = true;
+    $('startup').classList.add('on');
+    const hw = Object.assign({}, HW.setup()||{}); hw.boards = 3; HW.setSetup(hw);
+    const grew = setupAdoptBoards();
+    return {grew, rows: MSTR.channels.length, done: !!buildGet().done,
+            seenStartup: !!PREFS.seenStartup, seenNextCard: !!PREFS.seenNextCard,
+            stillOpen: $('startup').classList.contains('on')};
+  });
+  console.log('  '+JSON.stringify(adopt));
+  ok('it still does the job it was pressed for', adopt.grew === true && adopt.rows === 48, JSON.stringify(adopt));
+  ok('...without marking the build done behind your back', adopt.done === false, String(adopt.done));
+  ok('...without closing the wizard under the click', adopt.stillOpen === true, String(adopt.stillOpen));
+  ok('...and without burning the once-ever first-run card',
+     !adopt.seenStartup && !adopt.seenNextCard, JSON.stringify([adopt.seenStartup, adopt.seenNextCard]));
+  await clearDlg();
+
+  console.log('\n════ a pre-v1.36 build reads back as the hardware it named ════');
+  const legacy = await ev(()=>{
+    /* exactly the shape v1.35 wrote: two Maestro answers, no servoDevice,
+       no servoTopo, no sizes */
+    PREFS.build = {done:true, step:0, controller:'xbox360', domeMotor:'syren10',
+      domeServo:'mini24', bodyServo:'mini12', domeLights:'astropixels',
+      bodyDrive:'sabertooth', sound:'mdyx5300', arduino:'megaadk', firmware:'maestro25'};
+    const b = buildGet();
+    return {device:b.servoDevice, topo:b.servoTopo, size1:b.servoSize1, size2:b.servoSize2,
+            says: buildServoAnswer(b).label, board: buildMaestroBoard(b)};
+  });
+  console.log('  '+JSON.stringify(legacy));
+  ok('the shape is derived from the boards the blob named, not from the shipped default',
+     legacy.device === 'maestro' && legacy.topo === 'm2c', JSON.stringify(legacy));
+  ok('...so the rail chip, the review and the wiring sheet say what the sim runs',
+     /Maestro/.test(legacy.says) && !/PCA9685/.test(legacy.says), legacy.says);
+  ok('...and both board sizes survive the load', legacy.size1 === 'mini24' && legacy.size2 === 'mini12',
+     JSON.stringify([legacy.size1, legacy.size2]));
+  ok('...and buildMaestroBoard() agrees with it', legacy.board === 'mini24', String(legacy.board));
+  const modern = await ev(()=>{
+    /* the guard is on what the STORED blob had — a build that carried the
+       shape must be left exactly as saved, every load */
+    PREFS.build = buildDefault();
+    PREFS.build.servoDevice = 'pca'; PREFS.build.servoTopo = 'p1x2';
+    PREFS.build.pcaBoards = 3; PREFS.build.domeServo = 'mpca48'; PREFS.build.bodyServo = 'mpca48';
+    const b = buildGet();
+    return {device:b.servoDevice, topo:b.servoTopo, n:b.pcaBoards};
+  });
+  ok('a build that DID carry the shape is untouched on load',
+     modern.device === 'pca' && modern.topo === 'p1x2' && modern.n === 3, JSON.stringify(modern));
+  await clearDlg();
+
+  console.log('\n════ "Keep these settings" writes a record that reads back ════');
+  const keep = await ev(()=>{
+    PREFS.build = buildDefault();
+    loadProfile('maestro25');
+    MSTR.loaded = false; setBoard('mini24'); makeStarter('dome','mini24'); MSTR.loaded = true;
+    buildSet('domeServo','mini24'); buildSet('bodyServo','mini24');
+    /* travel with NO provenance — a dropped .mstr, a starter, a bench
+       session left by Esc */
+    delete buildGet().servoCfg;
+    MSTR.channels[2].min = 4500; MSTR.channels[2].max = 7500;
+    const step = wizSteps().find(s=>s.key === '_servoSet');
+    const h1 = document.createElement('div'); wizServoSetupStep(h1, step);
+    const btn = h1.querySelector('#btnServoKeep');
+    const before = btn ? btn.textContent.trim() : null;
+    if(btn) btn.click();
+    const src = servoCfgSrc();
+    const h2 = document.createElement('div'); wizServoSetupStep(h2, step);
+    const card = h2.querySelector('[data-opt="servoCfg:keep"]');
+    const after = h2.querySelector('#btnServoKeep');
+    return {before, src, story: servoCfgStory(),
+            chosen: !!(card && card.classList.contains('act')),
+            after: after ? after.textContent.trim() : null};
+  });
+  console.log('  '+JSON.stringify(keep));
+  ok('the button records a provenance servoCfgSrc() can actually see',
+     !!(keep.src && keep.src.how === 'kept' && keep.src.n > 0 && keep.src.when), JSON.stringify(keep.src));
+  ok('...so the card comes back marked as the chosen answer', keep.chosen === true, String(keep.chosen));
+  ok('...and the button says so too', /Keeping/.test(keep.after||''), String(keep.after));
+  ok('...and the story still reads sensibly, inventing no source',
+     /already in this build/.test(keep.story) && /carrying travel/.test(keep.story), keep.story);
+  await clearDlg();
+
+  console.log('\n════ one dome drawing, one orientation ════');
+  const rot = await ev(()=>{
+    PREFS.domeRot = 90;
+    if(typeof SETUP !== 'undefined' && SETUP) SETUP.dome = null;
+    DMAP.open = true; DMAP.sel = -1; DMAP.hover = '';
+    dmapRender();
+    const g = document.querySelector('#dmapWrap svg.domemap > g');
+    const bar = document.querySelector('#dmapWrap .domrotbar input[type=range]');
+    return {transform: g ? g.getAttribute('transform') : null,
+            bar: !!bar, barVal: bar ? bar.value : null};
+  });
+  console.log('  '+JSON.stringify(rot));
+  ok('the wizard\'s dome map is drawn at the rotation the bench saved',
+     rot.transform === 'rotate(90)', String(rot.transform));
+  ok('...and it has a rotate control of its own, showing that angle',
+     rot.bar === true && rot.barVal === '90', JSON.stringify([rot.bar, rot.barVal]));
+  const rot2 = await ev(()=>{
+    const r = document.querySelector('#dmapWrap #dmapRot');
+    if(!r) return null;
+    r.value = '210'; r.dispatchEvent(new Event('input', {bubbles:true}));
+    const g = document.querySelector('#dmapWrap svg.domemap > g');
+    return {transform: g ? g.getAttribute('transform') : null, pref: PREFS.domeRot,
+            bench: (typeof setupDomeRot === 'function') ? setupDomeRot() : null};
+  });
+  console.log('  '+JSON.stringify(rot2));
+  ok('...that turns the drawing and persists, so the bench opens the same way round',
+     !!rot2 && rot2.transform === 'rotate(210)' && rot2.pref === 210 && rot2.bench === 210, JSON.stringify(rot2));
+  await ev(()=>{ dmapClose(); PREFS.domeRot = 0; if(typeof SETUP!=='undefined' && SETUP) SETUP.dome = null; });
+  await clearDlg();
+
+  console.log('\n════ the number beside the Boards spinner is the one you just typed ════');
+  const spin = await ev(()=>{
+    PREFS.build = buildDefault();
+    loadProfile('maestro25');
+    MSTR.loaded = false; setBoard('mini24'); makeStarter('dome','mini24'); MSTR.loaded = true;
+    buildSet('domeServo','mini24'); buildSet('bodyServo','mini24');
+    const hw = Object.assign({}, HW.setup()||{}); hw.boards = 3; HW.setSetup(hw);
+    SETUP.hw.boards = 3;
+    const html = setupStepExpander().replace(/\s+/g,' ');
+    const mx = /data-f="boards"[^>]*max="(\d+)"/.exec(html);
+    return {html, max: mx ? +mx[1] : null, table: HW.count(), short: HW.short()};
+  });
+  console.log('  '+JSON.stringify({max:spin.max, table:spin.table, short:spin.short,
+    stat:(/(\d+) channels · highest channel number (\d+)/.exec(spin.html)||[])[0]||null}));
+  ok('the stat counts the boards on the spinner, not the loaded table',
+     /48 channels · highest channel number 47/.test(spin.html),
+     (/(\d+) channels · highest channel number (\d+)/.exec(spin.html)||['(none)'])[0]);
+  ok('...and says both numbers when the droid\'s build is smaller',
+     /24 row/.test(spin.html) && /48/.test(spin.html), /24 row/.test(spin.html) ? 'said' : 'silent');
+  ok('...with the same way across the Channels step already offers',
+     /data-act="growboards"/.test(spin.html) && /add the missing 24 rows/.test(spin.html),
+     /growboards/.test(spin.html) ? 'button' : 'no button');
+  ok('the spinner ceiling is PCA_MAX_BOARDS_UI', spin.max === await ev(()=>PCA_MAX_BOARDS_UI), String(spin.max));
+  await clearDlg();
 
   console.log('\n════ no page errors ════');
   ok('nothing threw', errs.length===0, errs.join(' | '));

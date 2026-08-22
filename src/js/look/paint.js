@@ -143,14 +143,18 @@ function applyPaint(){
 function setPartFinish(name, fin){
   const ov = PARTS.overrides[name] || (PARTS.overrides[name]={});
   if(fin) ov.finish = fin; else delete ov.finish;
-  if(!ov.label && !ov.color && !ov.finish) delete PARTS.overrides[name];
+  /* cad/parts.js owns the one prune, and loads before this file — a colour
+     writer must not have its own idea of which keys count (v1.46.0) */
+  partOvPrune(name);
   applyPaint(); partsSave();
 }
 function setSlotRole(key, role){
   PAINT.roleOf[key] = role;
   applyPaint();
-  PREFS.paint = {scheme:PAINT.scheme, colors:Object.assign({},PAINT.colors), roleOf:Object.assign({},PAINT.roleOf)};
-  prefsSave();
+  /* was its own copy of paintSave()'s body, and carried the same wholesale
+     overwrite of the saved roles — the role EDITOR being the one place most
+     likely to be holding another model's work (v1.46.0) */
+  paintSave();
 }
 function setScheme(key){
   const s = PAINT_SCHEMES[key];
@@ -175,8 +179,20 @@ function setRoleColor(role, hex){
   paintSave();
 }
 function paintSave(){
-  PREFS.paint = {scheme:PAINT.scheme, colors:Object.assign({},PAINT.colors), roleOf:Object.assign({},PAINT.roleOf)};
+  PREFS.paint = {scheme:PAINT.scheme, colors:Object.assign({},PAINT.colors), roleOf:paintRoleOfSave()};
   prefsSave();
+}
+/* MERGE the slot roles, never replace them (v1.46.0). PAINT.roleOf is rebuilt
+   from scratch by classifyMaterials() out of CAD.slots, and a slot key is
+   model-specific (kind:file:material) — so it only ever describes the model
+   that is loaded now. initPaint() is careful about that in the READ direction,
+   taking a saved role only where this model still has that slot; the write
+   direction had no such care, so the first colour touched under a second CAD
+   model erased every role the user had set against the first. Ours win where
+   the two hold the same key, because ours are the ones that were just edited. */
+function paintRoleOfSave(){
+  const was = (PREFS.paint && PREFS.paint.roleOf) || null;
+  return Object.assign({}, was, PAINT.roleOf);
 }
 /* called once the CAD is in — restores a saved scheme or classifies fresh */
 function initPaint(){

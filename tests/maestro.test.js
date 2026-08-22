@@ -405,6 +405,57 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
      cho.readable==='setup' && cho.shape && cho.shape.servo>0 && cho.shape.choreo>0,
      cho.readable+' · '+JSON.stringify(cho.shape));
 
+  /* =================================================================
+     2026-08-22 — WHERE A CHANNEL RESTS is a question about WORDS
+
+     v1.45.0 closed "the panels are half open" by making the resting pose a
+     question about the ACTUATOR: a door rests shut, a bipolar actuator rests
+     centred. The predicate that decided which was an UNANCHORED substring
+     test, and `pan` is a substring of `panel0` … `panel13` — so all fourteen
+     dome side panels answered "bipolar", rested at 6000, and stood half open
+     on the model exactly as before. Nothing caught it because nothing here
+     had ever asked the question of a panel.
+
+     So this asks it of EVERY actuator id the build can put on a channel, and
+     pins the whole answer rather than one example: the bipolar set is the six
+     holoprojector axes and nothing else.
+     ================================================================= */
+  console.log('\n════ a dome side panel rests SHUT, not half open ════');
+  const rst = await ev(()=>{
+    /* every id that can reach actRestNorm(): the actuator table (ACT_KEYS
+       plus the twelve pies and the fourteen side panels), the PCA servo
+       definitions, and whatever the loaded CAD claims. The Anzellan rig and
+       the Builder joints are intercepted before the predicate, so they are
+       deliberately not in this list. */
+    const ids = [...new Set([].concat(
+      Object.keys(ACT),
+      [].concat(SERVO_DEFS[1], SERVO_DEFS[2]).map(d=>d.act),
+      (typeof CAD !== 'undefined' && CAD.loaded) ? CAD.moving.map(m=>m.act) : []
+    ).filter(Boolean))];
+    const centred = ids.filter(a=>actRestNorm(a) === 0.5).sort();
+    const shut    = ids.filter(a=>actRestNorm(a) === 0).sort();
+    /* the same question through the ONE reader, on a channel carrying the
+       stale measured `home:6000, homemode:'Goto'` v1.45.0's note is about */
+    const ch = a => chanRest({act:a, min:4000, max:8000, home:6000, homemode:'Goto', neutral:6000});
+    return {n:ids.length, centred, panels:shut.filter(a=>/^panel\d+$/.test(a)).length,
+            panel0:ch('panel0'), panel13:ch('panel13'),
+            pie:ch('pie0'), door:ch('doorL'), hp:ch('hp1Pan'),
+            compound:actRestNorm('pantilt'), bare:actRestNorm('nod'), oth:actRestNorm('oth1')};
+  });
+  ok('every actuator id in the build was asked', rst.n >= 56, rst.n+' ids');
+  ok('the fourteen dome side panels are not bipolar — every one rests shut',
+     rst.panels === 14 && !rst.centred.some(a=>/^panel/.test(a)), JSON.stringify(rst.centred));
+  ok('the only bipolar actuators left are the six holoprojector axes',
+     rst.centred.join(',') === 'hp1Pan,hp1Tilt,hp2Pan,hp2Tilt,hp3Pan,hp3Tilt', rst.centred.join(','));
+  ok('…so panel0 and panel13 park at their shut end, not at mid-travel',
+     rst.panel0 === 4000 && rst.panel13 === 4000, rst.panel0+' / '+rst.panel13);
+  ok('pies and doors are unchanged, and a holo axis still centres',
+     rst.pie === 4000 && rst.door === 4000 && rst.hp === 6000,
+     [rst.pie, rst.door, rst.hp].join(' / '));
+  ok('a bare centred word, and two of them run together with no separator, both centre',
+     rst.bare === 0.5 && rst.compound === 0.5, rst.bare+' / '+rst.compound);
+  ok('an off-model placeholder is a door, not a gimbal', rst.oth === 0, String(rst.oth));
+
   // leave it in a sane state
   await ev(()=>{ makeStarter(); CFG.maestroSource='imported'; rebuildMaestroUI(); });
 

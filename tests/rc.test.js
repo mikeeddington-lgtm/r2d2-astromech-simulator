@@ -32,14 +32,19 @@ const near=(a,b,e)=>Math.abs(a-b) <= (e===undefined?0.01:e);
   /* the fake radio. FAKE.ax is what the four gimbals are sending right now;
      the test moves them by writing to it. */
   await ev(()=>{
-    window.FAKE = {id:'FS-i6X USB Joystick (Vendor: 0483 Product: 5750)', ax:[0,0.05,-1,-1], connected:true};
+    window.FAKE = {id:'FS-i6X USB Joystick (Vendor: 0483 Product: 5750)', ax:[0,0.05,-1,-1], connected:true, twin:false};
+    /* One dongle, or — with FAKE.twin — two, reporting the SAME id on
+       different indices. That is not a contrived case: a pair of the same
+       USB receiver is indistinguishable by name, which is why the panel
+       tells you to wiggle a stick and pick the row that twitches. */
     navigator.getGamepads = function(){
       if(!FAKE.connected) return [];
-      return [{
-        index:0, id:FAKE.id, connected:true,
+      const one = ix => ({
+        index:ix, id:FAKE.id, connected:true,
         axes:FAKE.ax.slice(),
         buttons:[{pressed:false,value:0},{pressed:false,value:0}]
-      }];
+      });
+      return FAKE.twin ? [one(0), one(1)] : [one(0)];
     };
     /* the whole point of the RC layer is that it only drives when the build
        says this droid is flown with a radio */
@@ -137,6 +142,26 @@ const near=(a,b,e)=>Math.abs(a-b) <= (e===undefined?0.01:e);
     return RC.chans[2].ctr === 'rest' && rcRestValue(RC.chans[2]) === 0 &&
            XB.hat.LeftHatY === 0 && XB.hat.RightHatX === 0 && XB.hat.RightHatY === 0;
   }));
+  /* THE CALIBRATION RECORD IS NOT THE STICK. rcRestValue() read ch.mid,
+     and rcNewChan() defaults an axis to min:-1 max:1 mid:0 — so a channel
+     that has never been calibrated claimed to rest at exactly zero no
+     matter where it physically sat. The panel invites that state in as
+     many words: "tick show every channel to assign one by hand" puts a
+     live assignment dropdown on an uncalibrated row, and a Mode 2 throttle
+     rests at raw -1. Hands off, full reverse on the drive stick, and
+     neither the warning list nor the row flag said a word. */
+  ok('a channel that has never been calibrated is judged on where it really rests', await ev(()=>{
+    const keep = JSON.stringify(RC.chans);
+    RC.chans = rcChannelsFor(rcPads()[0]);        // a fresh dongle: nothing learned yet
+    FAKE.ax = [0, 0.05, -1, -1]; rcRead();        // ...and the throttle sits at the bottom
+    const ch = RC.chans[2]; ch.mode = 'pad'; ch.pad = 'LY';
+    const live     = RC.norm[2];
+    const rest     = rcRestValue(ch);
+    const warned   = rcRestWarnings().some(w=>w.idx === 2);
+    const commands = rcContribute().ax.LY;
+    RC.chans = JSON.parse(keep); rcRead();
+    return live === -1 && rest === -1 && warned && commands === -1;
+  }));
   ok('a channel left commanding something at rest is reported', await ev(()=>{
     const c = RC.chans[2];
     c.ctr = 'span';
@@ -159,7 +184,55 @@ const near=(a,b,e)=>Math.abs(a-b) <= (e===undefined?0.01:e);
     return on && getButtonPress('A') === 0;
   }));
 
+  console.log('\n════ triggers ════');
+  /* A trigger is unipolar — 0..255, and 0 is the only value that means
+     "not pressed". The map was (v+1)/2, which is the right answer for a
+     `span` throttle (that reads -1 at its resting stop) and the wrong one
+     for every `ctr:'rest'` channel, which reads 0 at rest and therefore
+     delivered 128 of 255 with hands off. pollInput()'s noise floor is 25,
+     so it sailed through into XB.press and stayed there — and on both
+     Maestro sketches LT/RT are the modifiers that choose which script a
+     d-pad press fires, so a permanently half-held trigger quietly changes
+     the meaning of every other button on the set. */
+  ok('a rest-centred channel on a trigger delivers nothing with hands off', await ev(()=>{
+    rcClearAssign();
+    const c = RC.chans[1]; c.mode='pad'; c.pad='L2';   // ch2: a gimbal that rests at 0.05
+    FAKE.ax = [0, 0.05, -1, -1]; rcRead(); pollInput();
+    const idle = rcContribute().btn.L2, pressed = XB.press.L2;
+    FAKE.ax = [0, 0.98, -1, -1]; rcRead(); pollInput();
+    const full = rcContribute().btn.L2;
+    rcClearAssign();
+    return idle === 0 && pressed === 0 && full === 255;
+  }));
+  ok('a throttle on a trigger still spans its whole travel, and is not warned about', await ev(()=>{
+    rcClearAssign();
+    const c = RC.chans[2]; c.ctr='span'; c.mode='pad'; c.pad='R2';
+    FAKE.ax = [0, 0.05, -1, -1]; rcRead();
+    const bottom = rcContribute().btn.R2;
+    /* and the warning has to ask the DELIVERED question rather than the
+       axis one: this channel reads -1 at rest and delivers 0, which is
+       exactly what a trigger wants and nothing to warn anybody about */
+    const warned = rcRestWarnings().some(w=>w.idx === 2);
+    FAKE.ax = [0, 0.05, 1, -1]; rcRead();
+    const top = rcContribute().btn.R2;
+    c.ctr = 'rest'; rcClearAssign();
+    return bottom === 0 && top === 255 && !warned;
+  }));
+
   console.log('\n════ assignment — the direct route (advanced) ════');
+  /* Everything below this line is the advanced route, so the switch that
+     unlocks it is on for the whole section — which is the point of the
+     first assertion. */
+  ok('direct output does nothing until the Advanced switch is on', await ev(()=>{
+    rcClearAssign();
+    RC.advanced = false;
+    const c = RC.chans[2]; c.mode='out'; c.out='drive';
+    FAKE.ax = [0,0.05,1.0,-1]; rcRead();
+    MOT.drive = 0;
+    const locked = rcDirectApply() === false && MOT.drive === 0;
+    RC.advanced = true;
+    return locked && rcDirectApply() && MOT.drive > 100;
+  }));
   ok('a channel bound to an output writes the motor, overriding the sketch', await ev(()=>{
     rcClearAssign();
     const c = RC.chans[2]; c.mode='out'; c.out='drive';
@@ -197,6 +270,10 @@ const near=(a,b,e)=>Math.abs(a-b) <= (e===undefined?0.01:e);
     buildSet('controller','rc');
     return quiet;
   }));
+  /* back to the simple, safe default for everything below — the panel
+     section asserts that the direct-output picker is not so much as built
+     until Advanced is ticked */
+  await ev(()=>{ RC.advanced = false; rcClearAssign(); });
 
   console.log('\n════ it survives the bench ════');
   ok('unplugging it stops the channels without losing the calibration', await ev(()=>{
@@ -268,6 +345,35 @@ const near=(a,b,e)=>Math.abs(a-b) <= (e===undefined?0.01:e);
       ? {shown:shown, want:+want.toFixed(3), width:+width.toFixed(1)} : false;
   }, {timeout:8000}).then(h=>h.jsonValue()).catch(()=>null);
   ok('the bars actually carry the live values', !!liveBars, JSON.stringify(liveBars));
+  /* The other half of the uncalibrated-channel answer. Reading the live
+     value keeps the WARNING honest; this keeps the invitation honest too —
+     "show every channel" hands you a dropdown, and a channel nobody has
+     calibrated has no endpoints, no rest point and no business being wired
+     to the feet. */
+  ok('an uncalibrated channel cannot be assigned by hand until it is calibrated', await ev(()=>{
+    const un = RC.chans[9]; un.moved = false; un.mode = 'off'; un.pad = '';
+    RCUI.showAll = true;
+    wizOpen(wizSteps().findIndex(s=>s.key==='controller'));
+    const host = $('startupBody');
+    const dead = host.querySelector('.rcrow[data-rc-chan="9"] select.rcassign');
+    const good = host.querySelector('.rcrow[data-rc-chan="0"] select.rcassign');
+    RCUI.showAll = false; un.moved = true;
+    return !!dead && dead.disabled === true && /calibrate/i.test(dead.options[0].textContent)
+        && !!good && good.disabled === false;
+  }));
+  /* A channel left on mode 'out' by a since-un-ticked Advanced switch used
+     to swallow the assignment made in simple mode: the picker only promoted
+     a channel whose mode was 'off', so the new Controller target did
+     nothing while the old direct binding kept writing the motor. */
+  ok('a Controller assignment takes effect even on a channel left bound to an output', await ev(()=>{
+    const c = RC.chans[2];
+    c.mode = 'out'; c.out = 'drive'; c.pad = '';
+    RC.advanced = false;
+    wizOpen(wizSteps().findIndex(s=>s.key==='controller'));
+    const sel = $('startupBody').querySelector('.rcrow[data-rc-chan="2"] select.rcassign');
+    sel.value = 'LY'; sel.dispatchEvent(new Event('change'));
+    return RC.chans[2].mode === 'pad' && RC.chans[2].pad === 'LY';
+  }));
   ok('the direct-output picker only exists once Advanced is ticked', await ev(()=>{
     const before = $('startupBody').querySelectorAll('select.rcmode').length;
     $('rcAdvanced').click();
@@ -275,10 +381,81 @@ const near=(a,b,e)=>Math.abs(a-b) <= (e===undefined?0.01:e);
     $('rcAdvanced').click();
     return before === 0 && after >= 4;
   }));
+  /* THE SWITCH HAS TO SWITCH SOMETHING OFF. Un-ticking Advanced only hid
+     the picker: the binding stayed on disk, rcDirectApply() kept writing
+     the motor, and the simple-mode dropdown showed the channel as "not
+     assigned" the whole time. So it demotes — after asking, because a
+     silent wipe of somebody's bench setup is its own kind of rude. */
+  ok('un-ticking Advanced asks before it disarms a binding', await ev(async ()=>{
+    RC.advanced = true;
+    const c = RC.chans[2]; c.mode='out'; c.out='drive';
+    wizOpen(wizSteps().findIndex(s=>s.key==='controller'));
+    const cb = $('rcAdvanced');
+    cb.checked = false; cb.dispatchEvent(new Event('change'));
+    const asked = !!document.querySelector('.dlgwrap');
+    const no = document.querySelector('.dlgwrap .dlgno'); if(no) no.click();
+    await new Promise(r=>setTimeout(r, 30));
+    return asked && RC.advanced === true && RC.chans[2].mode === 'out'
+        && $('rcAdvanced').checked === true;
+  }));
+  ok('...and on yes the binding is gone, on disk as well as in the frame loop', await ev(async ()=>{
+    const cb = $('rcAdvanced');
+    cb.checked = false; cb.dispatchEvent(new Event('change'));
+    const yes = document.querySelector('.dlgwrap .dlgyes'); if(yes) yes.click();
+    await new Promise(r=>setTimeout(r, 30));
+    const quiet = rcDirectApply() === false;
+    rcPrefsRestore();                       // what a reload would bring back
+    const back = RC.chans[2];
+    return quiet && RC.advanced === false && back.mode === 'off' && !back.out;
+  }));
   ok('the live bars stop redrawing once the panel leaves the page', await ev(async ()=>{
     wizGo(0);
     await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
     return RCUI.raf === 0 && RCUI.host === null;
+  }));
+
+  console.log('\n════ two identical dongles ════');
+  /* This module's own header says Gamepad.id is not an identity — "RC
+     dongles all report as some variant of USB Joystick" — and the panel's
+     hint repeats it. Every lookup keyed on that string anyway, so a second
+     identical dongle lit up both rows, disabled both buttons, and was
+     unreachable by either route: rcGamepad() bound to whichever the
+     browser enumerated first and rcOwns() excluded them BOTH from the
+     ordinary pad path. The instruction the panel gives had no outcome. */
+  ok('picking a different device asks before it wipes the calibration', await ev(async ()=>{
+    FAKE.twin = true;
+    wizOpen(wizSteps().findIndex(s=>s.key==='controller'));
+    const had = RC.chans.length;
+    const rows = $('startupBody').querySelectorAll('.rcdev');
+    const btn = rows.length > 1 ? rows[1].querySelector('button') : null;
+    if(btn) btn.click();
+    const asked = !!document.querySelector('.dlgwrap');
+    const no = document.querySelector('.dlgwrap .dlgno'); if(no) no.click();
+    await new Promise(r=>setTimeout(r, 30));
+    return had > 0 && asked && RC.chans.length === had;
+  }));
+  ok('the second of two identical dongles can be chosen, and only it is taken', await ev(async ()=>{
+    const rows = $('startupBody').querySelectorAll('.rcdev');
+    const twoRows = rows.length === 2;
+    const oneInUse = twoRows && rows[0].classList.contains('act') && !rows[1].classList.contains('act');
+    const btn = twoRows ? rows[1].querySelector('button') : null;
+    if(btn) btn.click();
+    const yes = document.querySelector('.dlgwrap .dlgyes'); if(yes) yes.click();
+    await new Promise(r=>setTimeout(r, 30));
+    const gp = rcGamepad();
+    const owned = rcPads().map(p=>rcOwns(p));
+    FAKE.twin = false;
+    return twoRows && oneInUse && !!gp && gp.index === 1 &&
+           owned[0] === false && owned[1] === true;
+  }));
+  ok('an id saved before the index was recorded still finds its device', await ev(()=>{
+    /* PREFS from any earlier version has a padId and no index at all, and
+       an index is not stable across a reconnect either — so an id-only
+       match has to keep working when nothing matches exactly. */
+    PREFS.rc = {padId:FAKE.id, advanced:false, chans:[]};
+    rcPrefsRestore();
+    const gp = rcGamepad();
+    return !!gp && gp.id === FAKE.id && rcOwns(gp);
   }));
 
   console.log('\n════ no page errors ════');

@@ -59,7 +59,28 @@ function selectRepaint(){
   for(let i=pi.vStart;i<pi.vStart+pi.vCount;i++) attr.setXYZ(i, Math.min(1,hi.r), Math.min(1,hi.g), Math.min(1,hi.b));
   attr.needsUpdate = true;
 }
+/* the selection entry point — initSelect()'s stage raycaster below funnels
+   every click here, and config/tab.js and app/panels.js call it directly, so
+   one guard closes the pointer path and both of those at once. Sim only
+   hides the sidebar wholesale and leaves #stage FULLY LIVE — it has to, the
+   public are there to drive the droid — so this is the one surface where
+   display:none guards nothing: a stranger left alone with the laptop can
+   left-click a panel and get the part card, which is a configuration
+   surface entire (a live position slider, the Port <select> that rewrites
+   MSTR.channels[n].act and calls rebuildMaestroUI(), rename, colour, the
+   pivot/travel editor, "+ New group with this part"). Nothing legitimate
+   calls this during kiosk — its two non-pointer callers are the Config
+   tab's assign row and the Outputs table, both inside #side — so the
+   selection is refused outright rather than the card guarded separately.
+   Same "guard the function, not the button" reasoning as openStartup(),
+   wsSet(), setStripMode('seq'), the file-drop door and mbSelect()
+   (look/startup.js, config/workspaces.js, maestro/ui-sequencer.js,
+   app/kiosk.js, scene/builder.js) — the Model Builder's raycaster got
+   exactly this as the fifth guard; the droid's own is the sixth.
+   deselectPart() is deliberately NOT guarded: it only ever closes, and
+   kioskEnter() calls it on the way in. */
 function selectPart(name){
+  if(typeof kioskOn === 'function' && kioskOn()) return;
   SEL.name = name;
   applyPaint();                                    // repaints all, then selectRepaint() highlights
   buildSelCard();

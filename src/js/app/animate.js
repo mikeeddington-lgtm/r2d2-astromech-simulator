@@ -77,12 +77,36 @@ function servoTakeTargets(){
     setPWM(e.board, e.def.ch, 0, Math.round(lo + (hi - lo) * clamp(t, 0, 1)));
   }
 }
+/* THE RAMP RATE IS TYPED BY A HUMAN, SO IT IS VALIDATED WHERE IT IS USED.
+
+   This was `(CFG.maestroRate || 2.2) * dt`, three times, straight out of a
+   number box with no min and no max (panels.js). A NEGATIVE rate makes
+   `Math.abs(d) <= step` false for every d, so instead of easing towards the
+   target every actuator was stepped AWAY from it, without bound: typing -1
+   and waiting eleven seconds left ACT.doorRL at -11.00, feeding
+   R2.doorL.rotation.y = ACT.doorL*1.95 — doors turning continuously, with
+   no way back short of reloading the profile. A typed 0 was silently
+   ignored instead (`||` treats it as unset), which is its own small lie.
+
+   `main.js` already does exactly this to CFG.loopHz — clamp(CFG.loopHz,
+   20, 2000) — and this is the same argument. A rate that is not a positive
+   number is not a rate, so it falls back to the default rather than being
+   honoured; anything else is held inside limits a mechanism can survive.
+   The panel inputs carry the same numbers as min/max, so the value can no
+   longer be typed at all — but the clamp lives here, because a .json
+   import, an older profile or a console poke never goes near that box. */
+const ANIM_RATE_DEF = 2.2, ANIM_RATE_MIN = 0.05, ANIM_RATE_MAX = 60;
+function animRate(){
+  const r = Number(CFG.maestroRate);
+  return clamp(isFinite(r) && r > 0 ? r : ANIM_RATE_DEF, ANIM_RATE_MIN, ANIM_RATE_MAX);
+}
+
 /* the per-CHANNEL readings (maestro/playback.js CHPOS) ease by the same rule
    and in the same breath as the actuators, so a gauge and a panel driven by
    one frame arrive together rather than a tick apart */
 function stepChanPos(dt){
   if(typeof CHPOS === 'undefined') return;
-  const step = (CFG.maestroRate || 2.2) * dt;
+  const step = animRate() * dt;
   for(let i = 0; i < CHPOS_T.length; i++){
     if(CHPOS_T[i] === undefined) continue;
     if(CHPOS[i] === undefined){ CHPOS[i] = CHPOS_T[i]; continue; }
@@ -105,7 +129,7 @@ function syncActuators(dt){
     }
     // parts the PCA9685s don't own (side panels, rear doors, drawer) still
     // answer UI tests and group actions — ramp them like the Maestro path does
-    const step = (CFG.maestroRate||2.2)*dt;
+    const step = animRate()*dt;
     for(const k in ACT){
       if(SERVO_ACT_SET.has(k)) continue;
       const d = ACT_T[k] - ACT[k];
@@ -116,7 +140,7 @@ function syncActuators(dt){
     // NOTE: the timelines are advanced inside the firmware tick loop, not here,
     // so a held button that keeps calling restartScript() pins them at t≈0 the
     // same way it would against a real Maestro.
-    const step = (CFG.maestroRate||2.2)*dt;
+    const step = animRate()*dt;
     for(const k in ACT){
       const d = ACT_T[k] - ACT[k];
       if(Math.abs(d) <= step) ACT[k] = ACT_T[k];

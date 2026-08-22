@@ -82,11 +82,19 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
     const mid = seq.frames.slice(1,-2);
     return mid.every(f=>Math.abs(f.duration-500)<=15);
   }));
+  /* "open" is the channel's OPEN END, asked for directly. This used to count
+     any target that differed from `c.home`, which only worked while the
+     builder's shut pose WAS c.home — the bug below. A resting pose is now
+     chanRest()'s answer (a door shut, a bipolar actuator centred), so it no
+     longer equals home on every channel and a proxy for open has to stop
+     being "not home". */
   ok('the chase opens exactly one channel per frame', await ev(()=>{
     const seq = MSTR.sequences[MSTR.sequences.length-1];
-    const homes = {}; MSTR.channels.forEach(c=>homes[c.i]=c.home);
     return seq.frames.slice(0,-1).every(f=>{
-      const open = f.targets.filter((t,i)=>t!==0 && homes[i]!==undefined && t!==homes[i]).length;
+      const open = f.targets.filter((t,i)=>{
+        const c = MSTR.channels[i];
+        return t!==0 && c && t===chanEnds(c).open;
+      }).length;
       return open===1;
     });
   }));
@@ -116,10 +124,66 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
     const r = musicBuildSequence('pies','alternate',1,6);
     const drove = !r.error && r.seq.frames.some(f=>f.targets[c.i] === c.max);
     const reads = !r.error && r.seq.frames.some(f=>f.targets[c.i] && chanNorm(c, f.targets[c.i]) === 1);
-    const never = !r.error && !r.seq.frames.some(f=>f.targets[c.i] === keep.max);
+    /* The old bug drove this panel to 8000 and CALLED that open. 8000 is now
+       a pose the routine legitimately writes — it is the shut end once the
+       pair is reversed — so what must never happen is 8000 being the OPEN
+       pose. Every target the routine writes is one of the two ends, and the
+       model reads each one as the end it actually is. */
+    const never = !r.error && r.seq.frames.every(f=>{
+      const t = f.targets[c.i];
+      if(!t) return true;
+      if(t === c.max) return chanNorm(c, t) === 1;
+      return t === c.min && chanNorm(c, t) === 0;      // c.min is keep.max, 8000, now the shut end
+    });
     MSTR.sequences.pop();
     c.min = keep.min; c.max = keep.max;
     return drove && reads && never;
+  }));
+  /* The OTHER half of the same v1.46.0 rule, which the travel work left
+     behind: a routine's SHUT pose is the channel's shut END, not `c.home`.
+     Tick `inv` on a starter channel (min 4000 / max 8000 / home 4000) and the
+     pane swaps the pair to min 8000 / max 4000 — the home number is now the
+     OPEN end, so a builder who reverses one linkage gets a panel that starts
+     open and never moves, because the routine's "open" and "close" poses are
+     the same 4000. The two poses must differ, and beat 0 must find every
+     channel it is not opening sitting shut. */
+  ok('a REVERSED channel closes to its shut end, not to c.home', await ev(()=>{
+    const pies = Array.from({length:PIE_COUNT},(_,i)=>'pie'+i)
+                      .map(a=>MSTR.channels.find(x=>x.act===a)).filter(Boolean);
+    const c = pies[1];                               // not the one beat 0 opens
+    const keep = {min:c.min, max:c.max, home:c.home};
+    const t=c.min; c.min=c.max; c.max=t;             // exactly what the pane's inv tick does
+    const r = musicBuildSequence('pies','chase',1,8);
+    const ends = {shut:c.min, open:c.max};
+    const frames = r.error ? [] : r.seq.frames;
+    const differ  = !r.error && ends.open !== ends.shut
+                 && frames.some(f=>f.targets[c.i]===ends.open)
+                 && frames.some(f=>f.targets[c.i]===ends.shut);
+    const startsShut = !r.error && frames[0].targets[c.i] === ends.shut;
+    if(!r.error) MSTR.sequences.pop();
+    c.min=keep.min; c.max=keep.max; c.home=keep.home;
+    return differ && startsShut;
+  }));
+  /* An imported channel with homemode="Off" carries `home:0` — the board is
+     told not to drive it at power-up, so there is no number to obey. A frame
+     target of 0 is "leave this channel alone" (applyFrameTargets, playback.js),
+     so seeding the shut pose from `c.home` wrote a routine that opened the
+     panel on beat 0 and then never closed it again. Both the per-beat shut
+     pose and the base pose have to be a real position — chanEnds()/chanRest()
+     ask the actuator, which is what `homemode:'Off'` leaves them to do. */
+  ok('a homemode="Off" channel (home 0) still gets a real shut position', await ev(()=>{
+    const pies = Array.from({length:PIE_COUNT},(_,i)=>'pie'+i)
+                      .map(a=>MSTR.channels.find(x=>x.act===a)).filter(Boolean);
+    const c = pies[1];
+    const keep = {home:c.home, homemode:c.homemode};
+    c.home = 0; c.homemode = 'Off';                  // what import.js writes for Off/Ignore
+    const r = musicBuildSequence('pies','chase',1,8);
+    const frames = r.error ? [] : r.seq.frames;
+    const beatShut = !r.error && frames[0].targets[c.i] === c.min && frames[0].targets[c.i] !== 0;
+    const baseShut = !r.error && frames[frames.length-1].targets[c.i] === c.min;
+    if(!r.error) MSTR.sequences.pop();
+    c.home = keep.home; c.homemode = keep.homemode;
+    return beatShut && baseShut;
   }));
 
   console.log('\n════ synced playback ════');

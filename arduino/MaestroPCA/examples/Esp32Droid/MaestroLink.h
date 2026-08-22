@@ -36,6 +36,23 @@
 
 #include <stdint.h>
 
+/* THE ARGUMENT BUFFER, and the one command that can overrun it.
+   Every command but Set Multiple Targets (0x9F) has a fixed argument
+   count baked into argsFor(). 0x9F announces its own: its first data byte
+   says how many channels follow, and that byte comes off the wire, from a
+   line that a droid shares with motors and a slip ring.
+
+   So the buffer size and the largest count that fits in it are ONE
+   number, stated once. 52 bytes is 2 + 25*2, i.e. a count, a first
+   channel and 25 fourteen-bit targets — and a count above
+   MPCA_LINK_MAX_MULTI is refused outright rather than believed, because
+   `2 + count*2` in a uint8_t is 0 for a count of 127 and a parser that
+   trusts it decides the command is complete on its first argument byte
+   and then reads a hundred targets out of whatever follows _arg in
+   memory. Two bytes of noise, 0x9F 0x7F, is the whole exploit. */
+#define MPCA_LINK_ARGBUF     52
+#define MPCA_LINK_MAX_MULTI  ((MPCA_LINK_ARGBUF - 2) / 2)   /* 25 channels */
+
 class MaestroPCA;
 
 class MaestroLink {
@@ -71,7 +88,7 @@ private:
   uint8_t  _cmd;
   uint8_t  _need;        /* arg bytes still expected (0xFF = not yet known) */
   uint8_t  _got;
-  uint8_t  _arg[52];     /* set-multiple-targets is the long one: 2 + 24*2 */
+  uint8_t  _arg[MPCA_LINK_ARGBUF];   /* see the note above the class */
   uint8_t  _crc;
 
   uint8_t  _lastCmd, _lastArg;

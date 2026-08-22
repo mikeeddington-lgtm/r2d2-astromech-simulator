@@ -99,6 +99,21 @@ const MB_PRIM = {
   ball:  {label:'Ball joint', joint:2, chan:['Pan','Tilt']}
 };
 const MB_PRIM_ORDER = ['beam','plate','disc','hinge','ball'];
+/* IS THIS A TYPE THIS BUILD HAS? (v1.46.0)
+   `MB_PRIM[type]` was the test everywhere, and MB_PRIM is a plain object
+   literal — so `MB_PRIM['constructor']` is Object, `MB_PRIM['toString']` is a
+   function, and a saved record naming any Object.prototype key validated as a
+   real part. mbBuildGeometry then dispatched through the same hole
+   (`MB_BUILDERS['constructor']` → Object), handed back something with no
+   `.group`, and mbRealize threw on it — inside the one function whose docblock
+   says it MUST NEVER THROW, after the live assembly had already been torn
+   down. An own-property test is the whole fix, and every "is this a type"
+   question in this file goes through here so there is one place to get it
+   right. mbJointCount/mbTypeLabel read MB_PRIM[type] AFTER this has said yes,
+   or fall through harmlessly on their own `|| 0` / `|| type`. */
+function mbPrimHas(type){
+  return typeof type === 'string' && Object.prototype.hasOwnProperty.call(MB_PRIM, type);
+}
 
 /* ------------------------------------------------------------- runtime */
 const MB = {
@@ -249,7 +264,12 @@ function mbBuildBall(){
 /* the dispatch table PHASE 2's rigged sub-assemblies are meant to extend */
 const MB_BUILDERS = {beam:mbBuildSimple, plate:mbBuildPlate, disc:mbBuildSimple, hinge:mbBuildHinge, ball:mbBuildBall};
 function mbBuildGeometry(type){
-  const fn = MB_BUILDERS[type] || mbBuildSimple;
+  /* own-property, for the same reason mbPrimHas() exists: `MB_BUILDERS` is a
+     plain object literal too, so `MB_BUILDERS['constructor']` was Object and
+     `MB_BUILDERS['toString']` a function — both of which return something
+     that is not a part. A type this file does not build falls back to the
+     simple primitive, which is what the `||` always meant. */
+  const fn = Object.prototype.hasOwnProperty.call(MB_BUILDERS, type) ? MB_BUILDERS[type] : mbBuildSimple;
   return fn(type);
 }
 
@@ -321,12 +341,40 @@ function mbDisposeGroup(group){
   if(!group) return;
   group.traverse(o => { if(o.isMesh && o.geometry) o.geometry.dispose(); });
 }
+/* the selection outline, freed rather than dropped (v1.46.0). MB.selHelper was
+   simply overwritten on the next click, and a BoxHelper owns a BufferGeometry
+   AND a LineBasicMaterial of its own — 200 clicks round a mechanism made 200
+   of each and freed none, on the one model in the app the user sits and
+   fiddles with for an hour. Both call sites that drop it come through here.
+   (Keeping ONE helper and setFromObject()ing it would work too, but a helper
+   is built around the object it wraps, so it would have to be rebuilt on every
+   change of selection anyway.) */
+function mbDropSelHelper(){
+  const h = MB.selHelper;
+  MB.selHelper = null;
+  if(!h) return;
+  if(MB.root) MB.root.remove(h);
+  if(h.geometry && h.geometry.dispose) h.geometry.dispose();
+  if(h.material && h.material.dispose) h.material.dispose();
+}
 
 /* place `rec.group`, tag it, and park it under the base plate — callers
    that want a different parent reparent afterward (mbReparent). Always
-   starting under base means a part is never, even briefly, unparented. */
+   starting under base means a part is never, even briefly, unparented.
+
+   RETURNS whether the part was realized (v1.46.0). mbPrimHas() closes the
+   one hole that could get a typeless record this far, but this is the last
+   place a part becomes real and mbRebuildFromPrefs — its main caller — MUST
+   NEVER THROW, so a builder that hands back something with no `.group`
+   loses its record here, loudly, instead of throwing halfway through
+   posing it and leaving the assembly it had already torn down in pieces. */
 function mbRealize(rec){
   const built = mbBuildGeometry(rec.type);
+  if(!built || !built.group){
+    if(typeof lg === 'function')
+      lg('warn', 'Model Builder: no geometry for part type "'+rec.type+'" — "'+rec.id+'" was dropped');
+    return false;
+  }
   rec.group = built.group;
   rec.attachPoint = built.attachPoint;
   /* the sockets live on the RECORD, so mbAttachPoint(id, socket) — and the
@@ -340,6 +388,7 @@ function mbRealize(rec){
   rec.group.rotation.set(rec.rot.x * MB_DEG2RAD, rec.rot.y * MB_DEG2RAD, rec.rot.z * MB_DEG2RAD);
   rec.group.userData.mbId = rec.id;
   MB.base.attachPoint.add(rec.group);
+  return true;
 }
 /* reparent onto `parentId`. `preserveWorld` uses THREE's own .attach() —
    the world pose stays exactly where it was and the LOCAL pos/rot are
@@ -536,10 +585,32 @@ function mbChannelsValid(ch){
   return ch.every(k => typeof k === 'string' && mbIsAct(k));
 }
 function mbSavedPartValid(sp){
-  return !!sp && typeof sp.id === 'string' && !!sp.id && !!MB_PRIM[sp.type] &&
+  return !!sp && typeof sp.id === 'string' && !!sp.id && mbPrimHas(sp.type) &&
     mbVec3Valid(sp.pos) && mbVec3Valid(sp.rot) &&
     mbChannelsValid(sp.channels) && mbAxisValid(sp.axis) &&
     (sp.socket === undefined || sp.socket === null || typeof sp.socket === 'string');
+}
+/* WHY a record was refused, in the words the reader needs (v1.46.0). "Skipped
+   a corrupt part record" was the answer to every refusal, and for by far the
+   commonest one it was simply untrue: a record naming a type this build has
+   never had — the shipped examples/R2-model-simple-face.json is six of them,
+   all phase 2's — is not corrupt, it is a part this sim cannot make, and the
+   only useful thing to say about it is WHICH type. The import refusal
+   (mbImportModelText) and the restore warning both read from here, so the two
+   can never describe the same record differently. */
+function mbSavedPartWhy(sp){
+  const who = (sp && typeof sp.id === 'string' && sp.id) ? ' ("'+sp.id+'")' : '';
+  if(!sp || typeof sp !== 'object' || typeof sp.id !== 'string' || !sp.id)
+    return 'skipped a corrupt part record';
+  if(!mbPrimHas(sp.type))
+    return 'skipped'+who+' — this build has no part type "'+mbTypeName(sp.type)+'"';
+  return 'skipped a corrupt part record'+who;
+}
+/* a foreign record's `type` may be any JSON value at all, and it goes into a
+   message — so name it without pretending it was a string */
+function mbTypeName(type){
+  if(typeof type === 'string') return type;
+  return (type === undefined) ? '(none)' : String(type);
 }
 /* tear down every live part and rebuild the whole assembly from
    PREFS.builder — called once per show (mbSetShown) and once after a
@@ -550,7 +621,7 @@ function mbSavedPartValid(sp){
    written. */
 function mbRebuildFromPrefs(){
   buildModelBuilder();
-  if(MB.selHelper){ MB.root.remove(MB.selHelper); MB.selHelper = null; }
+  mbDropSelHelper();
   /* ACT BOOKKEEPING, both halves (v1.45.0). This used to do none, which was
      survivable only on the one call site that sandwiched it between
      mbUnregisterAll() and mbRegisterAll() (mbSetShown's false→true edge) and
@@ -572,7 +643,13 @@ function mbRebuildFromPrefs(){
 
   const saved = (typeof PREFS !== 'undefined' && PREFS.builder && Array.isArray(PREFS.builder.parts))
     ? PREFS.builder.parts : [];
-  const byId = {}, srcOf = {};
+  /* null-prototype maps (v1.46.0): on a plain {}, `byId['constructor']` is
+     Object and `byId['toString']` a function, so a record whose id was any
+     Object.prototype key was refused as a duplicate of nothing, and a record
+     naming one as its PARENT sailed through the "does that parent exist"
+     filter in pass 2. An id is a string a person chose; it does not get to
+     mean anything else. See mbPrimHas() for the same trap on the type. */
+  const byId = Object.create(null), srcOf = Object.create(null);
   /* pass 1 — realize every record, parented to base for now (a part may
      name a parent that has not been created yet). Two ways a record does
      NOT get realized: the hard cap, re-checked live exactly the way
@@ -596,10 +673,10 @@ function mbRebuildFromPrefs(){
       return;
     }
     if(!mbSavedPartValid(sp)){
-      if(typeof lg === 'function') lg('warn', 'Model Builder restore: skipped a corrupt part record'+(sp && sp.id ? ' ("'+sp.id+'")' : ''));
+      if(typeof lg === 'function') lg('warn', 'Model Builder restore: '+mbSavedPartWhy(sp));
       return;
     }
-    if(byId[sp.id]){
+    if(Object.prototype.hasOwnProperty.call(byId, sp.id)){
       if(typeof lg === 'function') lg('warn', 'Model Builder restore: skipped a second part record sharing the id "'+sp.id+'"');
       return;
     }
@@ -614,7 +691,7 @@ function mbRebuildFromPrefs(){
          v1.44.1 (rigid, no channels) rigid now that the type can be driven */
       channels:(sp.channels || []).slice(0, mbJointCount(sp.type)), jointN:sp.jointN
     };
-    mbRealize(rec);
+    if(!mbRealize(rec)) return;        // it said why; the rest of the assembly goes on
     byId[rec.id] = rec;
     srcOf[rec.id] = sp;
     MB.parts.push(rec);
@@ -685,7 +762,7 @@ function mbSoftCapNote(){
 }
 function mbAddPart(type){
   if(typeof kioskOn === 'function' && kioskOn()) return null;
-  if(!MB_PRIM[type] || mbAtHardCap()) return null;
+  if(!mbPrimHas(type) || mbAtHardCap()) return null;
   if(!MB.built) buildModelBuilder();
   const cell = mbNextCell();
   const id = 'p' + (MB.nextId++);
@@ -706,7 +783,7 @@ function mbAddPart(type){
       ? ['bldJ' + rec.jointN, 'bldJ' + rec.jointN + 't']
       : ['bldJ' + rec.jointN];
   }
-  mbRealize(rec);
+  if(!mbRealize(rec)) return null;
   MB.parts.push(rec);
   if(MB.shown) mbRegisterPart(rec);
   mbSaveState();
@@ -970,7 +1047,7 @@ function mbUndoAttach(){
 function mbSelect(id){
   if(typeof kioskOn === 'function' && kioskOn()) return;
   MB.sel = id || null;
-  if(MB.selHelper){ MB.root.remove(MB.selHelper); MB.selHelper = null; }
+  mbDropSelHelper();
   const rec = MB.sel ? mbFind(MB.sel) : null;
   if(rec && rec.group && typeof THREE !== 'undefined' && THREE.BoxHelper){
     MB.selHelper = new THREE.BoxHelper(rec.group, 0x4fd8e8);
@@ -1093,17 +1170,88 @@ function mbImportModelText(text, name){
     if(typeof lg === 'function') lg('warn', 'Model Builder import: '+where+' was saved by a newer sim (v'+got.v+') — anything it added may be dropped');
     if(typeof toast === 'function') toast(where+' comes from a newer sim — parts it does not share may be dropped', 'warn');
   }
-  if(typeof PREFS !== 'undefined') PREFS.builder = {v: got.v, parts: got.parts};
+  /* READ THE FILE BEFORE COMMITTING TO IT (v1.46.0).
+     This used to assign PREFS.builder and call mbRebuildFromPrefs() straight
+     off — and that function tears the live assembly down (mbUnregisterAll();
+     MB.parts = []) before it reads the first record, skips whatever fails
+     validation, and SAVES the result. So a file with nothing this build can
+     make destroyed the assembly on the stage, saved the emptiness over the
+     one the user had, and reported "loaded 0 part(s)" — a success word for
+     total destruction, with no undo. The app's own
+     examples/R2-model-simple-face.json is exactly that file: six phase-2
+     types, and a `v` of 2 that matches MB_SCHEMA so not even the newer-sim
+     warning fired.
+     So: validate into a scratch list first, and only then commit. Nothing is
+     touched unless at least one record survives — and the refusal says which
+     types this build does not have, because that is the one thing the reader
+     cannot work out for themselves. */
+  const check = mbImportCheck(got.parts);
+  if(!check.good.length){
+    const why = check.unknown.length
+      ? 'nothing in it is a part this build can make — unknown type(s): '+check.unknown.join(', ')
+      : 'no usable part records in it';
+    if(typeof lg === 'function') lg('warn', 'Model Builder import refused ('+where+'): '+why);
+    if(typeof toast === 'function') toast('nothing loaded from '+where+' — '+why+'. Your assembly is untouched.', 'err');
+    return {ok:false, error:why, unknown:check.unknown.slice()};
+  }
+  if(typeof PREFS !== 'undefined') PREFS.builder = {v: got.v, parts: check.good};
   const n = mbRebuildFromPrefs();
   mbSelect(null);
-  if(typeof lg === 'function') lg('sys', 'Model Builder imported '+n+' part(s) from '+where);
-  if(typeof toast === 'function') toast('loaded '+n+' part(s) from '+where);
+  const dropped = check.dropped;
+  if(typeof lg === 'function'){
+    lg('sys', 'Model Builder imported '+n+' part(s) from '+where);
+    if(dropped) lg('warn', 'Model Builder import: '+dropped+' record(s) in '+where+' were dropped'
+                          + (check.unknown.length ? ' — unknown type(s): '+check.unknown.join(', ') : ''));
+  }
+  if(typeof toast === 'function')
+    toast('loaded '+n+' part(s) from '+where
+          + (dropped ? ' — '+dropped+' dropped'
+                     + (check.unknown.length ? ' ('+check.unknown.join(', ')+')' : '') : ''),
+          dropped ? 'warn' : undefined);
   if(typeof modelGet === 'function' && modelGet() === 'builder' && typeof buildCadPane === 'function') buildCadPane();
-  return {ok:true, count:n};
+  return {ok:true, count:n, dropped:dropped, unknown:check.unknown.slice()};
 }
+/* what an incoming parts list actually offers, with nothing on the stage
+   touched: the records this build can make, how many it cannot, and the
+   NAMES of the types it did not recognise. Validation is mbSavedPartValid()'s,
+   the same one mbRebuildFromPrefs() applies, so the scratch list can never
+   promise more than the rebuild will deliver. */
+function mbImportCheck(parts){
+  const good = [], unknown = [];
+  let dropped = 0;
+  (Array.isArray(parts) ? parts : []).forEach(sp => {
+    if(mbSavedPartValid(sp)){ good.push(sp); return; }
+    dropped++;
+    if(sp && typeof sp === 'object' && !mbPrimHas(sp.type)){
+      const t = mbTypeName(sp.type);
+      if(unknown.indexOf(t) < 0) unknown.push(t);
+    }
+  });
+  return {good, dropped, unknown};
+}
+/* THE FILE DOOR, and the only place a person actually stands (v1.46.0).
+   Importing REPLACES the assembly, so a non-empty one gets the same ask
+   maestro/ui-files.js's drop path makes before it adopts sequences over
+   something you already have. It lives here rather than in
+   mbImportModelText() on purpose: appConfirm() is a promise, and that
+   function's answer — {ok, count} — is read synchronously by its callers and
+   by the suites. The text-level import stays a plain, testable transform;
+   the door asks. */
 function mbImportModelFile(file){
   const fr = new FileReader();
-  fr.onload = () => mbImportModelText(fr.result, file.name);
+  fr.onload = async () => {
+    if(MB.parts.length && typeof appConfirm === 'function'){
+      const go = await appConfirm(
+        'Import ' + file.name + ' over the ' + MB.parts.length + ' part(s) on the stage? '
+        + 'The assembly you have now is replaced, and that cannot be undone.',
+        {title:'replace the assembly?', yes:'replace it', no:'keep mine'});
+      if(!go){
+        if(typeof toast === 'function') toast('import cancelled — your assembly is untouched');
+        return;
+      }
+    }
+    mbImportModelText(fr.result, file.name);
+  };
   fr.readAsText(file);
 }
 
@@ -1116,7 +1264,21 @@ function mbSetShown(on){
   const was = MB.shown;
   MB.shown = !!on;
   if(MB.shown && !MB.built) buildModelBuilder();
-  if(MB.shown && !was) mbRebuildFromPrefs();
+  /* THE LAST LINE OF DEFENCE (v1.46.0). mbRebuildFromPrefs()'s docblock says
+     it must never throw, and it now does not — but it is reading a file a
+     person may have written, and this is where a throw would do the most
+     damage: modelApply() calls straight through here, and at boot that call
+     lives inside main.js's `mouseReady.then(() => modelApply(...))`. One bad
+     saved record therefore became an UNHANDLED REJECTION and an empty stage
+     on every single reload, with nothing said anywhere. A model that will not
+     rebuild costs the builder; it must not cost the whole stage. */
+  if(MB.shown && !was){
+    try{ mbRebuildFromPrefs(); }
+    catch(e){
+      if(typeof lg === 'function') lg('warn', 'Model Builder: the saved assembly could not be rebuilt — '+e.message);
+      if(typeof toast === 'function') toast('the saved Builder assembly could not be rebuilt — see the log', 'err');
+    }
+  }
   if(MB.root) MB.root.visible = MB.shown;
   if(MB.shown && !was) mbRegisterAll();
   else if(!MB.shown && was) mbUnregisterAll();

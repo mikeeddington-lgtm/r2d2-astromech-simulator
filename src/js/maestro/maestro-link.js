@@ -209,6 +209,16 @@ function mstrQuiet(on){
     }
   }
   MST.quiet = !!on;
+  /* The board's speeds have just been rewritten on every channel, so what
+     serialMove() remembers sending is no longer what the board holds — and it
+     de-duplicates Set Speed against exactly that memory. Left standing, the
+     first move after this toggle would be a bare Set Target and the board
+     would draw the ramp at whatever this loop just left it with: on a channel
+     whose table speed is 0, full speed, while the sequencer still times the
+     brick against the ramp it asked for. Cleared HERE rather than in the
+     button's handler (serial-link.js) so that any future caller is covered
+     too — the same reason serialSetMode() clears SER.lastTicks itself. */
+  if(typeof SER !== 'undefined') SER.lastSpeed = {};
 }
 
 /* ================================================== THE CLAMP, MADE VISIBLE

@@ -66,11 +66,24 @@ function bindSplitter(id){
     h.setPointerCapture(e.pointerId);
     h.classList.add('drag');
     /* the handle sits BETWEEN the panes, so the size we are setting is the
-       distance from the far edge to the pointer, less half the handle */
+       distance from the far edge to the pointer, less half the handle.
+
+       AND IT IS MEASURED IN THE WRONG UNITS UNTIL WE DIVIDE. Everything on
+       the right of this expression is a VIEWPORT px — a client rect, a
+       pointer coordinate — while --sideW / --padH / --seqW are consumed by
+       #main and #left INSIDE the subtree applyUiScale() has zoomed, so they
+       are LAYOUT px. At 150% the edge therefore moved 1.5px for every 1px
+       of pointer travel and the gap grew for as long as you dragged: with
+       the pointer at x=788 the sidebar's edge sat at x=432. It also made
+       the clamp meaningless — SPLIT_LIMITS.sideW.max = 820 was being
+       compared against a number that was already 1.5× too big. Divide by
+       the zoom here and the stored value, the limits and the CSS variable
+       are all in one space (uiZoomFactor(), app/hud.js). */
     const move = ev=>{
-      const px = (role.axis === 'x')
+      const z = uiZoomFactor();
+      const px = ((role.axis === 'x')
         ? (role.name === 'sideW' ? main.right - ev.clientX : left.right - ev.clientX)
-        : left.bottom - ev.clientY;
+        : left.bottom - ev.clientY) / z;
       splitSet(role.name, px);
       if(!raf) raf = requestAnimationFrame(()=>{ raf = 0; if(typeof onResize === 'function') onResize(); });
     };

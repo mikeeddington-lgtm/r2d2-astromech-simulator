@@ -133,13 +133,43 @@ const DEFAULT_MIN=4000, DEFAULT_MAX=8000, DEFAULT_NEUTRAL=6000;
        — somebody measured that, and there is nothing on the model to lie
    `homemode` Off/Ignore means the board does not drive the channel at power-up
    at all, so there is no number to obey and the actuator's own answer wins.
-   One reader, `chanRest(c)`, in quarter-µs, so the model and the board agree. */
-const ACT_CENTRED = /(pan|tilt|nod|spin|rot|wag)/i;
+   One reader, `chanRest(c)`, in quarter-µs, so the model and the board agree.
+
+   WHICH KIND IS IT? A QUESTION ABOUT WORDS, NOT SUBSTRINGS (2026-08-22).
+   Everything above was written, tested and shipped — and every one of the
+   fourteen dome side panels went on resting half open anyway, because the
+   predicate that decides "bipolar" was the unanchored /(pan|tilt|nod|spin|
+   rot|wag)/ and `pan` is a substring of `panel0` … `panel13`. The pies and
+   the doors carry no such fragment, which is precisely why the fix LOOKED
+   like it had worked: the parts Mike went and checked were the ones that
+   never matched. The half-open panels he was complaining about in the first
+   place kept answering 0.5, rested at 6000, and stood ajar on the model.
+
+   An actuator id is a name written in camel case with an optional index —
+   `doorL`, `hp1Pan`, `hp2Tilt`, `pie0`, `panel13` — so the question is asked
+   of its WORDS: split at every camel-case boundary and at every digit or
+   separator, and require a token to BE a centred word rather than merely to
+   contain one. `hp1Pan` → hp · Pan, bipolar. `panel13` → panel, a door.
+
+   The `+` in the pattern is load-bearing rather than decorative: an id that
+   names both axes of one gimbal with no separator at all (`pantilt`) is a
+   single token made of nothing but centred words, and is as bipolar as the
+   pair it stands for — while `panel` is `pan` with a leftover behind it and
+   stays a door. Nothing may be added to the word list that is also the start
+   of a part name; if that day comes, the id is the thing to rename. */
+const ACT_CENTRED_WORD = /^(?:pan|tilt|nod|spin|rot|wag)+$/i;
+function actIsCentred(act){
+  return String(act)
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')   // camel-case boundary: hp1Pan → hp1 Pan
+    .replace(/[^A-Za-z]+/g, ' ')              // the trailing index, and any separator
+    .trim().split(/\s+/)
+    .some(w => ACT_CENTRED_WORD.test(w));
+}
 function actRestNorm(act){
   if(!act) return null;                 // board-only channel: nothing on screen to rest
   if(typeof anzIsAct === 'function' && anzIsAct(act) && typeof anzHome === 'function') return anzHome(act);
   if(typeof mbIsAct === 'function' && mbIsAct(act)) return 0.5;   // a builder joint is bipolar
-  return ACT_CENTRED.test(act) ? 0.5 : 0;
+  return actIsCentred(act) ? 0.5 : 0;
 }
 function chanRest(c){
   if(!c) return DEFAULT_NEUTRAL;

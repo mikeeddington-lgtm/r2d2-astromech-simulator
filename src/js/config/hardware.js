@@ -561,13 +561,14 @@ function servoTopoDef(id){ return SERVO_TOPOS.find(t=>t.id === id) || SERVO_TOPO
    whereas `p0` (straight off the droid's own I2C pins) is the cheap special
    case that only the mod2026 sketch can drive.
 
-   It is the DEFAULT OF THE QUESTION, not of the app: choose the PCA9685
-   family and this is the shape you land on. `buildDefault()` still ships
-   `p0`, on purpose — the starting build is the all-mod2026 clean slate whose
-   sketch IS the no-controller arrangement (see the note there), and having
-   the two disagree would mean a brand-new wizard opening on a contradiction
-   it would then "fix" by re-picking the firmware. Changing the shipped
-   default is a one-word change here if Mike would rather have it.
+   It is the DEFAULT OF THE QUESTION as well as of the app. This paragraph
+   used to say `buildDefault()` "still ships `p0`", and it has not since
+   v1.46.0: Mike asked for the two-expander arrangement to be "first and
+   selected in the list", so the shipped build is `p1x2` with `pcaBoards:2`
+   and `domeServo`/`bodyServo` on `mpca32` to match (see buildDefault). The
+   contradiction that paragraph was defending against is the FIRMWARE one,
+   which Mike was shown and chose to keep — it is documented where it lives,
+   in buildDefault(), not here.
 
    Maestro starts at one board for the obvious reason: nothing to address,
    nothing to chain. */
@@ -727,9 +728,28 @@ function buildGet(){
       }
     }
   }
+  /* ------------------------------- AN OLD BLOB NAMED ITS BOARDS (v1.67.0)
+     A PREFS.build saved before v1.36.0 has `domeServo`/`bodyServo` and no
+     `servoDevice`/`servoTopo` at all — the shape did not exist yet. The gap
+     fill below is blind, so such a build inherited the SHIPPED default
+     (PCA9685 × 2) and then contradicted itself all afternoon: the rail chip,
+     the review table and the wiring sheet said PCA9685, while
+     buildMaestroBoard() and the running sim were still Maestro, and the
+     wizard's Servo hardware step offered an expander count to a droid with
+     no expanders. Correcting it by hand then collapsed two boards into one.
+
+     buildNormaliseServos(b, 'domeServo') is the one function that reads a
+     board answer BACK into a shape, and it was only ever called from
+     buildSet() — never on load. So call it here, on exactly the blobs that
+     need it. The guard is on what the STORED object had, read before the
+     fill puts a shape into it, or this would fire on every single load. */
+  const hadShape  = PREFS.build.servoDevice !== undefined || PREFS.build.servoTopo !== undefined;
+  const namedBoard = PREFS.build.domeServo !== undefined || PREFS.build.bodyServo !== undefined;
   /* fill gaps rather than replacing, so a partial block keeps its answers */
   const d = buildDefault();
   for(const k in d) if(PREFS.build[k] === undefined) PREFS.build[k] = d[k];
+  if(!hadShape && namedBoard && typeof buildNormaliseServos === 'function')
+    buildNormaliseServos(PREFS.build, 'domeServo');
   return PREFS.build;
 }
 /* ---------------------------------------------- a step's answer(s), v1.34.0
@@ -1191,6 +1211,86 @@ function buildSyncBench(b){
   return true;
 }
 
+/* ============================ A SMALLER BOARD IS AN OFFER  (v1.67.0)
+   buildApply() used to hand every board answer straight to setBoard(), and
+   buildSet() calls buildApply() on every answer change — so Setup ▸ Servo
+   hardware ▸ Mini Maestro 12, on a calibrated Mini Maestro 24, deleted
+   twelve rows of measured travel, names, part mappings and frame targets,
+   called servoStoreSave() over the top, and reported it in one `lg('mae')`
+   line. Same from taking the PCA expanders 4 → 1. There is no undo.
+
+   The doctrine was already written down twice — HW.short() is GROW ONLY and
+   says so, setupAdoptBoards() is a button rather than a side effect for
+   exactly this reason — and this was the one path that ignored it. So:
+
+     · same size or bigger, apply it. Growing only ever fills holes, and
+       nobody needs to be asked about a row that does not exist yet.
+     · SMALLER, ask. Naming the rows that go and how many of them drive a
+       part, because "12 rows" and "12 rows, 9 of them wired to panels" are
+       different decisions.
+
+   The ask is DEFERRED rather than awaited: buildApply() has a dozen
+   synchronous callers (buildSet, wizFinish, loadProfile paths, the Config
+   tab) which read its return value, and making it async would leave a modal
+   open across whatever ran next — the same trap wizFinishAsked() documents
+   about wizFinish(). So buildApply() returns immediately having changed
+   nothing, and the answer, when it comes, does the shrink on its own.
+
+   `asking` is the one-at-a-time guard; `declined` stops the offer being
+   re-put on every subsequent keystroke, and is cleared the moment the build
+   asks for a different board — so changing your mind is one answer away. */
+const BUILD_SHRINK = {asking:'', declined:''};
+/* what changing to `want` would cost, or null if it costs nothing. The sums
+   are setBoard()'s own (maestro/starters.js) on purpose: the number in the
+   question has to be the number that actually happens. */
+function buildBoardShrink(want){
+  if(typeof MSTR === 'undefined' || !MSTR.loaded || typeof boardById !== 'function') return null;
+  const bd = boardById(want);
+  if(!bd || MSTR.channels.length <= bd.ch) return null;
+  return {bd, rows: MSTR.channels.length - bd.ch,
+          dropped: MSTR.channels.slice(bd.ch).filter(c=>c.act).length};
+}
+async function buildAskBoardShrink(want){
+  const info = buildBoardShrink(want);
+  if(!info) return false;
+  if(BUILD_SHRINK.asking === want || BUILD_SHRINK.declined === want) return false;
+  /* no door to ask through (PCA Studio, a bare test page) is not permission
+     to delete somebody's calibration — say it and leave the table alone */
+  if(typeof appConfirm !== 'function'){
+    if(typeof lg === 'function') lg('mae','build asks for '+info.bd.label+', but the loaded table has '
+      + MSTR.channels.length+' channels — left as it is');
+    return false;
+  }
+  BUILD_SHRINK.asking = want;
+  let yes = false;
+  try{
+    yes = await appConfirm(
+      'This build now asks for ' + info.bd.label + ' — ' + info.bd.ch + ' channels — and the table loaded '
+      + 'here has ' + MSTR.channels.length + '. Changing the board deletes the last ' + info.rows + ' row'
+      + (info.rows === 1 ? '' : 's')
+      + (info.dropped ? ', ' + info.dropped + ' of them mapped to a part' : '')
+      + ', with the names, the travel you measured and their targets in every frame. It is saved as it '
+      + 'goes, and there is no undo.',
+      {title:'Drop ' + info.rows + ' channel' + (info.rows === 1 ? '' : 's') + ' off the table?',
+       yes:'Change the board', no:'Keep the table', danger:true});
+  }finally{ BUILD_SHRINK.asking = ''; }
+  if(!yes){
+    /* remembered, and said out loud — a build and a table that disagree is
+       a thing the builder chose, not a thing that should go quiet */
+    BUILD_SHRINK.declined = want;
+    if(typeof lg === 'function') lg('mae','kept the '+MSTR.channels.length+'-channel table — the build asks for '
+      + info.bd.label+', and the two now disagree');
+    return false;
+  }
+  /* the build may have moved on while the question was open */
+  if(buildMaestroBoard() !== want || MSTR.board === want) return false;
+  setBoard(want);
+  if(typeof rebuildMaestroUI === 'function') rebuildMaestroUI();
+  if(typeof prefsSave === 'function') prefsSave();
+  if(typeof lg === 'function') lg('sys','build config applied — Maestro board → '+info.bd.label);
+  return true;
+}
+
 /* returns a list of what it actually changed, for the log and the UI */
 function buildApply(){
   const b = buildGet();
@@ -1211,10 +1311,18 @@ function buildApply(){
     }
   }
   const want = buildMaestroBoard(b);
+  /* a different board is being asked for, so any earlier "keep the table"
+     was about a question that is no longer on the table either */
+  if(BUILD_SHRINK.declined && BUILD_SHRINK.declined !== want) BUILD_SHRINK.declined = '';
   if(want && typeof MSTR !== 'undefined' && MSTR.loaded && MSTR.board !== want && typeof setBoard === 'function'){
-    setBoard(want);
-    did.push('Maestro board → '+boardById(want).label);
-    if(typeof rebuildMaestroUI === 'function') rebuildMaestroUI();
+    /* GROW ONLY without asking — see A SMALLER BOARD IS AN OFFER above */
+    if(!buildBoardShrink(want)){
+      setBoard(want);
+      did.push('Maestro board → '+boardById(want).label);
+      if(typeof rebuildMaestroUI === 'function') rebuildMaestroUI();
+    }else{
+      buildAskBoardShrink(want);          // deferred on purpose — nothing here awaits it
+    }
   }
   /* HW.setup() lives on CFG, and loadProfile() above replaces CFG wholesale —
      so the co-processor answers have to be put back after it, not only when
@@ -1236,7 +1344,9 @@ function buildEnsureMaestro(){
      above. Now that such a build wants `pca32`, that same line would throw
      away a Maestro settings file the moment anything touched the wizard's
      wiring step. Keeping a loaded config in step with the build is
-     setBoard()'s job (see buildLiveIssues), and it asks first. */
+     buildApply()'s job — it grows the table on its own and, since v1.67.0,
+     OFFERS the shrink instead of doing it (buildAskBoardShrink). It named a
+     `buildLiveIssues()` here that has never existed in this tree. */
   if(MSTR.loaded) return false;
   /* ...and never over the top of a table somebody has worked on, whatever
      `loaded` says. `loaded` is set by an import or a starter, so a table

@@ -63,9 +63,22 @@ function appConfirm(message, opts){
     };
     wrap._dlgCancel = ()=>settle(false);
 
+    /* the else-branch is not tidiness — it is the same containment
+       appPrompt() has had since it was written. The pad mapper
+       (input/gamepad.js) only stands down for a keydown whose target is a
+       real control or while uiModalOpen() is true, and uiModalOpen()
+       (core/util.js) does not know about .dlgwrap. Focus opens on a
+       <button>, so both guards hold — until one click on .dlgcard or
+       .dlgmsg, which are plain divs, drops focus to <body> and takes both
+       away at once. KEYMAP maps the arrows to the D-pad and Space to A and
+       preventDefault()s them, so the About box — explicitly a scroll
+       region (.dlgcard.about .dlgmsg) — scrolled nothing while "click the
+       text, press Down" fired D-pad presses at the running sketch. In sim
+       only that sketch is under a stranger's hands. */
     const onKey = e=>{
       if(e.key === 'Escape'){ e.preventDefault(); e.stopPropagation(); settle(false); }
       else if(e.key === 'Enter'){ e.preventDefault(); e.stopPropagation(); settle(true); }
+      else e.stopPropagation();   // the default action still scrolls / types; the mapper never hears it
     };
     document.addEventListener('keydown', onKey, true);
 
