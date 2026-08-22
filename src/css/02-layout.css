@@ -203,6 +203,9 @@ select.msel:focus{outline:none;border-color:var(--cta)}
   padding:10px 12px;min-width:238px;box-shadow:0 12px 40px var(--shadow);
 }
 #appMenu[hidden]{display:none}
+/* the popover names itself, so "Menu" cannot be read as the app's navigation
+   (v1.72.0) — same weight and rhythm as .slh on the save/load popover */
+#appMenu .amhead{font-size:13px;font-weight:600;color:var(--txt);margin-bottom:8px}
 #appMenu .amrow{display:flex;align-items:center;gap:6px;padding:5px 0}
 #appMenu .amlbl{
   flex:1;font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;

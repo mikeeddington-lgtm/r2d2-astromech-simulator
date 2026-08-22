@@ -82,6 +82,12 @@
        is, and every one of them still carries its title. Pinned by
        chrome.test.js "an ellipsis and a truncation are one mark". -->
   <div id="appMenu" hidden>
+    <!-- A HEADING, BECAUSE "MENU" IS NOT NAVIGATION (v1.72.0). The button's
+         own word led a walkthrough to open this expecting the app's main
+         navigation and find five preferences instead. The button keeps its
+         wording; the popover now says what it is the moment it opens, the
+         same way the save/load popover next door leads with "Your setup". -->
+    <div class="amhead">Settings</div>
     <div class="amrow"><span class="amlbl">Theme</span>
       <button class="hbtn" id="btnTheme" title="Switch the frame between dark and light">Light</button>
     </div>
@@ -294,7 +300,7 @@
                  and per ROUTINE, not a global preference: the step decides the
                  frames, so a routine has to carry its own or it would not
                  recompile to the frames it was saved with. -->
-            <label class="blkswitch hide" id="sqStepWrap" title="how coarsely this routine's ramps are drawn. Each frame is given a speed that fills it, so the timing is the same either way — a coarser step is a smoother servo and fewer frames.">Ramp step
+            <label class="blkswitch hide" id="sqStepWrap" title="how coarsely this sequence's ramps are drawn. Each frame is given a speed that fills it, so the timing is the same either way — a coarser step is a smoother servo and fewer frames.">Ramp step
               <select id="sqStep" style="max-width:96px"></select>
             </label>
             <span style="width:8px"></span>
@@ -309,7 +315,7 @@
             <button class="b" id="sqVBody" title="frame the body">Body</button>
             <button class="b" id="sqVFull" title="frame the whole droid">Full</button>
             <span style="width:8px"></span>
-            <button class="b prim" id="sqBuild" title="select, order and validate the sequences that go on the board, then generate the script">⚙ Build your Maestro</button>
+            <button class="b prim" id="sqBuild" title="select, order and validate the sequences that go on the board, then generate the script">⚙ Put on the board</button>
             <button class="b" id="sqBig" title="leave sequence mode and go back to the controller">← Back to Drive</button>
           </div>
           <div id="musbar"></div>
@@ -365,7 +371,7 @@
         <div class="sect" id="secManual">
           <h3>The builder’s manual</h3>
           <div class="hint prose">Twenty-one chapters and eight clips on getting a <b>real droid</b> moving with this —
-            the setup questions, a rack of servos to try a sequence on, finding your end stops, bricks,
+            the setup questions, the servo bench to try a sequence on, finding your end stops, bricks,
             getting it onto the board, and what to do when nothing moves.</div>
           <div class="conbar"><button class="b prim" id="btnManualHelp">📖 Open the manual</button></div>
           <div class="hint dim">Opens in a new tab from the latest release — it needs a connection at the moment you click.</div>

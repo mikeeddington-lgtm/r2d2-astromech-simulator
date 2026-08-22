@@ -96,10 +96,10 @@ function buildFrikPane(host){
     + 'a lifelike wobble laid over a real sequence would misrepresent the servo.';
   s.appendChild(h);
   const bar2 = el('div','conbar');
-  const bs = el('button','b','Build its Maestro layout');
-  bs.title = '11 channels and eight routines, sized for a Mini Maestro 12';
+  const bs = el('button','b','Make its servo config');
+  bs.title = '11 channels and eight sequences, sized for a Mini Maestro 12';
   bs.addEventListener('click',()=>{ makeStarter('anzellan'); CFG.maestroSource='imported'; rebuildMaestroUI();
-    lg('mae','Anzellan face layout generated'); });
+    lg('mae','Anzellan face servo config generated'); });
   bar2.appendChild(bs); s.appendChild(bar2);
 }
 
@@ -605,7 +605,7 @@ function buildCadPane(){
   if(typeof buildGroupsSect==='function') buildGroupsSect(host);
 
   /* ---- part mapping ---- */
-  const s3 = sect(host,'Moving parts','CAD part → actuator');
+  const s3 = sect(host,'Moving parts','CAD part → servo');
   const hdr = el('div','maerow'); hdr.style.gridTemplateColumns='1fr 108px 26px';
   ['CAD part','Driven by','flip'].forEach(t=>{
     const e=el('div','cn',t); e.style.color='var(--dimmer)'; e.style.fontSize='9px'; e.style.textTransform='uppercase'; hdr.appendChild(e);
@@ -641,7 +641,7 @@ function buildCadPane(){
   });
   const wbar = el('div','conbar');
   const bWire = el('button','b','Wiring sheet');
-  bWire.title='A printable table pairing every actuator with its CAD part name, its bearing from the front, and the channel driving it';
+  bWire.title='A printable table pairing every servo with its CAD part name, its bearing from the front, and the channel driving it';
   bWire.addEventListener('click',()=>downloadWiring('html'));
   const bWireC = el('button','b','…as CSV');
   bWireC.addEventListener('click',()=>downloadWiring('csv'));
@@ -650,7 +650,7 @@ function buildCadPane(){
 
   const hName = el('div','note cy prose');
   hName.innerHTML = '<b>Two naming systems.</b> The names on the left are yours — straight out of the Fusion export, unchanged. '+
-    'The actuator IDs on the right are the simulator\'s, and they are numbered <b>by position around the droid</b> (front first), not by the CAD\'s numbering. '+
+    'The servo IDs on the right are the simulator\'s, and they are numbered <b>by position around the droid</b> (front first), not by the CAD\'s numbering. '+
     'So <b>pie 0</b> is <b>MainPie3</b>, and <b>side panel 0</b> is <b>Panel13</b>. That is deliberate: a firmware channel maps to a place on the droid, '+
     'and four of the inner pies are all called <b>Pie5</b> in the CAD, so their names carry no order at all. Print the <b>Wiring sheet</b> to get both columns side by side.';
   s3.appendChild(hName);

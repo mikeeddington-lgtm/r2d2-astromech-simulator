@@ -214,7 +214,7 @@ function buildAssignSect(host, redraw){
           sel.appendChild(e);
         });
         sel.disabled = !m.act;
-        if(!m.act) sel.title = 'this part has no actuator — give it one on the Model tab first';
+        if(!m.act) sel.title = 'this part has no servo — give it one on the Model tab first';
         sel.addEventListener('change',async ()=>{
           const act = m.act; if(!act) return;
           if(sel.value){
@@ -303,7 +303,7 @@ function buildAssignOtherSect(host, idx, opts, anyEditable, redraw){
     const row = el('div','asrow');
 
     const nm = el('div','asfix', label);
-    nm.title = 'a placeholder actuator — for a servo that drives something off the CAD model entirely (a fire extinguisher, a custom rig, …). '
+    nm.title = 'a placeholder — for a servo that drives something off the CAD model entirely (a fire extinguisher, a custom rig, …). '
       + 'No CAD part will ever claim it, so there is nothing to rename or tint here — only the channel it is wired to.';
     row.appendChild(nm);
 

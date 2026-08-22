@@ -174,7 +174,7 @@ function impwizStepFile(host){
 
   const alt = el('div','iwalt');
   alt.innerHTML = '<b>No file yet?</b> Build one from a starter layout instead — '+
-    'Body, Dome or Frik head, on the Maestro tab. You can come back here once you have '+
+    'Body, Dome or Anzellan head, on the Maestro tab. You can come back here once you have '+
     'saved a real file off the board.';
   host.appendChild(alt);
 
@@ -200,7 +200,7 @@ function impwizStepFound(host){
        'channels set to Input or Output emit no pulses');
   fact('Sequences', String(MSTR.sequences.length) + (r.seqRecovered? ' ('+r.seqRecovered+' rebuilt)' : ''),
        r.seqRecovered ? 'rebuilt by decoding the script, because the file carried no <Sequences> for them' : '');
-  fact('On the board', String((r.seqSubs||[]).length)+' subroutine'+((r.seqSubs||[]).length===1?'':'s'),
+  fact('On the board', String((r.seqSubs||[]).length)+' sub'+((r.seqSubs||[]).length===1?'':'s'),
        'what restartScript(n) can actually reach');
   fact('Serial', (MSTR.header.SerialMode||'?').replace(/_/g,' ').toLowerCase()+' @ '+(MSTR.header.FixedBaudRate||'?'),
        'the sketches expect a fixed 9600 baud UART');
@@ -641,22 +641,22 @@ function jobwizBtn(bar, label, title, fn, prim){
 /* ---------------------------------------------------------- build */
 function jobwizStepBuild(host){
   const p = el('p','iwp');
-  p.innerHTML = 'The <b>sequencer</b> is where a routine gets made: drag a panel onto the timeline, '
-    + 'stretch it, and the droid plays it back. When the routine is right, the <b>builder</b> is where '
+  p.innerHTML = 'The <b>sequencer</b> is where a sequence gets made: drag a panel onto the timeline, '
+    + 'stretch it, and the droid plays it back. When the sequence is right, the <b>builder</b> is where '
     + 'you choose which eight land on <code>restartScript(0)</code>…<code>(7)</code> — the only slots '
     + 'a controller button can reach.';
   host.appendChild(p);
   const bar = jobwizBar(host);
   jobwizBtn(bar, 'open the sequencer', 'the bottom strip, with the brick timeline',
     ()=>{ jobwizClose(); if(typeof setStripMode === 'function') setStripMode('seq'); }, true);
-  jobwizBtn(bar, ((typeof bldTitle === 'function') ? bldTitle() : 'build your Maestro').toLowerCase() + '…',
+  jobwizBtn(bar, ((typeof bldTitle === 'function') ? bldTitle() : 'put on the board').toLowerCase() + '…',
     'select which sequences are on the board, set their order, validate, and generate the script',
     ()=>{ jobwizClose(); if(typeof bldOpen === 'function') bldOpen(); });
 
   const adv = jobwizAdv(host, 'Advanced — start from a ready-made table');
   const abar = jobwizBar(adv);
-  [['body starter','body'],['dome starter','dome'],['frik head starter','anzellan']].forEach(([label,which])=>{
-    jobwizBtn(abar, label, 'build a named channel layout for this board, with subroutines 0–7 already lined up',
+  [['body starter','body'],['dome starter','dome'],['anzellan head starter','anzellan']].forEach(([label,which])=>{
+    jobwizBtn(abar, label, 'build a named channel layout for this board, with subs 0–7 already lined up',
       ()=>{ makeStarter(which); CFG.maestroSource = 'imported'; jobwizGo('build'); });
   });
   const h = el('div','hint prose');
@@ -715,12 +715,12 @@ const IMP_CHOICES = [
    touches:'replaces the travel on your channel table',
    leaves:'your choreography, your loadout, and which panel each channel drives'},
   {id:'both', glyph:'⊞', label:'import servo config and choreography',
-   sub:'the travel, and the routines built on top of it',
-   touches:'replaces the travel AND brings the file\'s routines into your library',
+   sub:'the travel, and the sequences built on top of it',
+   touches:'replaces the travel AND brings the file\'s sequences into your library',
    leaves:'which panel each channel drives, and your board and serial settings'},
   {id:'choreography', glyph:'▦', label:'import choreography only',
-   sub:'the routines alone, re-expressed through YOUR endpoints',
-   touches:'your routine library — added to, or replaced, whichever you pick next',
+   sub:'the sequences alone, re-expressed through YOUR endpoints',
+   touches:'your sequence library — added to, or replaced, whichever you pick next',
    leaves:'every endpoint you measured'}
 ];
 
@@ -778,7 +778,7 @@ function impShapeSentence(sh){
              : sh.from === 'cfg'  ? 'a servo config this app wrote'
              : 'a whole-setup or choreography backup';
   return what + ' — travel for ' + sh.servo + ' channel' + (sh.servo === 1 ? '' : 's')
-       + ' and ' + (sh.choreo ? sh.choreo + ' routine' + (sh.choreo === 1 ? '' : 's') : 'no choreography');
+       + ' and ' + (sh.choreo ? sh.choreo + ' sequence' + (sh.choreo === 1 ? '' : 's') : 'no choreography');
 }
 
 /* --------------------------------------------------- can this file do it?
@@ -794,10 +794,10 @@ function impChoiceState(kind, sh){
   }
   if(kind === 'choreography' || kind === 'both'){
     if(!sh.choreo) return {ok:false,
-      why:'this file carries travel only — no routines. There is no choreography in it to import.'};
+      why:'this file carries travel only — no sequences. There is no choreography in it to import.'};
   }
   if(kind === 'choreography' && !loaded) return {ok:false,
-    why:'you have no channel table of your own yet, and a routine has to be re-expressed through your '
+    why:'you have no channel table of your own yet, and a sequence has to be re-expressed through your '
       + 'endpoints before it is safe to play. Use "servo config and choreography" — it does both in one go.'};
   if(kind === 'both' && !loaded && !sh.full) return {ok:false,
     why:'you have no channel table of your own yet, and this file is a backup rather than a whole config. '
@@ -915,7 +915,7 @@ function impAskServo(sh){
 function impAskChoreo(sh){
   const have = (typeof MSTR !== 'undefined' && MSTR.sequences) ? MSTR.sequences.length : 0;
   return impAsk(
-    IMPCH.name + ' carries ' + sh.choreo + ' routine' + (sh.choreo === 1 ? '' : 's') + ', and you already have '
+    IMPCH.name + ' carries ' + sh.choreo + ' sequence' + (sh.choreo === 1 ? '' : 's') + ', and you already have '
     + have + ' in your library.\n\n'
     + 'Add them keeps everything you have and appends the imports; a name that clashes is renamed, never '
     + 'overwritten. Save and replace writes your library out to a file first, and then the imports ARE '
@@ -923,9 +923,9 @@ function impAskChoreo(sh){
     {title:'Your choreography, or theirs as well?', choices:[
       {id:'cancel', label:'Cancel', title:'change nothing at all'},
       {id:'save',   label:'save existing, then replace',
-       title:'writes your routine library out as a timestamped .json, then the imports become the library'},
+       title:'writes your sequence library out as a timestamped .json, then the imports become the library'},
       {id:'merge',  label:'add the imports as additions',
-       title:'keep every routine you have and append theirs — clashes are renamed, and the receipt says how'}
+       title:'keep every sequence you have and append theirs — clashes are renamed, and the receipt says how'}
     ]});
 }
 
@@ -1023,13 +1023,13 @@ async function impChooseRun(){
       const cap = impSeqCapacity();
       if(haveSeq + sh.choreo > cap){
         if(typeof appConfirm === 'function')
-          await appConfirm('Your library has ' + haveSeq + ' routine(s) and ' + IMPCH.name + ' brings '
+          await appConfirm('Your library has ' + haveSeq + ' sequence(s) and ' + IMPCH.name + ' brings '
             + sh.choreo + ' more. ' + (haveSeq + sh.choreo) + ' is past the ' + cap + ' this board can ever '
             + 'address, so some of them could never be put on it.\n\nNothing has been imported. Delete some '
-            + 'routines first, or choose "save existing, then replace".',
+            + 'sequences first, or choose "save existing, then replace".',
             {title:'That merge will not fit', yes:'OK', no:''});
         if(typeof lg === 'function')
-          lg('warn','choreography merge refused — '+(haveSeq+sh.choreo)+' routines is past the board\'s '+cap);
+          lg('warn','choreography merge refused — '+(haveSeq+sh.choreo)+' sequences is past the board\'s '+cap);
         return 'toobig';
       }
     }
@@ -1045,7 +1045,7 @@ async function impChooseRun(){
     if(kind === 'both' && !MSTR.loaded && sh.full){
       mstrApply(sh.P);
       if(typeof CFG !== 'undefined') CFG.maestroSource = 'imported';
-      said.push('travel for ' + MSTR.servoCount + ' channel(s) and ' + MSTR.sequences.length + ' routine(s)');
+      said.push('travel for ' + MSTR.servoCount + ' channel(s) and ' + MSTR.sequences.length + ' sequence(s)');
     }else{
       if(doServo){
         /* the one reader — it works the family out from the content, and it
@@ -1070,12 +1070,12 @@ async function impChooseRun(){
           if(typeof reindexSubs === 'function') reindexSubs();
         }
         const ren = r.renamed || [];
-        said.push(r.added.length + ' routine' + (r.added.length === 1 ? '' : 's')
+        said.push(r.added.length + ' sequence' + (r.added.length === 1 ? '' : 's')
           + (choreoWay === 'merge'
               ? ' added to the ' + haveSeq + ' you had'
                 + (ren.length ? ' — ' + ren.length + ' name clash(es) renamed, ' + ren.map(x=>'“'+x.from+'” → “'+x.to+'”').join(', ')
                               : ' — no name clashes')
-              : haveSeq ? ' — your ' + haveSeq + ' previous routine(s) replaced'
+              : haveSeq ? ' — your ' + haveSeq + ' previous sequence(s) replaced'
                         : ' added to your library'));
       }
     }
@@ -1214,7 +1214,7 @@ function jobwizStepImport(host){
     + 'Nothing is written until the second one is answered — and if what you already have is worth keeping, '
     + 'you are told what is about to be replaced and offered a copy to keep first.'
     + (IMPCH.from === 'sequencer'
-        ? ' The routines land in the sequencer library, where you came from.' : '');
+        ? ' The sequences land in the sequencer library, where you came from.' : '');
   host.appendChild(p);
 
   /* ---- the file ---- */

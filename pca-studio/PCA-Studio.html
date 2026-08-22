@@ -2420,7 +2420,7 @@ function serialBoardCheck(){
       + ' on the bus that the flashed firmware does not animate</b> ('
       + r.spare.map(x=>x.addr).join(', ') + '). The channel count is baked into '
       + '<code>sequences.h</code> when you flash it, so a board added afterwards is found, '
-      + 'woken and live-drivable — but no routine reaches it. '
+      + 'woken and live-drivable — but no sequence reaches it. '
       + '<b>Regenerate <code>sequences.h</code> and re-flash the co-processor</b> and it joins in. '
       /* the door, not just the instruction — exportPcaHeader() is the same
          button the Maestro tab carries, and being sent to go and find it is
@@ -2434,7 +2434,7 @@ function serialBoardCheck(){
   }
   if(r.channels !== null && have && r.channels < have){
     bits.push('The flashed firmware drives <b>' + r.channels + ' channels</b>; this build has <b>'
-      + have + '</b>. Channels ' + r.channels + '-' + (have-1) + ' will not move from a routine '
+      + have + '</b>. Channels ' + r.channels + '-' + (have-1) + ' will not move from a sequence '
       + 'until <code>sequences.h</code> is regenerated and re-flashed.');
   }
   /* THE OTHER DIRECTION, and the commoner one by far (v1.64.0). Mike's own
@@ -5566,7 +5566,7 @@ function setupExitHardware(){
   const what = [];
   if(wasOn)   what.push('the board is disconnected');
   if(wasLive) what.push('live drive is disarmed');
-  HW.say('servo setup closed — '+what.join(' and ')+'. Every servo holds where it is: '
+  HW.say('servo bench closed — '+what.join(' and ')+'. Every servo holds where it is: '
        + 'nothing was released and nothing was snapped home, so a loaded panel cannot drop on the way out.');
 }
 
@@ -6167,7 +6167,7 @@ function setupStepSketch(){
       '<label class="setopt'+(SETUP.hw.sketch==='esp32'?' on':'')+'"><input type="radio" name="sketch" value="esp32" data-f="sketch"'+(SETUP.hw.sketch==='esp32'?' checked':'')+'>'
     + '<b>Esp32Droid</b><span class="sub">the droid, with a radio · '
     + setupRepoLink('arduino/MaestroPCA/examples/Esp32Droid','open the sketch ↗')+'</span>'
-    + '<span class="why">MaestroReplacement plus WiFi. It answers <code>restartScript(n)</code> over the link exactly the same way, and also serves a page that lists your slots as buttons — join <b>R2-PCA</b> on a phone and fire a routine without opening the dome. '
+    + '<span class="why">MaestroReplacement plus WiFi. It answers <code>restartScript(n)</code> over the link exactly the same way, and also serves a page that lists your slots as buttons — join <b>R2-PCA</b> on a phone and fire a sequence without opening the dome. '
     + (setupChannels() > 16
         ? 'With '+SETUP.hw.boards+' boards you are past the ESP32&rsquo;s 16 built-in PWM channels, so it drives your PCA9685s over I2C — set <code>MPCA_DIRECT_PINS 0</code>.'
         : 'At '+setupChannels()+' channels it could also drive the servos straight off its own pins at ~0.3 µs resolution — finer than a PCA9685 — with no expander at all. That is <code>MPCA_DIRECT_PINS 1</code>.')
@@ -6907,8 +6907,8 @@ function setupChCols(){
      td:r=>'<td class="pin">'+r.i+'</td>'},
     {th:()=>'<th title="which PCA9685 and which of its sixteen outputs — the thing you count along the header to find">board·pin</th>',
      td:r=>'<td class="pin">'+(r.i>>4)+'·'+(r.i&15)+'</td>'},
-    {th:()=>'<th title="is anything plugged into this pin?">use</th>',
-     td:r=>'<td><input type="checkbox" data-k="use"'+(r.on?' checked':'')+' title="is anything plugged into this pin?"></td>'},
+    {th:()=>'<th title="is anything plugged into this channel?">use</th>',
+     td:r=>'<td><input type="checkbox" data-k="use"'+(r.on?' checked':'')+' title="is anything plugged into this channel?"></td>'},
     {th:()=>'<th>name</th>',
      td:r=>'<td><input type="text" data-k="name" value="'+(r.c?String(r.c.name).replace(/"/g,'&quot;'):'')
         + '" placeholder="not used"'+(r.on?'':' disabled')+'></td>'},
@@ -7387,7 +7387,7 @@ function setupStepChannels(){
        and the reference — what centre and boot mean, the Maestro's units, the
        live half, what each ease does — folds into a disclosure. Collapsed, not
        removed: the words were right, they were just always on. */
-    + '<p class="setp">Tick a pin, name it and give it a part to drive. Press <b>test</b> to make that '
+    + '<p class="setp">Tick a channel, name it and give it a part to drive. Press <b>test</b> to make that '
     + 'panel move, so you can see which one it is. Everything else about a channel — its ends, its centre, '
     + 'its speed — is in the <b>Configure</b> panel below, which follows whichever row you click.</p>'
     + '<details class="setwhat"><summary>what the other columns mean</summary>'

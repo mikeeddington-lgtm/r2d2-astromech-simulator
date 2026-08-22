@@ -284,7 +284,7 @@ function actSet(a, v){
 function groupSet(id, v){
   const g = groupById(id); if(!g) return;
   groupActs(g).forEach(a=>actSet(a, v));
-  lg('sys', `group "${g.name}" → ${v? 'open':'close'} (${groupActs(g).length} actuator(s))`);
+  lg('sys', `group "${g.name}" → ${v? 'open':'close'} (${groupActs(g).length} servo(s))`);
 }
 function groupFlash(id){
   const g = groupById(id); if(!g) return;
@@ -378,8 +378,8 @@ function buildGroupsSect(host){
 
     const mk=(lab,fn,tip)=>{ const b=el('button','b',lab); b.title=tip||''; b.addEventListener('click',fn); return b; };
     row.appendChild(mk('◉', ()=>groupFlash(g.id), 'flash the group on the model'));
-    row.appendChild(mk('▲', ()=>groupSet(g.id,1), 'open every actuated member'));
-    row.appendChild(mk('▼', ()=>groupSet(g.id,0), 'close every actuated member'));
+    row.appendChild(mk('▲', ()=>groupSet(g.id,1), 'open every driven member'));
+    row.appendChild(mk('▼', ()=>groupSet(g.id,0), 'close every driven member'));
     row.appendChild(mk('⟶M', ()=>{
       const r = groupToSequences(g.id);
       const m=$('cadMsg'); if(m) m.textContent = r ? (r.error || `"${g.name}" exported as two Maestro sequences (${r.count} channel(s)) — see the Maestro tab.`) : '';
@@ -407,7 +407,7 @@ function buildGroupsSect(host){
 
   const h = el('div','hint');
   h.innerHTML = 'Add parts to a group by <b>clicking them on the model</b> and ticking the group in the card. '
-    + 'A group with actuated members shows up as <b>Group: … open/close</b> in the Config slot dropdowns, so a controller button can fire it, '
+    + 'A group with driven members shows up as <b>Group: … open/close</b> in the Config slot dropdowns, so a controller button can fire it, '
     + 'and <b>⟶M</b> writes it into the Maestro settings as a real sequence pair ready to export.';
   s.appendChild(h);
 }

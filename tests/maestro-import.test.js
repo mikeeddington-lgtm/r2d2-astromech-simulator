@@ -534,7 +534,7 @@ const LIVE = fs.readFileSync(path.resolve(__dirname,'fixtures-live-dome.mstr'),'
   console.log('\n════ v1.46.0 — a choice the file cannot satisfy is unavailable WITH the reason ════');
   const dead = await ev(()=>{
     setBoard('mini24'); makeStarter('dome','mini24'); reindexSubs();
-    const cfg = JSON.stringify(servoCfgExportObj());     // travel only, no routines
+    const cfg = JSON.stringify(servoCfgExportObj());     // travel only, no sequences
     impChooseOpen({text:cfg, name:'friend-servos.json', from:'test'});
     const cards = Array.from(document.getElementById('jobWiz').querySelectorAll('.impch'));
     const by = {};
@@ -550,7 +550,7 @@ const LIVE = fs.readFileSync(path.resolve(__dirname,'fixtures-live-dome.mstr'),'
      dead.servo.clickable===true && dead.both.blocked===true && dead.choreography.blocked===true,
      JSON.stringify(Object.keys(dead).map(k=>k+':'+(dead[k].blocked?'blocked':'open'))));
   ok('...and both unavailable cards say WHY on the card, not merely nothing',
-     /no routines/.test(dead.choreography.why) && /no routines/.test(dead.both.why),
+     /no sequences/.test(dead.choreography.why) && /no sequences/.test(dead.both.why),
      dead.choreography.why);
 
   const noTable = await ev(()=>{
@@ -579,7 +579,7 @@ const LIVE = fs.readFileSync(path.resolve(__dirname,'fixtures-live-dome.mstr'),'
      All three are the same mistake wearing different clothes: the
      import door re-derived something it could have read. The board's
      slot numbers came from the library rather than the script, a sub
-     was matched back to its routine by a symbol the exporter no
+     was matched back to its sequence by a symbol the exporter no
      longer emits, and a sequence flag was read at the header's slot
      number against an array that had stopped being indexed by it.
      Each one survives a save and only shows itself on the droid, so
@@ -589,7 +589,7 @@ const LIVE = fs.readFileSync(path.resolve(__dirname,'fixtures-live-dome.mstr'),'
   const curated = await ev(()=>{
     setBoard('mini24'); makeStarter('dome','mini24');
     /* the loadout is the board: a subset of the library, in the order
-       the builder chose, and it is what decides which routine
+       the builder chose, and it is what decides which sequence
        restartScript(n) plays */
     const want = ['Dome Flutter','Whole Dome Open','Dome Pies Close'];
     MSTR.loadout = want.slice();
@@ -617,7 +617,7 @@ const LIVE = fs.readFileSync(path.resolve(__dirname,'fixtures-live-dome.mstr'),'
   ok('...and the rest of the library is still there, merely not on the board',
      curated.nSeq===8, curated.nSeq+' sequence(s)');
 
-  console.log('\n════ v1.69.0 — a round trip invents no routines ════');
+  console.log('\n════ v1.69.0 — a round trip invents no sequences ════');
   const phantom = await ev(()=>{
     setBoard('mini24'); makeStarter('dome','mini24');
     /* the two shapes scriptSubNames() rewrites: a name that starts
@@ -639,14 +639,14 @@ const LIVE = fs.readFileSync(path.resolve(__dirname,'fixtures-live-dome.mstr'),'
   ok('a leading-digit name and a niceName clash both match their own sub back',
      phantom.once.n===phantom.before && phantom.once.recovered===0,
      phantom.once.n+' sequence(s) from '+phantom.before+', '+phantom.once.recovered+' "recovered"');
-  ok('...so no phantom copy of a routine is appended under its sub symbol',
+  ok('...so no phantom copy of a sequence is appended under its sub symbol',
      phantom.once.names.indexOf('s_2001_Salute')<0 && phantom.once.names.indexOf('Dome_Wave_2')<0,
      phantom.once.names.join(', '));
   ok('...and the library does not grow again on the next cycle',
      phantom.twice.n===phantom.before && phantom.twice.load===phantom.before,
      phantom.twice.n+' sequence(s), loadout '+phantom.twice.load);
 
-  console.log('\n════ v1.69.0 — a header flag lands on the routine it was written for ════');
+  console.log('\n════ v1.69.0 — a header flag lands on the sequence it was written for ════');
   const flags = await ev(()=>{
     setBoard('mini24'); makeStarter('dome','mini24');
     const frames = ()=>JSON.parse(JSON.stringify(MSTR.sequences[0].frames));
@@ -665,7 +665,7 @@ const LIVE = fs.readFileSync(path.resolve(__dirname,'fixtures-live-dome.mstr'),'
     const P = pcaHeaderParse(h, 'gen.h');
     return {got: P.sequences.map(q=>q.name+':'+(q.loop?'loop':'-')+':'+(q.background?'bg':'-'))};
   });
-  ok('the loop flag stays on the routine the header put it on, past a generator',
+  ok('the loop flag stays on the sequence the header put it on, past a generator',
      JSON.stringify(flags.got)===JSON.stringify(['Alpha:-:-','Beta Loop:loop:-','Gamma:-:bg']),
      JSON.stringify(flags.got));
 
@@ -674,10 +674,10 @@ const LIVE = fs.readFileSync(path.resolve(__dirname,'fixtures-live-dome.mstr'),'
 
      v1.70.0 fixed mstrApply(): a whole file re-imported keeps the
      loadout its script was built from. The chooser's "choreography
-     only, replace" landed the same routines through
+     only, replace" landed the same sequences through
      mstrAdoptSequences() — which appends in LIBRARY order — and then
      called loadoutReset(), so a curated file came back with every
-     routine in the library on the board, in the wrong slots, and the
+     sequence in the library on the board, in the wrong slots, and the
      d-pad fired something else. Same symptom, same fix: the order
      comes from the file's own subs where it has them.
      ================================================================= */
@@ -710,11 +710,11 @@ const LIVE = fs.readFileSync(path.resolve(__dirname,'fixtures-live-dome.mstr'),'
      JSON.stringify(choreoOnly.loadout)===JSON.stringify(choreoOnly.want),
      JSON.stringify(choreoOnly.loadout));
   ok('...and the rest of the library still arrives, merely not on the board',
-     choreoOnly.lib===8, choreoOnly.lib+' routine(s) in the library');
+     choreoOnly.lib===8, choreoOnly.lib+' sequence(s) in the library');
 
   console.log('\n════ v1.70.1 — the import says so where the import was asked for ════');
   ok('an import that landed is reported INSIDE the dialog, naming the file and the count',
-     /Read curated\.mstr/.test(choreoOnly.receipt||'') && /8 routines/.test(choreoOnly.receipt||''),
+     /Read curated\.mstr/.test(choreoOnly.receipt||'') && /8 sequences/.test(choreoOnly.receipt||''),
      (choreoOnly.receipt||'(no receipt)').slice(0, 70));
   ok('...so the dialog stays up to show it, rather than vanishing',
      choreoOnly.res==='done' && choreoOnly.open===true, String(choreoOnly.open));

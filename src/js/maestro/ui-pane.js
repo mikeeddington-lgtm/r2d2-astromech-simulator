@@ -73,7 +73,7 @@ async function paneStarterConfirm(what){
             : 'every name, endpoint, speed and panel assignment')
     + ' — and discards all ' + seqs + ' sequence(s) in your library. The browser backup is '
     + 'rewritten in the same click, so nothing is left to go back to.\n\n'
-    + 'Export servo config saves the travel and the choreography .json saves the routines; '
+    + 'Export servo config saves the travel and the choreography .json saves the sequences; '
     + 'either one keeps what this would take. Your build answers, the sound bank and the '
     + 'model itself are untouched whichever way you answer.',
     {title:'Replace everything with the ' + what + ' starter?',
@@ -170,11 +170,11 @@ function buildMaestroPane(){
     const d=el('div','seqrow'+(slot>=0?' ldrow':'')+(libIndex===EDIT.seq?' sel':''));
     const badge=el('span','sqbadge'+(slot>=0?' on':'')+(slot>=8?' far':''), slot>=0?String(slot):'not loaded');
     badge.title = slot>=0
-      ? (slot<8 ? 'restartScript('+slot+') — the sketch can fire this one' : 'subroutine '+slot+' — past 7, so no controller button reaches it')
+      ? (slot<8 ? 'restartScript('+slot+') — the sketch can fire this one' : 'sub '+slot+' — past 7, so no controller button reaches it')
       : 'in your library but not on the board — add it with the ⚙ builder below';
     d.appendChild(badge);
     d.appendChild(el('span','nm',seq.name));
-    const sub=el('span','sub','sub '+scriptSubNameFor(seq)); sub.title='the generated subroutine name';
+    const sub=el('span','sub','sub '+scriptSubNameFor(seq)); sub.title='the generated sub name';
     d.appendChild(sub);
     d.appendChild(el('span','mt',seq.frames.length+'f · '+seqTotal(seq)+'ms'));
     const bPrev=el('button','b','▶'); bPrev.title='preview it on the model';
@@ -188,7 +188,7 @@ function buildMaestroPane(){
   };
   if(!loadout.length){
     const n=el('div','note prose');
-    n.innerHTML='<b>Nothing is on the board yet.</b> Add a routine below — it becomes subroutine 0.';
+    n.innerHTML='<b>Nothing is on the board yet.</b> Add a sequence below — it becomes sub 0 on the board.';
     s4.appendChild(n);
   }
   loadout.forEach((nm,slot)=>{
@@ -247,7 +247,7 @@ function buildMaestroPane(){
     hits.forEach(h=>{ if(held.indexOf(h.seq) < 0) held.push(h.seq); });
     if(typeof blockSync === 'function') held.forEach(s=>blockSync(s));
     if(hits.length) lg('mae','renamed “'+was+'” → “'+v+'” — '+hits.length+' brick(s) in '
-      + held.length + ' other routine(s) re-pointed and recompiled: '+held.map(s=>s.name).join(', '));
+      + held.length + ' other sequence(s) re-pointed and recompiled: '+held.map(s=>s.name).join(', '));
     reindexSubs(); rebuildMaestroUI();
   });
   const bDelS=el('button','b','Delete');
@@ -271,12 +271,12 @@ function buildMaestroPane(){
     hits.forEach(h=>{ if(held.indexOf(h.seq.name) < 0 && h.seq !== gone) held.push(h.seq.name); });
     if(hits.length && held.length && typeof appConfirm === 'function'){
       const ok = await appConfirm(
-        hits.length + ' brick' + (hits.length===1?'':'s') + ' in ' + held.length + ' other routine'
+        hits.length + ' brick' + (hits.length===1?'':'s') + ' in ' + held.length + ' other sequence'
         + (held.length===1?'':'s') + ' — ' + held.join(', ') + ' — play' + (hits.length===1?'s':'')
         + ' “' + gone.name + '”. Deleting it '
         + 'leaves those bricks on their timelines, keeping their length and their labels, compiling '
         + 'to a held pose instead of the moves they play now.\n\n'
-        + 'Those routines survive and so do their other bricks — only what “' + gone.name + '” '
+        + 'Those sequences survive and so do their other bricks — only what “' + gone.name + '” '
         + 'contributed goes. Rename it instead and the bricks follow it.',
         {title:'Delete “'+gone.name+'”?', yes:'Delete it anyway', no:'Keep it', danger:true});
       if(!ok) return;
@@ -292,15 +292,15 @@ function buildMaestroPane(){
 
   const bar4b=el('div','conbar');
   const bBld=el('button','b prim','⚙ '
-    + ((typeof bldTitle === 'function') ? bldTitle() : 'Build your Maestro') + '…');
+    + ((typeof bldTitle === 'function') ? bldTitle() : 'Put on the board') + '…');
   bBld.title = 'the full-screen builder: select which sequences are on the board, set their order, validate, and generate the script';
   bBld.addEventListener('click',()=>{ if(typeof bldOpen==='function') bldOpen(); });
   bar4b.appendChild(bBld);
   s4.appendChild(bar4b);
 
   const h4=el('div','hint prose');
-  h4.innerHTML='Slot badges are subroutine numbers — the sketch only ever calls <code>restartScript(0)</code>…<code>(7)</code>, '
-    + 'so a routine past 7, or still <b>not loaded</b>, is unreachable from the controller. Click a routine to edit it in the '
+  h4.innerHTML='Slot badges are sub numbers — the sketch only ever calls <code>restartScript(0)</code>…<code>(7)</code>, '
+    + 'so a sequence past 7, or still <b>not loaded</b>, is unreachable from the controller. Click a sequence to edit it in the '
     + '<b>Sequencer strip</b>; the <b>⚙ builder</b> above is the only thing that changes what is on the board and in what order. '
     + 'Rename freely — spaces become underscores in the generated <code>sub</code> name.';
   s4.appendChild(h4);
@@ -423,17 +423,17 @@ function buildMaestroPane(){
   };
   const bGen  = mkGen('Body starter','body','Body',
     'builds a body channel table from scratch — doors, arms and ports, named and mapped, '
-    + 'plus 8 routines on subroutines 0-7. It REPLACES the whole channel table and the whole '
+    + 'plus 8 sequences on subs 0-7. It REPLACES the whole channel table and the whole '
     + 'sequence library, and asks first if there is anything in either.',
-    'Body layout built for the '+boardById(MSTR.board).label+' — doors on subroutines 0-3.');
+    'Body layout built for the '+boardById(MSTR.board).label+' — doors on subs 0-3.');
   const bGenD = mkGen('Dome starter','dome','Dome',
     'builds a dome channel table from scratch — six pies then fourteen side panels — plus 8 '
-    + 'routines on subroutines 0-7. It REPLACES the whole channel table and the whole sequence '
+    + 'sequences on subs 0-7. It REPLACES the whole channel table and the whole sequence '
     + 'library, and asks first if there is anything in either.',
     'Dome layout built for the '+boardById(MSTR.board).label+' — pies first, side panels fill the rest.');
-  const bGenA = mkGen('Frik head starter','anzellan','Frik head',
+  const bGenA = mkGen('Anzellan head starter','anzellan','Anzellan head',
     'builds an Anzellan face table from scratch — 11 channels, mouth first, brows and gimbals '
-    + 'resting mid-travel — plus 8 routines. It REPLACES the whole channel table and the whole '
+    + 'resting mid-travel — plus 8 sequences. It REPLACES the whole channel table and the whole '
     + 'sequence library, and asks first if there is anything in either.',
     'Anzellan face layout built for the '+boardById(MSTR.board).label+' — 11 channels, mouth first, resting mid-travel.');
   const bExp=el('button','b','Export .mstr');
@@ -539,7 +539,7 @@ function buildMaestroPane(){
         + 'question in Setup and this button follows it. Both formats are in the file row below.';
 
   const bWire=el('button','b','Wiring sheet');
-  bWire.title='writes R2-wiring-….html — a printable table: actuator, CAD part name, position on the '
+  bWire.title='writes R2-wiring-….html — a printable table: servo, CAD part name, position on the '
             + 'droid, and the channel it is on. The one to take to the bench.';
   bWire.addEventListener('click',()=>{ const f=downloadWiring('html');
     const m=$('maeMsg'); if(m) m.textContent='Saved '+f+' — open it and print, or keep it on a tablet at the bench.'; });
@@ -556,7 +556,7 @@ function buildMaestroPane(){
      about to discard them, and the only door to it was inside the job
      wizard. It belongs in the row with the other exports. */
   const bSeqX = el('button','b','Export choreography .json');
-  bSeqX.title = 'writes R2-choreography-….json — your routines and the loadout, and nothing about '
+  bSeqX.title = 'writes R2-choreography-….json — your sequences and the loadout, and nothing about '
               + 'servo travel. The backup to keep before a starter replaces the library, and the file '
               + 'to send another builder so your moves play through THEIR endpoints.';
   bSeqX.disabled = (typeof seqLibExport !== 'function') || !(MSTR.sequences||[]).length;
@@ -587,9 +587,9 @@ function buildMaestroPane(){
      variants — and the guided door above is that paragraph's job. What is
      left is the STATE: what is loaded, or what to do first. */
   msg.innerHTML = MSTR.loaded
-    ? MSTR.servoCount+' channels · '+MSTR.sequences.length+' sequence(s) · '+MSTR.subs.length+' subroutine(s)'
+    ? MSTR.servoCount+' channels · '+MSTR.sequences.length+' sequence(s) · '+MSTR.subs.length+' sub(s)'
     : (isMaestroBuild
-        ? 'Nothing loaded. <b>Import a config</b> above reads the file you saved from Maestro Control Center — or drop it anywhere on the window. No file yet? <b>Build sequences</b> offers a named starter layout whose subroutines 0–7 line up with the sketch.'
+        ? 'Nothing loaded. <b>Import a config</b> above reads the file you saved from Maestro Control Center — or drop it anywhere on the window. No file yet? <b>Build sequences</b> offers a named starter layout whose subs 0–7 line up with the sketch.'
         : 'Nothing loaded. <b>Import a config</b> above reads the travel this app exports, and leaves your sequences and panel wiring alone — or drop the file anywhere on the window. No layout yet? <b>Build sequences</b> offers a named starter table to work from.');
   s0.appendChild(msg);
   if(!isMaestroBuild){
@@ -615,7 +615,7 @@ function buildMaestroPane(){
 
   /* --- which source drives the droid --- */
   const s1=sect(host,'Script source');
-  [['imported','Imported subroutines — restartScript(n) plays sub n'],
+  [['imported','Imported subs — restartScript(n) plays sub n'],
    ['builtin','Built-in stand-ins — pick per slot in Config']].forEach(([v,label])=>{
     const l=el('label','sw');
     const r=document.createElement('input'); r.type='radio'; r.name='maesrc'; r.checked=(CFG.maestroSource===v);
@@ -669,7 +669,7 @@ function buildMaestroPane(){
   sHw.appendChild(hHw);
 
   /* --- channel → droid part mapping --- */
-  buildChannelMap(sect(host,'Outputs → moving parts','drag a slider to test it'));
+  buildChannelMap(sect(host,'Channels → moving parts','drag a slider to test it'));
 
   /* --- sequence list --- */
   const s5=sect(host,'Generated script','Control Center format');
@@ -847,7 +847,7 @@ function buildChannelMap(host){
       shown ? (shown.length > 11 ? shown.slice(0,10)+'…' : shown) : (c.act ? 'proc' : '—'));
     st.title = !c.act ? 'not mapped'
       : n ? (shown + (cadNm && cadNm !== shown ? '\nCAD: ' + cadNm : '') + '\n' + actTip(c.act))
-          : 'no CAD part carries this actuator — the procedural droid still shows it';
+          : 'no CAD part carries this servo — the procedural droid still shows it';
     r.appendChild(st);
 
     host.appendChild(r);
@@ -864,8 +864,8 @@ function buildChannelMap(host){
   h.innerHTML = '<b>'+mapped+'</b> of '+MSTR.channels.length+' channels drive something.'
     + (hidden ? ' <b>'+hidden+'</b> channel(s) are set to Input/Output and are hidden — <b>All to Servo</b> brings them in.' : '')
     + ' Drag a <b>Test</b> slider and the mapped part moves on the model immediately, which is the quickest way to label a board you have already wired: sweep a channel, see what opens, name it here.'
-    + ' <b>Part</b> is the name the piece has in your Fusion model — hover it for the bearing from the front and which hinge it uses. <b>proc</b> means the actuator exists but no CAD part claims it.'
-    + ' The actuator IDs are numbered by position round the droid, not by the CAD\'s numbering, so <b>pie 0</b> is <b>MainPie3</b> — the <b>Wiring sheet</b> prints both side by side.';
+    + ' <b>Part</b> is the name the piece has in your Fusion model — hover it for the bearing from the front and which hinge it uses. <b>proc</b> means the servo exists but no CAD part claims it.'
+    + ' The servo IDs are numbered by position round the droid, not by the CAD\'s numbering, so <b>pie 0</b> is <b>MainPie3</b> — the <b>Wiring sheet</b> prints both side by side.';
   host.appendChild(h);
 }
 
@@ -938,7 +938,7 @@ function exportMstr(){
   a.download = MSTR.fileName.replace(/\.mstr$/i,'') + '-' + fileStamp() + '.mstr';
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(()=>URL.revokeObjectURL(a.href), 4000);
-  lg('mae','exported '+a.download+' — '+MSTR.sequences.length+' sequences, '+MSTR.subs.length+' subroutines');
+  lg('mae','exported '+a.download+' — '+MSTR.sequences.length+' sequences, '+MSTR.subs.length+' subs');
   toast('Exported '+a.download+' — verify endpoints on YOUR hardware before running at speed', 'warn');
   const lintNote = (typeof exportLintNote === 'function') ? exportLintNote() : '';
   if(lintNote) lg('warn','  '+lintNote.replace(/<[^>]+>/g,''));

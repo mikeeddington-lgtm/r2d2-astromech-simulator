@@ -309,11 +309,11 @@ const BUILD_OPTIONS = {
         is not this agent's to edit; it is handed off. */
      file:'padawan_secure_mode.ino'},
     {id:'maestro25', label:'Maestro 2025 (PWM)', sim:'full',
-     note:'Maestro scripts, DY-SV5W sound, and the only sketch that can drive hub motors.',
+     note:'Maestro sequences, DY-SV5W sound, and the only sketch that can drive hub motors.',
      repo:'https://github.com/Imperiallandm/Padawan360_mega_maestro_DYSV5W',
      file:'Padawan360_mega_maestro_DYSV5W_PWM.ino'},
     {id:'maestro22', label:'Maestro 2022 BETA',  sim:'full',
-     note:'Maestro scripts, DY-SV5W sound, Sabertooth only.',
+     note:'Maestro sequences, DY-SV5W sound, Sabertooth only.',
      repo:'https://github.com/Imperiallandm/Padawan360_mega_maestro_DYSV5W',
      file:'Padawan360_mega_maestro_DY5_BETA.ino'}
   ],
@@ -982,7 +982,7 @@ function firmwareBlockers(fwId, b){
     const p = PROFILES[fwId];
     if(!p) return out;
     if(p.hasMaestro && !buildUsesMaestro(b))
-      no('this sketch fires Maestro subroutines, and nothing here answers them — the expanders are on the host\'s own I2C bus. A PCA9685 + co-processor answer would give it something to fire at', BLOCK_HARD);
+      no('this sketch fires Maestro sequences, and nothing here answers them — the expanders are on the host\'s own I2C bus. A PCA9685 + co-processor answer would give it something to fire at', BLOCK_HARD);
     if(!p.hasMaestro && buildUsesMaestro(b))
       no('this sketch drives PCA9685 boards directly; it never opens a serial port to a Maestro', BLOCK_HARD);
     if(b.bodyDrive === 'flipsky' && !p.footPWM())
@@ -1003,7 +1003,7 @@ function firmwareBlockers(fwId, b){
       no('mod2026 drives an MD-YX5300, not a DY-SV5W', BLOCK_SOFT);
   }else{
     if(!buildUsesMaestro(b))
-      no('this sketch fires Maestro subroutines, and nothing here answers them — the expanders are on the host\'s own I2C bus. Putting them behind a MaestroPCA co-processor would give it something to fire at', BLOCK_HARD);
+      no('this sketch fires Maestro sequences, and nothing here answers them — the expanders are on the host\'s own I2C bus. Putting them behind a MaestroPCA co-processor would give it something to fire at', BLOCK_HARD);
     if(b.sound === 'mdyx5300')
       no('both Maestro sketches drive a DY-SV5W', BLOCK_SOFT);
     if(fwId === 'maestro22' && b.bodyDrive === 'flipsky')
@@ -1034,15 +1034,15 @@ function firmwareWhy(id, b){
   if(typeof isSketchProfile === 'function' && isSketchProfile(id))
     return 'your own transpiled sketch — the sim runs exactly what the file says, including its bugs';
   if(id === 'mod2026') return 'PCA9685 servos, Sabertooth feet and an MD-YX5300 — exactly what this sketch drives';
-  /* with a co-processor, "Maestro subroutines" needs one more sentence: the
+  /* with a co-processor, "Maestro sequences" needs one more sentence: the
      sketch is unchanged, and that IS the feature */
   const cop = buildUsesCoproc(b)
     ? ' — and your PCA9685s answer restartScript() through the co-processor, so the sketch cannot tell it is not a Pololu board'
     : '';
   if(id === 'maestro25') return (buildFootPWM(b)
     ? 'the only sketch with a PWM foot mode for your hub ESCs'
-    : 'Maestro subroutines and a DY-SV5W, with the fewest outstanding bugs of the two Maestro sketches') + cop;
-  return 'Maestro subroutines and a DY-SV5W, Sabertooth feet' + cop;
+    : 'Maestro sequences and a DY-SV5W, with the fewest outstanding bugs of the two Maestro sketches') + cop;
+  return 'Maestro sequences and a DY-SV5W, Sabertooth feet' + cop;
 }
 
 /* ----------------------------------------------------------- conflicts

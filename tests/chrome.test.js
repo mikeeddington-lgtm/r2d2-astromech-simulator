@@ -430,7 +430,7 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
   }));
   ok('choosing the Anzellan head applies and closes', await ev(()=>{
     document.querySelector('#stagePick .sprow[data-id="frik"]').click();
-    return PREFS.model==='frik' && !$('stagePick') && $('btnModel').textContent==='Frik head';
+    return PREFS.model==='frik' && !$('stagePick') && $('btnModel').textContent==='Anzellan head';
   }));
   await ev(()=>$('btnModel').click());
   await page.keyboard.press('Escape');
@@ -459,7 +459,7 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
     cycleStageTheme();
     const b = PREFS.stageTheme==='light' && $('btnStageBG').textContent==='BG: light';
     setStageTheme('follow');
-    const c = modelCycle()==='frik' && $('btnModel').textContent==='Frik head';
+    const c = modelCycle()==='frik' && $('btnModel').textContent==='Anzellan head';
     modelSet('droid',{frame:false});
     return a && b && c;
   }));

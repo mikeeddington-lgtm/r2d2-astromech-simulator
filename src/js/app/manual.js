@@ -183,7 +183,7 @@ function manualCard(host, opts){
     : host;
   const p = el('div', 'hint prose');
   p.innerHTML = o.blurb || ('Everything this simulator is for, written for somebody with a half-built droid: '
-    + 'the nine setup questions, <b>a rack of servos</b> to try a sequence on, finding your servo end stops, '
+    + 'the nine setup questions, <b>the servo bench</b> to try a sequence on, finding your servo end stops, '
     + 'bricks, getting it onto the board, and what to do when nothing moves. '
     + 'It opens in a new tab from the latest release.');
   s.appendChild(p);

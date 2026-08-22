@@ -269,12 +269,12 @@ function buildServos(){
   if(!chans.length){
     const empty = el('div','svempty');
     empty.innerHTML = '<b>Nothing to show yet.</b> This is one gauge per channel on your board, so it needs '
-      + 'a channel table. Build one here, import a <code>.mstr</code> on the Board tab, or run the setup.';
+      + 'a channel table. Make one here, import a <code>.mstr</code> on the Board tab, or run the setup.';
     host.appendChild(empty);
     const bar = el('div','conbar');
-    const bGen = el('button','b prim','Build a servo layout');
+    const bGen = el('button','b prim','Make a starter channel table');
     bGen.id = 'btnSvStarter';
-    bGen.title = 'a channel per servo on your board, plus eight routines that visibly move them';
+    bGen.title = 'a channel per servo on your board, plus eight sequences that visibly move them';
     bGen.addEventListener('click', ()=>{
       if(typeof kioskOn === 'function' && kioskOn()) return;
       makeStarter('rack');

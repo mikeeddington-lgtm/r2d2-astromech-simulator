@@ -6,7 +6,7 @@
    -------------------------------------------------------------------------
    Two of these are regression tests for a trap that would silently break
    the whole app rather than just this feature:
-     · `maestro/builder.js` (the "Build your Maestro" overlay) already owns
+     · `maestro/builder.js` (the "Put on the board" overlay) already owns
        the global `BLD` and every `bld*` top-level name. This file uses
        `MB`/`mb*` instead — a duplicate `const BLD` would be a fatal
        SyntaxError on load, not a wrong answer, so "no page errors" at the
@@ -54,7 +54,7 @@ const near=(a,b,t)=>Math.abs(a-b)<=t;
   await ev(()=>{ if(typeof closeStartup==='function') closeStartup(); modelSet('droid', {frame:false}); });
 
   console.log('\n════ it exists, and did not clobber the OTHER builder ════');
-  /* maestro/builder.js's "Build your Maestro" overlay owns BLD/bld* — this
+  /* maestro/builder.js's "Put on the board" overlay owns BLD/bld* — this
      file is MB/mb* on purpose. If the two ever collided this whole suite
      would have failed to load the page at all. */
   ok('the Model Builder is its own global, not the Maestro-build overlay', await ev(()=>

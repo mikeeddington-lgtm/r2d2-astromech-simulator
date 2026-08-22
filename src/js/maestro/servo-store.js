@@ -142,7 +142,7 @@ function chanDropRetiredActs(chans){
   let n = 0;
   list.forEach(c=>{ if(c && /^rkS\d+$/.test(c.act || '')){ c.act = ''; n++; } });
   if(n && typeof lg === 'function')
-    lg('warn', 'servo config: ' + n + ' channel(s) were wired to the old servo rack, which no longer exists — '
+    lg('warn', 'servo config: ' + n + ' channel(s) were wired to a servo view that no longer exists — '
              + 'their Part column has been cleared. The Servos view shows every channel whether it drives a part or not.');
   return n;
 }

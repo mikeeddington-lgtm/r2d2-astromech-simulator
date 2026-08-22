@@ -239,7 +239,7 @@ function setupExitHardware(){
   const what = [];
   if(wasOn)   what.push('the board is disconnected');
   if(wasLive) what.push('live drive is disarmed');
-  HW.say('servo setup closed — '+what.join(' and ')+'. Every servo holds where it is: '
+  HW.say('servo bench closed — '+what.join(' and ')+'. Every servo holds where it is: '
        + 'nothing was released and nothing was snapped home, so a loaded panel cannot drop on the way out.');
 }
 
@@ -840,7 +840,7 @@ function setupStepSketch(){
       '<label class="setopt'+(SETUP.hw.sketch==='esp32'?' on':'')+'"><input type="radio" name="sketch" value="esp32" data-f="sketch"'+(SETUP.hw.sketch==='esp32'?' checked':'')+'>'
     + '<b>Esp32Droid</b><span class="sub">the droid, with a radio · '
     + setupRepoLink('arduino/MaestroPCA/examples/Esp32Droid','open the sketch ↗')+'</span>'
-    + '<span class="why">MaestroReplacement plus WiFi. It answers <code>restartScript(n)</code> over the link exactly the same way, and also serves a page that lists your slots as buttons — join <b>R2-PCA</b> on a phone and fire a routine without opening the dome. '
+    + '<span class="why">MaestroReplacement plus WiFi. It answers <code>restartScript(n)</code> over the link exactly the same way, and also serves a page that lists your slots as buttons — join <b>R2-PCA</b> on a phone and fire a sequence without opening the dome. '
     + (setupChannels() > 16
         ? 'With '+SETUP.hw.boards+' boards you are past the ESP32&rsquo;s 16 built-in PWM channels, so it drives your PCA9685s over I2C — set <code>MPCA_DIRECT_PINS 0</code>.'
         : 'At '+setupChannels()+' channels it could also drive the servos straight off its own pins at ~0.3 µs resolution — finer than a PCA9685 — with no expander at all. That is <code>MPCA_DIRECT_PINS 1</code>.')

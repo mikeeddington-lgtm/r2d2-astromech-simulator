@@ -69,7 +69,7 @@ function actLabel(base, act){
 /* longer form for a tooltip */
 function actTip(act){
   const ps = actCadParts(act);
-  if(!ps.length) return act ? 'no CAD part carries this actuator' : 'not mapped';
+  if(!ps.length) return act ? 'no CAD part carries this servo' : 'not mapped';
   const a = actAzimuth(act);
   return ps.map(p => p.base).join(', ')
        + (a === null ? '' : '\n' + a.toFixed(0) + '° from the front (' + azWord(a) + ')')

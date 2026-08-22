@@ -405,16 +405,15 @@ function sqImportOpen(){
   const b = document.createElement('button');
   b.className = 'b'; b.id = 'sqImport';
   b.textContent = '⤓ Import sequence';
-  b.title = 'bring in a sequence from a .mstr settings file, a saved routine or a sketch — it lands in the sequence library';
+  b.title = 'bring in a sequence from a .mstr settings file, a saved choreography or a sketch — it lands in the sequence library';
   b.addEventListener('click', sqImportOpen);
   bar.insertBefore(b, build);
 })();
-/* the button says what it will actually produce — "Build your Maestro" on a
-   PCA9685 build would be a lie, and the thing it lies about (which file you
-   end up flashing) is the whole point of pressing it */
+/* the label comes from bldTitle(), so this door and the Maestro pane's say
+   the same thing whichever file the build ends up flashing */
 function sqBuildLabel(){
   const b = $('sqBuild'); if(!b) return;
-  b.textContent = '⚙ ' + ((typeof bldTitle === 'function') ? bldTitle() : 'Build your Maestro');
+  b.textContent = '⚙ ' + ((typeof bldTitle === 'function') ? bldTitle() : 'Put on the board');
 }
 $('sqStep').addEventListener('change',()=>{
   const seq = MSTR.loaded ? MSTR.sequences[EDIT.seq] : null;

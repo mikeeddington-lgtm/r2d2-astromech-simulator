@@ -103,8 +103,8 @@ function setupChCols(){
      td:r=>'<td class="pin">'+r.i+'</td>'},
     {th:()=>'<th title="which PCA9685 and which of its sixteen outputs — the thing you count along the header to find">board·pin</th>',
      td:r=>'<td class="pin">'+(r.i>>4)+'·'+(r.i&15)+'</td>'},
-    {th:()=>'<th title="is anything plugged into this pin?">use</th>',
-     td:r=>'<td><input type="checkbox" data-k="use"'+(r.on?' checked':'')+' title="is anything plugged into this pin?"></td>'},
+    {th:()=>'<th title="is anything plugged into this channel?">use</th>',
+     td:r=>'<td><input type="checkbox" data-k="use"'+(r.on?' checked':'')+' title="is anything plugged into this channel?"></td>'},
     {th:()=>'<th>name</th>',
      td:r=>'<td><input type="text" data-k="name" value="'+(r.c?String(r.c.name).replace(/"/g,'&quot;'):'')
         + '" placeholder="not used"'+(r.on?'':' disabled')+'></td>'},
@@ -583,7 +583,7 @@ function setupStepChannels(){
        and the reference — what centre and boot mean, the Maestro's units, the
        live half, what each ease does — folds into a disclosure. Collapsed, not
        removed: the words were right, they were just always on. */
-    + '<p class="setp">Tick a pin, name it and give it a part to drive. Press <b>test</b> to make that '
+    + '<p class="setp">Tick a channel, name it and give it a part to drive. Press <b>test</b> to make that '
     + 'panel move, so you can see which one it is. Everything else about a channel — its ends, its centre, '
     + 'its speed — is in the <b>Configure</b> panel below, which follows whichever row you click.</p>'
     + '<details class="setwhat"><summary>what the other columns mean</summary>'

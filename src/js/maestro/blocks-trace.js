@@ -230,7 +230,7 @@ function blockTraceCheck(bricks, frames){
         kind: 'unmapped', ch: c.i, ref: '',
         label: c.name || ('Channel ' + c.i),
         err: 0, pct: 0, at: times[exs[0].s],
-        what: 'moves in this routine but is not mapped to a panel, so it cannot become a brick. '
+        what: 'moves in this sequence but is not mapped to a panel, so it cannot become a brick. '
             + 'Its motion is dropped from the conversion — map it to a panel and convert again to keep it.'
       });
       return;

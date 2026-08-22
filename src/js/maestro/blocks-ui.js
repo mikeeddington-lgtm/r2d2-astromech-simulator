@@ -203,7 +203,7 @@ function buildBlocks(){
   }
   if(seq && !blockIsRoutine(seq)){
     const n = el('div','note');
-    n.innerHTML = '<b>“'+xmlEsc(seq.name)+'” is a hand-made frame list</b> ('+blkPlural(seq.frames.length,'frame')+') — '
+    n.innerHTML = '<b>“'+xmlEsc(seq.name)+'” is a hand-made sequence</b> ('+blkPlural(seq.frames.length,'frame')+') — '
       + 'a Pololu file carries poses and nothing else, so there are no bricks in it to read. '
       + 'You can keep editing it under <b>Frames</b>, work out the bricks behind it, or start again from empty.';
     const bar = el('div','conbar');
@@ -213,7 +213,7 @@ function buildBlocks(){
        SAME analysis (blocks-trace.js); they differ only in whether you are
        shown the disagreements before it lands. */
     const bC = el('button','b prim','Work out the bricks');
-    bC.title = 'Read the frames back into bricks and keep the result. The original frame list is saved '
+    bC.title = 'Read the frames back into bricks and keep the result. The original frames are saved '
              + 'beside it as a copy, so nothing is lost either way.';
     bC.addEventListener('click',()=>blkConvRun(seq, false));
     const bR = el('button','b','Work them out and review…');
@@ -221,8 +221,8 @@ function buildBlocks(){
              + 'so you can fix them on the timeline before accepting.';
     bR.addEventListener('click',()=>blkConvRun(seq, true));
     const b = el('button','b','Start fresh with bricks');
-    b.title = 'An empty routine under this name. The frames stay until you drop the first brick, and then '
-            + 'this routine is whatever the bricks say — the imported motion is not kept.';
+    b.title = 'An empty sequence under this name. The frames stay until you drop the first brick, and then '
+            + 'this sequence is whatever the bricks say — the imported motion is not kept.';
     b.addEventListener('click',()=>{ blockAdopt(seq); buildSequencer(); });
     bar.appendChild(bC); bar.appendChild(bR); bar.appendChild(b);
     n.appendChild(bar);
@@ -999,7 +999,7 @@ function blkActionLib(seq){
     note.appendChild(document.createTextNode(
       off.length + ' moving panel' + (off.length===1?'':'s') + ' on this droid ' +
       (off.length===1?'has':'have') + ' no servo channel yet — grey. '
-      + 'You can still drag ' + (off.length===1?'it':'them') + ' in and build the routine now.'));
+      + 'You can still drag ' + (off.length===1?'it':'them') + ' in and build the sequence now.'));
     note.appendChild(b);
     host.appendChild(note);
   }
@@ -1131,9 +1131,9 @@ function blkConvRun(seq, review){
   const t = blockTrace(seq);
   if(!t.bricks.length){
     const why = t.moved
-      ? 'every channel this routine moves is unmapped, so there is no panel for a brick to name. '
+      ? 'every channel this sequence moves is unmapped, so there is no panel for a brick to name. '
         + 'Map them on the bench first.'
-      : 'nothing in this routine leaves its rest position, so there is nothing to make a brick out of.';
+      : 'nothing in this sequence leaves its rest position, so there is nothing to make a brick out of.';
     if(typeof toast === 'function') toast('Nothing to convert — ' + why, 'warn');
     return;
   }
@@ -1215,8 +1215,8 @@ function blkConvCheckSeq(seq){
   const c = BLK.conv; BLK.conv = null;
   blkConvDropKept(c);
   if(c.seq){ c.seq.frames = c.orig; delete c.seq.blocks; }
-  if(typeof toast === 'function') toast('Conversion of “'+c.name+'” discarded — you left the routine. '
-    + 'It is a frame list again, exactly as it was.');
+  if(typeof toast === 'function') toast('Conversion of “'+c.name+'” discarded — you left the sequence. '
+    + 'It is plain frames again, exactly as it was.');
 }
 
 function blkConvAccept(){
@@ -1248,7 +1248,7 @@ function blkConvDiscard(){
   blockHistReset(c.seq);
   if(typeof HW !== 'undefined' && HW.save) HW.save();
   if(typeof lg === 'function') lg('mae','conversion of “'+c.name+'” discarded — nothing changed');
-  if(typeof toast === 'function') toast('Discarded — “'+c.name+'” is the frame list it was.');
+  if(typeof toast === 'function') toast('Discarded — “'+c.name+'” is exactly the frames it was.');
   buildSequencer();
 }
 
@@ -1281,8 +1281,8 @@ function blkConvBanner(host, seq){
   n.appendChild(h);
   n.appendChild(document.createTextNode(clean
     ? ' Every instant the imported file had an opinion about, the bricks command the same pose. Accept it and '
-      + 'the routine is editable from now on; your original frame list is kept beside it either way.'
-    : ' A frame list is not always brick-shaped, so this is a guess and these are the places it does not fit. '
+      + 'the sequence is editable from now on; your original frames are kept beside it either way.'
+    : ' Frames are not always brick-shaped, so this is a guess and these are the places it does not fit. '
       + 'Select one to jump to it — the brick is outlined on the timeline and the inspector shows the error as '
       + 'you drag. Accept anyway and the droid does what the BRICKS say from here on.'));
 
@@ -1310,7 +1310,7 @@ function blkConvBanner(host, seq){
   const ok = el('button','b prim', clean ? 'Accept the conversion' : 'Accept anyway');
   ok.addEventListener('click', blkConvAccept);
   const no = el('button','b danger','Discard');
-  no.title = 'Put the frame list back exactly as it was.';
+  no.title = 'Put the frames back exactly as they were.';
   no.addEventListener('click', blkConvDiscard);
   bar.appendChild(ok); bar.appendChild(no);
   n.appendChild(bar);
@@ -1528,7 +1528,7 @@ function blkInspector(seq){
         br2.appendChild(wrap);
       }else{
         br2.appendChild(el('span','blkimp','not on the board — ⚙ '
-          + ((typeof bldTitle === 'function') ? bldTitle() : 'Build your Maestro') + ' puts it there'));
+          + ((typeof bldTitle === 'function') ? bldTitle() : 'Put on the board') + ' adds it'));
       }
       host.appendChild(br2);
     }
@@ -1855,7 +1855,7 @@ function blkPlayTint(on){
     BLK.tint = true;
     blkMarkApply();
     blkTintBoxSync();
-    lg('sys','preview: the model is coloured to match, so the parts the routine drives show up '
+    lg('sys','preview: the model is coloured to match, so the parts the sequence drives show up '
             + 'wherever the camera is pointing');
   }else{
     const loan = BLK.playTint;
@@ -2140,8 +2140,8 @@ function buildSeqLib(){
       const onBoard = (typeof loadoutIndex === 'function') ? loadoutIndex(s.name) : i;
       const c = el('div','blkchip seq'+(i===EDIT.seq?' act':'')+(onBoard<0?' off':''), s.name);
       c.title = blkPlural(s.frames.length,'frame')+' · '+seqTotal(s)+' ms'+(blockIsRoutine(s)?'  (built from bricks)':'')
-        + (onBoard>=0 ? '\non the board as subroutine '+onBoard
-                      : '\nnot on the board — Build your Maestro puts it there')
+        + (onBoard>=0 ? '\non the board as sub '+onBoard
+                      : '\nnot on the board — ⚙ Put on the board adds it')
         + '\nclick for details, drag onto the timeline to explode it into bricks';
       c.dataset.seq = String(i);
       /* Click-vs-drag decided on pointerup (see the 2026-07-27 bug note in
@@ -2174,7 +2174,7 @@ function buildSeqLib(){
      and say where the board is set. */
   const note = el('div','blklibhint'); note.style.padding = '0 8px 6px';
   note.innerHTML = 'Saving keeps a sequence in <b>your library</b> — it does not change the Maestro script. '
-    + '<b>⚙ ' + ((typeof bldTitle === 'function') ? bldTitle() : 'Build your Maestro')
+    + '<b>⚙ ' + ((typeof bldTitle === 'function') ? bldTitle() : 'Put on the board')
     + '</b> (top bar, or the Maestro tab) chooses what goes on the board, and in what order. '
     + 'A faded chip is one that is not loaded.';
   host.appendChild(note);
@@ -2353,7 +2353,7 @@ async function blkLibRename(i){
   if(typeof reindexSubs === 'function') reindexSubs();
   blkLibPreviewClose();
   lg('mae','renamed “'+was+'” → “'+n+'”'
-    + (hits.length ? ' — '+blkPlural(hits.length,'brick')+' in '+blkPlural(held.length,'other routine')
+    + (hits.length ? ' — '+blkPlural(hits.length,'brick')+' in '+blkPlural(held.length,'other sequence')
                      +' re-pointed and recompiled: '+held.map(x=>x.name).join(', ') : ''));
   buildSequencer();
   if(typeof buildMaestroPane === 'function') buildMaestroPane();
@@ -2382,16 +2382,16 @@ async function blkLibDelete(i){
       'This takes “' + s.name + '” — ' + what + ', ' + (blkLengthMs(s)/1000).toFixed(1) + 's — '
     + 'out of your library, and there is no undo behind it.\n\n'
     + (held.length
-        ? blkPlural(hits.length,'brick') + ' in ' + blkPlural(held.length,'other routine') + ' — '
+        ? blkPlural(hits.length,'brick') + ' in ' + blkPlural(held.length,'other sequence') + ' — '
           + held.join(', ') + ' — play' + (hits.length===1?'s':'') + ' it. Those bricks stay on their '
           + 'timelines, keeping their length and their labels, and compile to a held pose instead of '
           + 'the moves they play now. Rename it instead and they follow it.\n\n'
         : '')
     + (slot >= 0 ? 'It is on the board as sub ' + slot + '; that slot is given up, and ⚙ '
-                   + ((typeof bldTitle === 'function') ? bldTitle() : 'Build your Maestro')
+                   + ((typeof bldTitle === 'function') ? bldTitle() : 'Put on the board')
                    + ' fills it with whatever you put there next.\n\n' : '')
     + 'The other ' + blkPlural(MSTR.sequences.length - 1, 'sequence') + ' in your library are '
-    + 'untouched, and so is the routine you have open on the timeline'
+    + 'untouched, and so is the sequence you have open on the timeline'
     + (i === EDIT.seq ? ' — which is this one, so the library opens the sequence before it instead.' : '.');
   const yes = (typeof appConfirm === 'function')
     ? await appConfirm(msg, {title:'Delete “'+s.name+'”?', yes:'Delete it', no:'Keep it', danger:true})

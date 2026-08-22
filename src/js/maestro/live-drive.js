@@ -146,7 +146,7 @@ async function liveSet(on, opts){
       + (nl_.length
         ? '<b>' + nl_.length + ' channel' + (nl_.length===1?' has':'s have') + ' no speed limit</b> — speed and '
           + 'acceleration are 0, so every step of a ramp is chased flat out. That is what makes a servo bang and '
-          + 'buzz its way through a routine. Set a Speed in the bench to smooth it. '
+          + 'buzz its way through a sequence. Set a Speed in the bench to smooth it. '
         : '')
       + 'The first move on each channel is a <b>jump, not a ramp</b> — the board does not know where the horn is '
       + 'standing until something tells it. Have a hand near the power.';

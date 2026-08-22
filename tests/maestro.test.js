@@ -509,7 +509,7 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
     rebuildMaestroUI();
     asked = [];
     const before = {ch:MSTR.channels.length, seq:MSTR.sequences.length, file:MSTR.fileName, min0:MSTR.channels[0].min};
-    for(const l of ['Body starter','Dome starter','Frik head starter']) await click(l);
+    for(const l of ['Body starter','Dome starter','Anzellan head starter']) await click(l);
     out.asked = asked.length;
     out.qs = asked.map(a=>({msg:a.msg, title:a.o.title||'', yes:a.o.yes||'', no:a.o.no||'', danger:!!a.o.danger}));
     out.kept = {ch:MSTR.channels.length, seq:MSTR.sequences.length, file:MSTR.fileName, min0:MSTR.channels[0].min};
@@ -748,7 +748,7 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
   /* the import button has always worn a build-dependent label (v1.39.1) —
      "Import your config…" on a Maestro, "Maestro sequences…" on a PCA */
   const NINE = ['Import servo config…','Export servo config','Assign panels…',
-                'Body starter','Dome starter','Frik head starter','Export .mstr',
+                'Body starter','Dome starter','Anzellan head starter','Export .mstr',
                 'Export sequences.h (PCA9685)'];
   const allNine = st => !!st.front && !!st.adv && NINE.every(n=>st.all.indexOf(n)>=0)
     && (st.all.indexOf('Import your config…')>=0 || st.all.indexOf('Maestro sequences…')>=0);

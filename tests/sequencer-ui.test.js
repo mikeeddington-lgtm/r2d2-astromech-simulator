@@ -2,10 +2,10 @@
    ---------------------------------------------------------------------
    Covers Mike's confirmed spec of 2026-07-29: the show-control layout,
    the draggable playhead, snapping (neighbours + musical modes), the
-   grouped/searchable library whose CLICK never clears the routine, the
+   grouped/searchable library whose CLICK never clears the sequence, the
    Advanced gate on speed overrides, the imported-config authority, the
    colour restore on leaving the sequencer, the removal of dead sliders,
-   and the full-screen Build your Maestro workspace. */
+   and the full-screen Put on the board workspace. */
 const { launchBrowser } = require('./harness');
 const path = require('path');
 /* the picture is the one thing no assertion here reads, and on a GPU-less
@@ -40,9 +40,9 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
   });
 
   console.log('\n════ the show-control layout ════');
-  ok('transport: play, stop, time readout, Advanced, Build your Maestro — the snap picker moved to the ruler (2026-08-18)', await ev(()=>
+  ok('transport: play, stop, time readout, Advanced, Put on the board — the snap picker moved to the ruler (2026-08-18)', await ev(()=>
     !!$('sqPlay') && !!$('sqStop') && !!$('sqTime') &&
-    !!$('sqAdv') && /Build your Maestro/.test($('sqBuild').textContent)));
+    !!$('sqAdv') && /Put on the board/.test($('sqBuild').textContent)));
   ok('the inspector has its own column on the right', await ev(()=>{
     const r = $('seqinsp').getBoundingClientRect();
     const t = $('seqblocks').getBoundingClientRect();
@@ -465,7 +465,7 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
     return t.indexOf('Mexican wave')>=0 && t.indexOf('Breathe')>=0;
   }));
 
-  console.log('\n════ Build your Maestro ════');
+  console.log('\n════ Put on the board ════');
   ok('a prominent button in the Sequencer opens it full-screen', await ev(()=>{
     $('sqBuild').click();
     return BLD.open && !$('bldWiz').hidden && !!document.querySelector('.bldgrid');
@@ -487,7 +487,7 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
     addBtn.click();
     return {dropped, back: loadoutNames().length===before};
   });
-  ok('✕ takes a routine off the board, ＋ Add puts one on', bld.dropped && bld.back);
+  ok('✕ takes a sequence off the board, ＋ Add puts one on', bld.dropped && bld.back);
   ok('validation runs live in the third column', await ev(()=>{
     const t = document.querySelector('.bldgrid').textContent;
     return /Errors/.test(t) && /Slowest throw/.test(t) && /Subroutines/.test(t);
@@ -503,11 +503,11 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
     b.click();
     document.querySelector('#tabs button[data-p="pMae"]').click();
     buildMaestroPane();
-    const door = Array.from($('maeHost').querySelectorAll('button')).some(x=>/Build your Maestro/.test(x.textContent));
+    const door = Array.from($('maeHost').querySelectorAll('button')).some(x=>/Put on the board/.test(x.textContent));
     return $('bldWiz').hidden && door;
   }));
 
-  console.log('\n════ renaming via Save keeps the routine on the board (v1.39.5) ════');
+  console.log('\n════ renaming via Save keeps the sequence on the board (v1.39.5) ════');
   const rename = await ev(()=>{
     EDIT.seq = blockNewRoutine('Rename me');
     blockAdd(MSTR.sequences[EDIT.seq], 'act', 'pie0', 0, {dur:500, rise:100, fall:100});

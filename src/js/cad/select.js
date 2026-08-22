@@ -165,7 +165,7 @@ function buildSelCard(){
   const sub = el('div','selsub');
   sub.innerHTML = '<b>'+xmlEsc(partBase(name))+'</b>'
     + (hp ? ' · '+hp.kind + (az!==null ? ' · '+az.toFixed(0)+'° '+azWord(az) : '') : '')
-    + (mov && mov.act ? ' · drives <b>'+xmlEsc(mov.act)+'</b>' : (mov ? ' · rigged, no actuator' : ' · static'));
+    + (mov && mov.act ? ' · drives <b>'+xmlEsc(mov.act)+'</b>' : (mov ? ' · rigged, no servo' : ' · static'));
   card.appendChild(sub);
 
   /* rename — the label rides on top of the CAD name, never replaces it */
@@ -246,7 +246,7 @@ function buildSelCard(){
   /* which port is it plugged into? Assign it right here. */
   if(mov && mov.act){
     const r4 = el('div','selrow');
-    r4.appendChild(el('label',null,'Port'));
+    r4.appendChild(el('label',null,'Channel'));
     if(PROFILE.hasServos){
       const src = (typeof wiringSource==='function') ? wiringSource(mov.act) : null;
       const d = el('div','selport', src ? src.board+' · ch '+src.ch : 'no mod2026 channel');

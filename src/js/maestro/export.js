@@ -342,9 +342,9 @@ function seqLibExport(){
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(()=>URL.revokeObjectURL(a.href), 4000);
   if(typeof lg === 'function')
-    lg('sys','choreography exported: '+a.download+' — '+obj.count+' routine(s), the library and the endpoints behind it');
+    lg('sys','choreography exported: '+a.download+' — '+obj.count+' sequence(s), the library and the endpoints behind it');
   if(typeof toast === 'function')
-    toast('Exported '+a.download+' — '+obj.count+' routine'+(obj.count===1?'':'s')+', with the endpoints they were built on');
+    toast('Exported '+a.download+' — '+obj.count+' sequence'+(obj.count===1?'':'s')+', with the endpoints they were built on');
   return a.download;
 }
 /* is this text one of OUR choreography backups? Same question, same shape
@@ -485,7 +485,7 @@ function pololuMode(m){
    door did not lint at all, which is how seven of nine routines in a real
    header came to drive nine channels that had been un-ticked. */
 const EXPORT_PORTABILITY_NOTE =
-  ' <b>This file describes your droid, not the routine.</b> The targets are '
+  ' <b>This file describes your droid, not the sequence.</b> The targets are '
   + 'quarter-microsecond pulse widths against YOUR endpoints, the channel numbers '
   + 'are YOUR wiring, and the speed, acceleration, home and release columns are '
   + 'YOUR servos. Only the timing travels unchanged. To share the moves, have the '

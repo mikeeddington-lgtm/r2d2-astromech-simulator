@@ -64,7 +64,7 @@ function cueCatalog(){
   });
   MSTR.sequences.forEach(s=>{
     if(!s.frames || !s.frames.length) return;
-    out.push({kind:'seq', ref:s.name, label:s.name, group:(s.cat || 'Routines')});
+    out.push({kind:'seq', ref:s.name, label:s.name, group:(s.cat || 'Sequences')});
   });
   return out;
 }
@@ -145,7 +145,7 @@ function cueAutoMap(){
     ...cat.filter(c=>c.kind === 'act')
   ];
   if(!picks.length){
-    lg('warn','no actions to cue yet — import or generate a board, or save a routine first');
+    lg('warn','no actions to cue yet — import or generate a board, or save a sequence first');
     return 0;
   }
   Object.keys(CUE.map).forEach(cueClear);
@@ -372,7 +372,7 @@ function cueBuildPanel(host){
   if(!ids.length){
     const e = document.createElement('div');
     e.className = 'hint';
-    e.textContent = 'a cue is a button that fires a whole action — a part, a group, or a saved routine. Hold it to perform it; the recorder turns each press into a brick.';
+    e.textContent = 'a cue is a button that fires a whole action — a part, a group, or a saved sequence. Hold it to perform it; the recorder turns each press into a brick.';
     wrap.appendChild(e);
   }
   ids.forEach(id=>{
@@ -439,7 +439,7 @@ function cueBuildPanel(host){
   const bAuto = document.createElement('button');
   bAuto.className = 'b'; bAuto.id = 'cueAuto';
   bAuto.textContent = 'Auto-cue the buttons';
-  bAuto.title = 'deal the ready-made actions across the face buttons and the d-pad — groups first, then saved routines';
+  bAuto.title = 'deal the ready-made actions across the face buttons and the d-pad — groups first, then saved sequences';
   bAuto.addEventListener('click', ()=>{ cueAutoMap(); pupBuildMap(); });
   wrap.appendChild(bAuto);
 

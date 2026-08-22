@@ -263,11 +263,11 @@ function lintMaestro(opts){
     const onBoard = emptySeqs.filter(s=>onBoardNames.indexOf(s.name) >= 0);
     const list = emptySeqs.map(s=>'"'+s.name+'"').join(', ');
     if(onBoard.length)
-      add('err','seq-empty', onBoard.length+' routine(s) on the board have no frames: '+
+      add('err','seq-empty', onBoard.length+' sequence(s) on the board have no frames: '+
           emptySeqs.map(s=>'"'+s.name+'"').join(', ')+'.',
-          'A routine with nothing in it is left out of the generated file, and everything after it moves down a slot — so restartScript(n) stops matching this list. Give it frames or take it off the board.');
+          'A sequence with nothing in it is left out of the generated file, and everything after it moves down a slot — so restartScript(n) stops matching this list. Give it frames or take it off the board.');
     else
-      add('warn','seq-empty', emptySeqs.length+' routine(s) in the library have no frames: '+list+'.',
+      add('warn','seq-empty', emptySeqs.length+' sequence(s) in the library have no frames: '+list+'.',
           'They are not on the board, so nothing is generated for them and no slot moves. Fill them in or delete them.');
   }
 
@@ -401,7 +401,7 @@ function lintMaestro(opts){
                      : 'It is not on the board yet.'),
           'The bricks are real and they move the model in a preview — they just compile to nothing, so the '
           + 'panels stay shut when the droid runs it. Give ' + (names.length===1?'it':'them')
-          + ' a channel in the channel map, or take those bricks out. Building the routine before the wiring '
+          + ' a channel in the channel map, or take those bricks out. Building the sequence before the wiring '
           + 'is done is fine; this is only so the export cannot be quiet about it.',
           undefined, slot >= 0 ? slot : undefined);
     });

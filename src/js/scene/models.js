@@ -32,7 +32,7 @@
 const MODELS = [
   {id:'droid', label:'R2-D2 MK4',   short:'R2-D2',
    blurb:'Your MK4 build. The CAD geometry, 36 rigged parts, driven by whichever sketch the build config picked.'},
-  {id:'frik',  label:'Anzellan head', short:'Frik head',
+  {id:'frik',  label:'Anzellan head', short:'Anzellan head',
    blurb:'The bench-stand puppet head. 11 face channels — jaw, lips, brows, lids, eyes and a head gimbal.'},
   {id:'mouse', label:'Polar Mouse + chariot', short:'Polar Mouse',
    blurb:'Drivable. Ackermann steering on a chassis measured off the CAD, towing the chariot on a hinged hitch.'},

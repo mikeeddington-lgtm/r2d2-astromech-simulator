@@ -41,7 +41,7 @@ const REFUSAL = 'this build has no servo board yet — answer the servo question
     ![...document.body.classList].some(c=>/^view-/.test(c))));
 
   /* Until v1.27.0 this section asserted the opposite: mod2026 REFUSED the
-     Sequence door, because a PCA9685 could not hold a routine. It can now —
+     Sequence door, because a PCA9685 could not hold a sequence. It can now —
      arduino/MaestroPCA answers restartScript(n) — so the gate moved from
      "has a Pololu board" to "has any servo board", and mod2026 passes. The
      old assertions are kept in spirit: the door still has a gate, and the
@@ -62,8 +62,8 @@ const REFUSAL = 'this build has no servo board yet — answer the servo question
   ok('and it generated a 32-channel PCA starter to work on', await ev(()=>
     MSTR.loaded && MSTR.board==='pca32' && boardIsPca(MSTR.board)
     && MSTR.channels.length===32 && MSTR.sequences.length>0));
-  ok('the build button says what it will actually produce', await ev(()=>
-    $('sqBuild').textContent.indexOf('sequences.h')>=0));
+  ok('the build door carries the one build verb, whichever file this route flashes', await ev(()=>
+    $('sqBuild').textContent==='⚙ Put on the board'));
   ok('the linter does not fault it for a script it does not have', await ev(()=>
     lintMaestro().counts.err===0));
   ok('the header it exports carries all 32 channels', await ev(()=>

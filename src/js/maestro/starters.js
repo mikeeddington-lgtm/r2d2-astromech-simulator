@@ -416,7 +416,7 @@ function makeStarter(which, boardId){
      regenerated on the next boot, over the top of whatever was done to it
      (maestro/servo-store.js). */
   if(typeof servoStoreSave === 'function') servoStoreSave();
-  lg('mae',`generated a ${board} starter for the ${bd.product}: ${names.length} named servo channels, 8 sequences → subroutines 0-7`);
+  lg('mae',`generated a ${board} starter for the ${bd.product}: ${names.length} named servo channels, 8 sequences → subs 0-7`);
   const est = scriptBytesEstimate(MSTR.scriptText);
   if(bd.script > 0 && est > bd.script) // v1.39.5: a board with no script store gets no script-size warning
     lg('warn',`  that script is roughly ${est} bytes and the ${bd.label} holds ${bd.script} — trim sequences or move to a bigger board`);

@@ -320,7 +320,7 @@ function serialBoardCheck(){
       + ' on the bus that the flashed firmware does not animate</b> ('
       + r.spare.map(x=>x.addr).join(', ') + '). The channel count is baked into '
       + '<code>sequences.h</code> when you flash it, so a board added afterwards is found, '
-      + 'woken and live-drivable — but no routine reaches it. '
+      + 'woken and live-drivable — but no sequence reaches it. '
       + '<b>Regenerate <code>sequences.h</code> and re-flash the co-processor</b> and it joins in. '
       /* the door, not just the instruction — exportPcaHeader() is the same
          button the Maestro tab carries, and being sent to go and find it is
@@ -334,7 +334,7 @@ function serialBoardCheck(){
   }
   if(r.channels !== null && have && r.channels < have){
     bits.push('The flashed firmware drives <b>' + r.channels + ' channels</b>; this build has <b>'
-      + have + '</b>. Channels ' + r.channels + '-' + (have-1) + ' will not move from a routine '
+      + have + '</b>. Channels ' + r.channels + '-' + (have-1) + ' will not move from a sequence '
       + 'until <code>sequences.h</code> is regenerated and re-flashed.');
   }
   /* THE OTHER DIRECTION, and the commoner one by far (v1.64.0). Mike's own

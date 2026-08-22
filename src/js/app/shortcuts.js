@@ -20,7 +20,7 @@
 
    - It never opens over a surface that owns the keyboard — the confirm
      dialog, plus whatever uiModalOpen() names (the setup wizard, the
-     servo bench, the import wizard, Build your Maestro, the job chooser,
+     servo bench, the import wizard, Put on the board, the job chooser,
      the track builder) — because two things answering the same Esc is
      how containment bugs start. And when one is raised UNDER the card
      anyway, Esc stops IMMEDIATELY here: see kbdHelpOpen().

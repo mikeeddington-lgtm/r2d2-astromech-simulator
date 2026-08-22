@@ -33,7 +33,7 @@ const WIZ_EXTRA = [
      bottom of the servo hardware question, which put the PHYSICAL job
      underneath five paragraphs about which board to buy. It is a job, not
      an answer, so it gets a chip of its own. */
-  {key:'_servoSet', title:'Servo setup', q:'Now let us make the servos move.',
+  {key:'_servoSet', title:'Servo bench', q:'Now let us make the servos move.',
    why:'Everything so far describes the droid. This is where you find out where each panel actually stops — and the first question is whether you have already done it once.'},
   /* v1.45.0 — the second sentence used to advertise the Boards cards ("the
      boards below are clickable"). Those are gone (Mike: "Remove the
@@ -446,7 +446,7 @@ function wizHardwareStep(host, step){
     my.forEach(id=>{
       const r = el('div','lnkrow'+(b.firmware===id?' act':''));
       r.appendChild(el('div','lnkname', PROFILES[id].file));
-      const rep = (SKETCH.byId[id] && PROFILES[id].hasMaestro) ? 'Maestro subroutines' : 'PCA9685 direct';
+      const rep = (SKETCH.byId[id] && PROFILES[id].hasMaestro) ? 'Maestro sequences' : 'PCA9685 direct';
       r.appendChild(el('code','lnkfile', rep+' · '+PROFILES[id].audio));
       const x = el('button','b','Forget');
       x.title = 'remove this sketch — the .ino on your disk is untouched';
@@ -1055,8 +1055,8 @@ function wizServoLinkWarning(host, b){
   w.innerHTML = '<b>Both boards will act on every command.</b> The sketches build the board as '
     + '<code>MiniMaestro maestro(Serial3)</code> — no device number — and with the library\'s default that means the '
     + '<b>compact protocol</b>: a bare command byte with no address in it. So <code>restartScript(2)</code> starts '
-    + 'subroutine 2 on Maestro 1 <i>and</i> Maestro 2, and whichever sequence happens to be at index 2 on the other '
-    + 'one runs too. Give each board a device number in the Maestro Control Center and pass it to the constructor, '
+    + 'sequence 2 on Maestro 1 <i>and</i> Maestro 2 — whatever happens to be sitting at index 2 on the other '
+    + 'board runs too. Give each board a device number in the Maestro Control Center and pass it to the constructor, '
     + 'or run both ends off one board.';
   s.appendChild(w);
   return s;
@@ -1196,7 +1196,7 @@ function wizServoSetupStep(host, step){
                        when:new Date().toISOString()};
       bb.servoCfg.kept = true;
       if(typeof prefsSave === 'function') prefsSave();
-      lg('sys','servo setup: keeping the '+servoCfgConfigured()+' channels already configured');
+      lg('sys','servo bench: keeping the '+servoCfgConfigured()+' channels already configured');
       toast('Keeping the servo settings already in this build');
       buildStartup();
     };
@@ -1325,14 +1325,14 @@ function wizServoSetupStep(host, step){
         ? 'Opens the channel table <b>exactly as you left it</b> — every name, endpoint, speed and panel mapping still '
           + 'there. Change one row or twenty: rename it, retype a pulse width, or press <b>configure…</b> to put that '
           + 'channel back on the dial with the servo moving in front of you. It is a continuation, not a fresh start.'
-        : 'Opens the <b>servo setup tool</b>, already carrying everything you answered above — your controller, your '
+        : 'Opens the <b>servo bench</b>, already carrying everything you answered above — your controller, your '
           + 'expanders and your channel count. Work down the channels with a servo in front of you, finding where each '
           + 'panel actually stops. It is the slow part of a build and there is no way round it the first time — but you '
           + 'only do it once, and it exports what you measured at the end.');
   fresh.appendChild(fnote);
   if(fam !== 'maestro'){
     const fb = el('div','conbar');
-    const fbtn = el('button','b prim', done ? 'Edit the channel table' : 'Open the servo setup tool');
+    const fbtn = el('button','b prim', done ? 'Edit the channel table' : 'Open the servo bench');
     fbtn.id = 'btnServoMeasure';
     /* the wizard is a full-page overlay and so is the bench — leave this one
        first, and tell the bench to come back here when it is done. Straight
@@ -1523,7 +1523,7 @@ function wizWiringStep(host){
   const beta = el('div','note beta');
   beta.innerHTML = '<span class="betachip">beta</span> <b>These diagrams are beta.</b> '
     + 'They are drawn from the sketch you chose and the answers you gave in this setup, so '
-    + WIRING_BETA_WHY + ' The channel tables on the wiring sheet are the part you can trust to the pin.';
+    + WIRING_BETA_WHY + ' The channel tables on the wiring sheet are the part you can trust to the channel.';
   s.appendChild(beta);
   const wrap = el('div','wdwrap');
   wrap.innerHTML = (typeof systemDiagramSvg === 'function') ? systemDiagramSvg() : '';

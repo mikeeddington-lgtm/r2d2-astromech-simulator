@@ -12,7 +12,7 @@ function musicRebuildUI(){
   bar.appendChild(bLoad); bar.appendChild(fin);
 
   if(!MUSIC.loaded){
-    const h = el('span','mushint','load a track to snap frames to its beats, build routines from a group, and preview in sync');
+    const h = el('span','mushint','load a track to snap frames to its beats, build sequences from a group, and preview in sync');
     bar.appendChild(h);
     $('muswave').style.display='none';
     return;
@@ -52,8 +52,8 @@ function musicRebuildUI(){
   bar.appendChild(barWrap);
 
   const bSnap = el('button','b','Snap to beats');
-  bSnap.title='retime the whole routine so it lands on the beat grid — bricks snap their starts, '+
-    'a hand-made frame list snaps its frame boundaries. The snap mode picker in the top bar chooses strong beats or all of them.';
+  bSnap.title='retime the whole sequence so it lands on the beat grid — bricks snap their starts, '+
+    'a hand-made sequence snaps its frame boundaries. The snap mode picker in the top bar chooses strong beats or all of them.';
   bSnap.disabled = !seq;
   bSnap.addEventListener('click',()=>{
     let n;
@@ -68,7 +68,7 @@ function musicRebuildUI(){
   });
   bar.appendChild(bSnap);
 
-  const bBuild = el('button','b','Build routine…');
+  const bBuild = el('button','b','Build sequence…');
   bBuild.title='generate a new sequence: one move per beat from a group or panel set';
   bBuild.addEventListener('click',()=>{ $('muspop').classList.toggle('on'); musicBuildPop(); });
   bar.appendChild(bBuild);
@@ -78,7 +78,7 @@ function musicRebuildUI(){
   st.id='musstat';
   bar.appendChild(st);
   if(!seq && !MUSIC.status){
-    musicStatus('no sequence selected — Build routine… makes one from the beats (a starter is generated automatically if needed)');
+    musicStatus('no sequence selected — Build sequence… makes one from the beats (a starter is generated automatically if needed)');
   }
 
   musicDrawWave();
@@ -107,7 +107,7 @@ function musicBuildPop(){
   bX.addEventListener('click',()=>pop.classList.remove('on'));
   [sTarget,sPattern,sEvery,bGo,bX].forEach(x=>pop.appendChild(x));
   const h = el('div','hint');
-  h.innerHTML='The routine is written into the settings as an ordinary sequence, so it exports in the <b>.mstr</b> and plays from a <b>restartScript(n)</b> slot like any other. On the droid, fire the sound cue and the subroutine from the same button.';
+  h.innerHTML='The new sequence is written into the settings like any other, so it exports in the <b>.mstr</b> and plays from a <b>restartScript(n)</b> slot. On the droid, fire the sound cue and the sub from the same button.';
   pop.appendChild(h);
 }
 

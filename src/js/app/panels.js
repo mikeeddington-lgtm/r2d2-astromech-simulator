@@ -75,7 +75,7 @@ function outDetailRow(tbody, afterTr, act, cols){
   tbody.appendChild(tr);
 
   afterTr.addEventListener('click',()=>outToggle(act));
-  afterTr.title = 'open the controls for this actuator';
+  afterTr.title = 'open the controls for this servo';
   return {tr, td, act, built:false};
 }
 
@@ -197,7 +197,7 @@ function outBuildDetail(det){
   host.appendChild(bar2);
 
   if(!part){
-    const h = el('div','hint prose','No CAD geometry is mapped to this actuator, so nothing will move on screen — the channel and the travel are still real.');
+    const h = el('div','hint prose','No CAD geometry is mapped to this servo, so nothing will move on screen — the channel and the travel are still real.');
     host.appendChild(h);
   }
 }
@@ -273,7 +273,7 @@ function buildOutputs(){
   if(PROFILE.hasMaestro){
     const imported = CFG.maestroSource==='imported' && MSTR.loaded;
     const s=sect(host,'Pololu Maestro', imported ? xmlEsc(MSTR.fileName) : 'built-in stand-ins');
-    const tb=mkTable(s,[['Slot'],['Trigger'],[imported?'Subroutine':'Mapped sequence'],['State','r']]);
+    const tb=mkTable(s,[['Slot'],['Trigger'],[imported?'Sequence':'Mapped sequence'],['State','r']]);
     const trig=['RT+▲','RT+▶','RT+▼','RT+◀','LT+▲','LT+▶','LT+▼','LT+◀'];
     for(let n=0;n<8;n++){
       const tr=el('tr');
@@ -284,7 +284,7 @@ function buildOutputs(){
       tb.appendChild(tr);
       OUTROWS.mae.push({tr,nm,st,n});
     }
-    const s2=sect(host,'Actuators','driven by the mapped sequences');
+    const s2=sect(host,'Servos','driven by the mapped sequences');
     const tb2=mkTable(s2,[['#'],['Part'],['Pos','r'],['Travel']]);
     /* every actuator that exists — a dome-panel sequence must not look idle
        here just because the old hard-coded list stopped at pie10 */
@@ -569,7 +569,7 @@ function buildConfig(){
   }
 
   if(PROFILE.hasMaestro){
-    const s5=sect(host,'Maestro script slots','what each sequence does');
+    const s5=sect(host,'Maestro sequence slots','what each sequence does');
     const trig=['RT+▲','RT+▶','RT+▼','RT+◀','LT+▲','LT+▶','LT+▼','LT+◀'];
     for(let n=0;n<8;n++){
       const r=el('div','cfgrow'); r.style.gridTemplateColumns='58px 1fr';
@@ -580,7 +580,7 @@ function buildConfig(){
         if(CFG.maestroScript[n]===id) o.selected=true;
         sel.appendChild(o);
       });
-      sel.addEventListener('change',()=>{ CFG.maestroScript[n]=sel.value; lg('sys',`script ${n} → ${ANIMS[sel.value].label}`); });
+      sel.addEventListener('change',()=>{ CFG.maestroScript[n]=sel.value; lg('sys',`slot ${n} → ${ANIMS[sel.value].label}`); });
       r.appendChild(sel); s5.appendChild(r);
     }
     const h=el('div','hint prose');
@@ -591,7 +591,7 @@ function buildConfig(){
   const s6=sect(host,'Simulation'); numGrid(s6, PROFILE.cfg.sim);
   if(PROFILE.hasServos){
     const h=el('div','hint prose');
-    h.innerHTML='Loop rate decides how long the frame-counted arm animations take — they run for 1000 passes, so 250 Hz ≈ 4 s.';
+    h.innerHTML='Loop rate decides how long the frame-counted arm moves take — they run for 1000 passes, so 250 Hz ≈ 4 s.';
     s6.appendChild(h);
   }
 

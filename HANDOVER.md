@@ -1235,6 +1235,94 @@ not missing, it was folded in here (noted 2026-08-17).
 
 ## 10. Change log
 
+### 2026-08-22 - v1.73.0: one word per thing
+
+**Why.** The UX review counted six words for a stored movement and seven for one
+servo output, in a tool whose whole job is explaining hardware to beginners.
+Mike: *"yeah happy to standardise"*. This is that pass, deliberately its own
+release so a rename sweep is not tangled with behaviour changes and is one clean
+revert if it reads wrong.
+
+**The glossary, now applied throughout:**
+
+| Concept | Now | Retired from user-visible text |
+|---|---|---|
+| A stored movement | **sequence** | routine, script, subroutine, animation, frame list, macro |
+| One output | **channel** (the number) driving a **servo** (the thing) | slot, port, output, actuator, pin |
+| The measuring tool / its file | **servo bench** / **servo config** | servo setup, servo layout, servo rack, servo table |
+| Getting it onto the board | **Put on the board** | four different "Build ..." verbs |
+| The puppet head | **Anzellan head** | Frik head |
+
+**Scope was the whole discipline.** Strings a person reads - labels, headings,
+tooltips, dialog text, hints, toasts, `lg()` lines, option text, table headers.
+**Not** identifiers, **not** stored values (an option id, a `PREFS`/`MSTR` key,
+anything written into a saved file), **not** generated output, **not** the
+Pololu/Maestro domain words. Every saved build, every `.mstr` and every setup
+`.json` still loads unchanged.
+
+**Where a literal swap read badly, the sentence was rewritten** rather than left
+grammatical-but-clumsy. The daisy-chain warning is the example: *"...starts
+subroutine 2 on Maestro 1 and Maestro 2, and whichever sequence happens to be at
+index 2..."* became *"...starts sequence 2 on Maestro 1 and Maestro 2 - whatever
+happens to be sitting at index 2 on the other board runs too"*, because the
+mechanical substitution produced a tautology.
+
+**Four words were kept on purpose, and the reasons are the useful part.**
+`sub` survives where the UI is literally naming the generated symbol ("on the
+board as sub 3") - there it is the *board's* word, not ours, and the same goes
+for every `restartScript(n)` reference. `slot` survives where it means a
+firmware board slot 0-7, which is a genuinely distinct concept from a channel.
+The wiring sheet's CSV header and `<th>` still say **Actuator**, because that
+column names the simulator's internal id and the sheet says so in its own
+legend - it is a format, not a description. And the Anzellan channel **names**
+(`Frik head pan`, `Frik head tilt`, `Frik head nod`) stay: they are written into
+`MSTR.channels[].name` by the starter generator and into every exported file, so
+renaming them would desync every table already calibrated. Only the model's
+display name moved. **That is a residual, not a finish** - it wants a migration,
+not a rename.
+
+**One collision resolved by not renaming it.** The stage toolbar shows `BUILDER`
+and a `BUILD` button side by side, which read as two meanings of one word. On
+reading them they are not: the button opens the Builder's own parts bin (its
+tooltip already said so) and has never referred to compiling. The real board
+compiler was the thing saying "Build your Maestro", and that is now "Put on the
+board" - so nothing that compiles says "build" any more and "Builder" is left
+unambiguous.
+
+**Two process notes, both of which cost time.**
+
+**Line endings, again.** Five files came back from an agent's editor with their
+CRLF stripped to LF - `cad/select.js`, `input/cues.js`, `input/puppet.js`,
+`profiles/maestro-shared.js`, `profiles/mod2026.js`. Content-wise each had
+changed 2-8 lines; as a diff each read as a 900-line rewrite. **Diff with
+`--strip-trailing-cr` before believing a large diff**, and check `file -b` on
+anything that looks rewritten.
+
+**And two of the three rename agents were interrupted before reporting.** The
+work was already in the tree with no record of what had been changed. Rather
+than discard it, the change list was **recovered by diffing the working tree
+against the committed one** (`tar` the committed files off the device, extract,
+diff) and then safety-scanned for anything touching an id, a stored value or
+generated output before being trusted. It was clean. *A partially-applied rename
+with no report is recoverable exactly as long as the last commit is good* -
+which is the argument for the small, frequent commits this run has been making.
+
+**Suite: 6076 assertions**, unchanged in count, 36 suites x 2 builds plus PCA
+Studio, green. Eight assertions pinned retired wording and were updated to pin
+the new wording exactly - none relaxed to a substring or a regex to make it
+pass. The repair pass also found **a guard that had been passing for free**:
+`build-config.test.js` asserted the Maestro import card does *not* say
+"exported from here", a phrase that no longer exists anywhere in the app, so a
+regression showing the PCA wording on a Maestro build would not have been
+caught. It now guards on the live phrase.
+
+**Left deliberately:** "Build a sequence" and "build sequences out of bricks"
+are *authoring* verbs, not the put-it-on-the-board verb, and now that the
+compiler says something else they are unambiguous. Roughly 130 `ok()`
+descriptions in untouched suites still use "routine" as a concept word; churning
+twenty otherwise-untouched files was judged worse than the inconsistency.
+
+
 ### 2026-08-22 - v1.72.0: the last of the review's interface work
 
 **Why.** The remainder of the "needs no decision" list, once v1.71.0's rulings

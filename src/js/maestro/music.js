@@ -381,6 +381,6 @@ function musicPlay(seq){
   tick();
   musicStatus(seq
     ? `playing "${MUSIC.name}" against "${seq.name}" — the droid follows the audio clock`
-    : `playing "${MUSIC.name}" — no sequence selected, audio only (Build routine… to make one)`);
+    : `playing "${MUSIC.name}" — no sequence selected, audio only (Build sequence… to make one)`);
   if(typeof musicRebuildUI==='function') musicRebuildUI();
 }

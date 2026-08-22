@@ -235,5 +235,5 @@ function mixHubDrive(stickX, stickY, maxDriveSpeed){
 
 const MAESTRO_CFG_COMMON = {
   scripts:[['maestroScript','Maestro slots']],
-  sim:[['loopHz','Loop rate Hz'],['maestroRate','Anim rate /s'],['maxSpeed','Max drive m/s'],['maxYaw','Max yaw rad/s'],['domeRate','Dome rad/s']]
+  sim:[['loopHz','Loop rate Hz'],['maestroRate','Ramp rate /s'],['maxSpeed','Max drive m/s'],['maxYaw','Max yaw rad/s'],['domeRate','Dome rad/s']]
 };

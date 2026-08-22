@@ -91,7 +91,7 @@ const LESSONS = [
 
   { id:'panels', title:'Open the dome',
     how:'Tap <b>RT + ▲</b>. Tap, do not hold — a held d-pad restarts the sequence forever.',
-    why:'This is the bug the simulator found: the trigger uses getButtonPress, so holding it restarts the routine every pass and it never gets past its first frames.',
+    why:'This is the bug the simulator found: the trigger uses getButtonPress, so holding it restarts the sequence every pass and it never gets past its first frames.',
     profiles:['maestro25','maestro22'],
     done:()=>tzAnyPie() },
 
@@ -274,7 +274,7 @@ function buildTutor(){
   if(typeof manualCard === 'function')
     manualCard(host, {id:'btnManualLearn', note:false,
       blurb:'The ' + p.total + ' lessons below teach you to <b>drive</b> it. The manual is the rest of the story — '
-          + 'the setup questions, <b>a rack of servos</b> to try a sequence on, finding your servo end stops, '
+          + 'the setup questions, <b>the servo bench</b> to try a sequence on, finding your servo end stops, '
           + 'bricks, live drive, and what to do when nothing moves.'});
 
   const s = sect(host, 'Lessons', p.done+' of '+p.total);

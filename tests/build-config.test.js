@@ -1655,12 +1655,12 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
            $('startupBody').textContent.indexOf('Padawan360_Body_Maestro') < 0;
   }));
 
-  console.log('\n════ servo setup: the import comes first ════');
+  console.log('\n════ servo bench: the import comes first ════');
   await ev(()=>{ buildSet('servoDevice','maestro'); buildSet('servoTopo','m2c');
                  wizGo(wizStepIndex('_servoSet')); });
   ok('the step exists after Firmware, with its own chip', await ev(()=>
     wizSteps()[wizStepIndex('firmware')+1].key==='_servoSet' &&
-    wizRailChip(wizStepIndex('_servoSet')).textContent.indexOf('Servo setup')>=0));
+    wizRailChip(wizStepIndex('_servoSet')).textContent.indexOf('Servo bench')>=0));
   ok('the FIRST question is whether you already have one', await ev(()=>{
     const cards = Array.from($('startupBody').querySelectorAll('.optcard'));
     const first = $('startupBody').querySelector('h3').textContent;
@@ -1672,7 +1672,7 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
     buildSet('servoDevice','maestro'); buildStartup();
     const t = $('startupBody').querySelector('[data-opt="servoCfg:import"]').textContent;
     return /\.mstr/.test($('servoCfgFile').accept) && !/json/.test($('servoCfgFile').accept) &&
-           /Control Center/.test(t) && !/exported from here/.test(t) &&
+           /Control Center/.test(t) && !/servo config/.test(t) &&
            /Choose a \.mstr/.test($('startupBody').textContent);
   }));
   ok('a PCA build is offered our export, and not a .mstr', await ev(()=>{
@@ -1688,7 +1688,7 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
     const r = servoCfgImportText(mstr, 'x.mstr');   /* on a PCA build */
     return r.from==='mstr' && r.n===1;
   }));
-  ok('"measure them now" opens the servo setup tool, and says it carries the answers', await ev(()=>{
+  ok('"measure them now" opens the servo bench, and says it carries the answers', await ev(()=>{
     /* with NOTHING measured — the wording splits on that (v1.43.0), so the
        state has to be explicit rather than whatever the previous assertion
        left behind */
@@ -2202,7 +2202,7 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
     return saved === true;
   }));
 
-  ok('opened from the wizard, closing goes back to the Servo setup step', await ev(async ()=>{
+  ok('opened from the wizard, closing goes back to the Servo bench step', await ev(async ()=>{
     closeStartup();
     setupOpen(0, {from:'wizard'});
     const wasOpen = SETUP.open && !$('startup').classList.contains('on');
@@ -2977,7 +2977,7 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
     wizGo(8);                                   // the ninth question — Firmware
     out.q9 = $('stpFoot').textContent;
     out.q9key = wizSteps()[8].key;
-    wizGo(9);                                   // the first job — Servo setup
+    wizGo(9);                                   // the first job — Servo bench
     out.j1 = $('stpFoot').textContent;
     wizGo(14);                                  // the last job — Finish
     out.j6 = $('stpFoot').textContent;

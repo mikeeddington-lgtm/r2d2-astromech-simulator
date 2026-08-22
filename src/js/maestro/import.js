@@ -123,7 +123,7 @@ function traceOfferNote(){
   if(typeof MSTR === 'undefined' || !MSTR.sequences) return;
   const flat = MSTR.sequences.filter(s=>s && s.frames && s.frames.length && !s.blocks).length;
   if(!flat || typeof lg !== 'function') return;
-  lg('mae','  '+flat+' routine(s) are hand-made frame lists — a Pololu file carries poses, not bricks. '
+  lg('mae','  '+flat+' sequence(s) are plain frames — a Pololu file carries poses, not bricks. '
     + 'The sequencer can work the bricks back out of them, and will show you anything it cannot reproduce.');
 }
 
@@ -354,8 +354,8 @@ function mstrApply(P){
       if(!cand || !cand.length) return;
       if(blocksTryAttach(sq, cand)) back++; else kept++;
     });
-    if(back) lg('mae','  '+back+' routine(s) restored EDITABLE — bricks intact from the file');
-    if(kept) lg('mae','  '+kept+' routine(s) kept as plain frames — their bricks no longer recompile to the same motion');
+    if(back) lg('mae','  '+back+' sequence(s) restored EDITABLE — bricks intact from the file');
+    if(kept) lg('mae','  '+kept+' sequence(s) kept as plain frames — their bricks no longer recompile to the same motion');
     traceOfferNote();
   }
   if(typeof servoStoreSave === 'function') servoStoreSave();
@@ -391,7 +391,7 @@ function mstrApply(P){
   EDIT.live = channels.map(c=>chanRest(c));   // v1.45.0 — see chanRest() in maestro/boards.js
   EDIT.seq = 0; EDIT.frame = -1;
 
-  lg('mae',`imported ${MSTR.fileName}: ${servoCount} channels, ${sequences.length} sequence(s), ${subs.length} subroutine(s)`);
+  lg('mae',`imported ${MSTR.fileName}: ${servoCount} channels, ${sequences.length} sequence(s), ${subs.length} sub(s)`);
   lg('mae',`  board detected as ${boardById(board).product}`);
   const seqSubs = subs.filter(s=>s.kind==='sequence');
   seqSubs.slice(0,12).forEach(s=>lg('mae',`  restartScript(${s.index}) → sub ${s.name}`));
@@ -544,8 +544,8 @@ function mstrAdoptSequences(P){
     added.push(name);
   });
   if(typeof reindexSubs === 'function') reindexSubs();
-  if(bricksBack) lg('mae','  '+bricksBack+' routine(s) came back EDITABLE — their bricks recompile to the same frames on your table');
-  if(bricksKeptAsFrames) lg('mae','  '+bricksKeptAsFrames+' routine(s) kept as plain frames — their bricks would compile differently against your endpoints/speeds, so the frames won');
+  if(bricksBack) lg('mae','  '+bricksBack+' sequence(s) came back EDITABLE — their bricks recompile to the same frames on your table');
+  if(bricksKeptAsFrames) lg('mae','  '+bricksKeptAsFrames+' sequence(s) kept as plain frames — their bricks would compile differently against your endpoints/speeds, so the frames won');
   /* NOT loadoutReset(): what reaches the board stays exactly what you chose */
   lg('mae','adopted '+added.length+' sequence(s) from '+P.fileName+' onto YOUR servo settings');
   traceOfferNote();
@@ -769,7 +769,7 @@ function pcaHeaderParse(text, fileName){
        MPCA_SEQ_SPEEDS and no #error guard, so the ramp pacing is gone and
        the droid is jerky again with nothing to point at. */
     {field:'per-frame speed, if you ADOPT rather than replace', n:0,
-     why:'taking this file wholesale keeps its frame speeds. Adopting the routines into a droid you have already configured does not: a frame speed is derived from the endpoints and acceleration it was authored against, so it is only true on the machine it came from. Re-export after an adopt and the header will pace those routines from the channel table instead.'}
+     why:'taking this file wholesale keeps its frame speeds. Adopting the sequences into a droid you have already configured does not: a frame speed is derived from the endpoints and acceleration it was authored against, so it is only true on the machine it came from. Re-export after an adopt and the header will pace those sequences from the channel table instead.'}
   ];
   if(/#define\s+(?:SERVO_HZ|OSC_HZ|PCA_BOARDS)/.test(t))
     dropped.push({field:'oscillator and PWM frequency', n:0,

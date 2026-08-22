@@ -56,7 +56,7 @@ const PROFILE_MOD2026 = {
       ['START','Arm / disarm the foot motors'],['BACK','Automation mode'],['L3','Cycle drive speed 1→2→3'],
       ['R3','Holoprojector lights'],['Guide + LB + RB','Disconnect controller']],
     'Body & dome':[['LB + ◀','Utility arms IN'],['LB + ▶','Utility arms OUT (+ closes dataport & chargebay)'],
-      ['LT + ◀','Gripper arm animation'],['LT + ▶','Interface arm animation'],
+      ['LT + ◀','Gripper arm sequence'],['LT + ▶','Interface arm sequence'],
       ['RT + ◀','Dataport door open'],['RT + ▶','Chargebay door open'],
       ['RT + ▲','Dome pie panels open'],['RT + ▼','Dome pie panels close'],
       ['RB + ▲ / ▼','Volume up / down (±2)']],

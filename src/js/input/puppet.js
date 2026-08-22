@@ -16,8 +16,8 @@
    back through the same speed/accel physics as any other sequence, on
    the sim and on the real board alike. Takes are saved as plain frame
    lists (no blocks), the same species as an imported sequence: they sit
-   in the library under "Recorded", drop into routines as bricks, and go
-   on the board through Build your Maestro.
+   in the library under "Recorded", drop into sequences as bricks, and go
+   on the board through Put on the board.
    ===================================================================== */
 const PUPPET = {
   on:false,
@@ -284,11 +284,11 @@ function pupRecStop(){
   if(nameEl) nameEl.value = '';
   const total = seqTotal(seq);
   if(seq.blocks){
-    lg('mae','■ saved as a routine: '+seq.name+'  ('+seq.blocks.length+' bricks, '+(total/1000).toFixed(1)+' s) — opening it in the sequencer');
+    lg('mae','■ saved as a sequence: '+seq.name+'  ('+seq.blocks.length+' bricks, '+(total/1000).toFixed(1)+' s) — opening it in the sequencer');
     pupOpenTake(seq);
     return;
   }
-  lg('mae','■ saved to the library: '+seq.name+'  ('+seq.frames.length+' keyframes, '+(total/1000).toFixed(1)+' s) — find it under "Recorded" in the sequencer, or put it on the board with Build your Maestro');
+  lg('mae','■ saved to the library: '+seq.name+'  ('+seq.frames.length+' keyframes, '+(total/1000).toFixed(1)+' s) — find it under "Recorded" in the sequencer, or Put on the board to send it to the Maestro');
   pupBuildBar();
 }
 /* Mike's choice: a cued take lands you straight in the sequencer looking at

@@ -1,6 +1,6 @@
 'use strict';
 /* =====================================================================
-   BUILD YOUR MAESTRO — the full-screen build/upload workspace.
+   PUT ON THE BOARD — the full-screen build/upload workspace.
 
    One builder, two doors (Mike, 2026-07-29): this overlay IS the loadout
    editor. The prominent button in the Sequencer opens it, and so does the
@@ -29,7 +29,7 @@ const BLD = { open:false, showScript:false };
    this workspace (select, order, validate) is identical, so the difference
    is confined to the title and the two output buttons. */
 function bldIsPca(){ return typeof boardIsPca === 'function' && boardIsPca(MSTR.board); }
-function bldTitle(){ return bldIsPca() ? 'Build your sequences.h' : 'Build your Maestro'; }
+function bldTitle(){ return 'Put on the board'; }
 
 /* Esc closes the builder (Stage-4 pickup — no keydown handling before).
    Same containment as the import wizard and the app dialog, via escGuard
@@ -113,7 +113,7 @@ function bldLibraryCol(){
   const names = loadoutNames();
   const spare = MSTR.sequences.filter(s=>names.indexOf(s.name) < 0);
   if(!spare.length){
-    col.appendChild(el('div','hint','Every saved routine is on the board. Build more in the sequencer — they land here.'));
+    col.appendChild(el('div','hint','Every saved sequence is on the board. Make more in the sequencer — they land here.'));
   }
   spare.forEach(s=>{
     const row = el('div','bldrow spare');
@@ -129,12 +129,12 @@ function bldLibraryCol(){
   });
   const bar = el('div','conbar');
   const bAll = el('button','b','Load everything');
-  bAll.title = 'put every saved routine on the board, in library order';
+  bAll.title = 'put every saved sequence on the board, in library order';
   bAll.addEventListener('click',()=>{ loadoutReset(); reindexSubs(); bldRender(); });
   bar.appendChild(bAll);
   col.appendChild(bar);
   const h = el('div','hint');
-  h.innerHTML = 'A routine in the library is safe on the PC. Only what you <b>Add</b> here is compiled into '
+  h.innerHTML = 'A sequence in the library is safe on the PC. Only what you <b>Add</b> here is compiled into '
     + (bldIsPca() ? 'the header.' : 'the script.');
   col.appendChild(h);
   return col;
@@ -147,7 +147,7 @@ function bldLoadoutCol(){
   const names = loadoutNames();
   if(!names.length){
     const n = el('div','note');
-    n.innerHTML = '<b>Nothing is loaded.</b> Add a routine from the library — it becomes subroutine 0.';
+    n.innerHTML = '<b>Nothing is loaded.</b> Add a sequence from the library — it becomes sub 0 on the board.';
     col.appendChild(n);
   }
   names.forEach((nm,i)=>{
@@ -155,7 +155,7 @@ function bldLoadoutCol(){
     const row = el('div','bldrow');
     const slot = el('span','bldslot'+(i>7?' far':''), i);
     slot.title = i < 8 ? 'restartScript('+i+') — the controller can fire this one'
-                       : 'subroutine '+i+' — past 7, no stock button reaches it';
+                       : 'sub '+i+' — past 7, no stock button reaches it';
     row.appendChild(slot);
     const lab = el('span','nm', nm);
     lab.title = seq ? seq.frames.length+' frames · '+seqTotal(seq)+' ms · sub '+scriptSubNameFor(seq) : '';
