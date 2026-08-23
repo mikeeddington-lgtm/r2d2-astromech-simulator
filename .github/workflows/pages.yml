@@ -1,0 +1,82 @@
+# The builder's manual, live on the web.
+#
+# Mike, 2026-08-22: "Can we make the Manual a live page on the git hub so its
+# alway upto date". Until now the only copy anybody could reach was the one
+# attached to the last RELEASE, so the manual was only as current as the last
+# tag — and the app's four manual doors all pointed at it.
+#
+# This publishes the same assembled file to GitHub Pages on every push to
+# main, at:
+#
+#     https://mikeeddington-lgtm.github.io/r2d2-astromech-simulator/manual/
+#
+# which is what MANUAL_PAGES_URL in src/js/app/manual.js now opens. The
+# release asset STAYS — release.yml is untouched — because it is the fallback
+# the app names when Pages does not answer, and it is the copy that matches
+# the simulator someone downloaded rather than the one on main.
+#
+# No browser and no ffmpeg here: docs/manual/media/ is tracked, so build.py
+# assembles from the encoded clips already in the repository. Re-capturing is
+# still a human job (tools/video-rig/cap_docs.js).
+#
+# ONE-TIME SETUP, and this will not work without it:
+#   Settings ▸ Pages ▸ Build and deployment ▸ Source: **GitHub Actions**
+name: manual
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/manual/**'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deploy at a time, and never cancel one half-done — a cancelled deploy
+# can leave the site serving the previous build with no sign of it.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Assemble the builder's manual
+        run: python3 docs/manual/src/build.py
+
+      # /manual/ is the app's URL, so the manual is index.html INSIDE it —
+      # not a file beside it. The two printable pages ride along at the same
+      # address they have in the repo, so a link to either keeps working.
+      - name: Lay out the site
+        run: |
+          mkdir -p _site/manual
+          cp docs/manual/R2D2-Simulator-Manual.html _site/manual/index.html
+          cp docs/manual/quickstart.html            _site/manual/quickstart.html
+          cp docs/manual/bench-card.html            _site/manual/bench-card.html
+          # a bare landing page, so the site root is not a 404
+          printf '%s\n' '<!doctype html><meta charset="utf-8">' \
+            '<title>R2-D2 Astromech Simulator</title>' \
+            '<meta http-equiv="refresh" content="0; url=./manual/">' \
+            '<a href="./manual/">The builder&#39;s manual</a>' > _site/index.html
+          ls -la _site _site/manual
+
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5
