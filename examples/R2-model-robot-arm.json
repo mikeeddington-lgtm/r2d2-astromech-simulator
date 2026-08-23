@@ -1,0 +1,174 @@
+{
+ "format": "r2sim-model",
+ "v": 2,
+ "parts": [
+  {
+   "id": "p1",
+   "type": "plate",
+   "name": "Base turntable",
+   "pos": {
+    "x": 0,
+    "y": 0,
+    "z": 0
+   },
+   "rot": {
+    "x": 0,
+    "y": 0,
+    "z": 0
+   },
+   "parent": "base",
+   "socket": "",
+   "axis": "y",
+   "channels": [
+    "bldJ1"
+   ],
+   "jointN": 1
+  },
+  {
+   "id": "p2",
+   "type": "hinge",
+   "name": "Shoulder",
+   "pos": {
+    "x": 0,
+    "y": 0.05,
+    "z": 0
+   },
+   "rot": {
+    "x": 0,
+    "y": 0,
+    "z": 70
+   },
+   "parent": "p1",
+   "socket": "spin",
+   "axis": "z",
+   "channels": [
+    "bldJ2"
+   ],
+   "jointN": 2
+  },
+  {
+   "id": "p3",
+   "type": "beam",
+   "name": "Upper arm",
+   "pos": {
+    "x": 0.1,
+    "y": 0,
+    "z": 0
+   },
+   "rot": {
+    "x": 0,
+    "y": 90,
+    "z": 0
+   },
+   "parent": "p2",
+   "socket": "tip",
+   "channels": []
+  },
+  {
+   "id": "p4",
+   "type": "hinge",
+   "name": "Elbow",
+   "pos": {
+    "x": 0,
+    "y": 0,
+    "z": 0
+   },
+   "rot": {
+    "x": 0,
+    "y": -90,
+    "z": -80
+   },
+   "parent": "p3",
+   "socket": "end1",
+   "axis": "z",
+   "channels": [
+    "bldJ3"
+   ],
+   "jointN": 3
+  },
+  {
+   "id": "p5",
+   "type": "beam",
+   "name": "Forearm",
+   "pos": {
+    "x": 0.1,
+    "y": 0,
+    "z": 0
+   },
+   "rot": {
+    "x": 0,
+    "y": 90,
+    "z": 0
+   },
+   "parent": "p4",
+   "socket": "tip",
+   "channels": []
+  },
+  {
+   "id": "p6",
+   "type": "hinge",
+   "name": "Wrist tilt",
+   "pos": {
+    "x": 0,
+    "y": 0,
+    "z": 0
+   },
+   "rot": {
+    "x": 0,
+    "y": -90,
+    "z": 10
+   },
+   "parent": "p5",
+   "socket": "end1",
+   "axis": "z",
+   "channels": [
+    "bldJ4"
+   ],
+   "jointN": 4
+  },
+  {
+   "id": "p7",
+   "type": "plate",
+   "name": "Wrist rotate",
+   "pos": {
+    "x": 0,
+    "y": 0,
+    "z": 0
+   },
+   "rot": {
+    "x": 0,
+    "y": 0,
+    "z": 90
+   },
+   "parent": "p6",
+   "socket": "tip",
+   "axis": "y",
+   "channels": [
+    "bldJ5"
+   ],
+   "jointN": 5
+  },
+  {
+   "id": "p8",
+   "type": "grip",
+   "name": "Gripper",
+   "pos": {
+    "x": 0,
+    "y": 0,
+    "z": 0
+   },
+   "rot": {
+    "x": 90,
+    "y": 0,
+    "z": 0
+   },
+   "parent": "p7",
+   "socket": "spin",
+   "axis": "y",
+   "channels": [
+    "bldJ6"
+   ],
+   "jointN": 6
+  }
+ ]
+}

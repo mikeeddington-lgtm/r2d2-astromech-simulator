@@ -3047,11 +3047,19 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
     INPUT.virtual.LY = 1; INPUT.virtual.RX = 1;      // full ahead, and spin the dome
   });
   await page.waitForTimeout(700);
-  const inert = await ev(()=>({
-    d: MOT.drive, t: MOT.turn, l: MOT.leftFoot, r: MOT.rightFoot,
-    vec: driveVector(), dome: MOT.dome, armed: FW.isDriveEnabled,
-    plate: (()=>{ const p = document.querySelector('#toasts .toastp'); return p ? p.textContent : null; })()
-  }));
+  const inert = await ev(()=>{
+    /* A toast lasts on wall time and up to three coexist. This used to read
+       the FIRST plate, so a receipt left by an earlier assertion could make
+       the foot-controller rule fail or pass according to runner speed. Find
+       the plate by the cause this assertion exists to require. */
+    const p = [...document.querySelectorAll('#toasts .toastp')]
+      .find(x=>/foot controller/i.test(x.textContent));
+    return {
+      d: MOT.drive, t: MOT.turn, l: MOT.leftFoot, r: MOT.rightFoot,
+      vec: driveVector(), dome: MOT.dome, armed: FW.isDriveEnabled,
+      plate: p ? p.textContent : null
+    };
+  });
   console.log('  '+JSON.stringify(inert));
   ok('the feet do not run while the foot drive is undecided',
      inert.d === 0 && inert.t === 0 && inert.l === 90 && inert.r === 90, JSON.stringify(inert));
@@ -3070,7 +3078,10 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
      !!inert.plate && inert.plate !== 'Feet are disarmed — press START (Enter) to arm.',
      String(inert.plate));
   const jump = await ev(()=>{
-    const p = document.querySelector('#toasts .toastp');
+    /* Click the same causal plate asserted above, not whichever concurrent
+       receipt happens to be oldest on this machine. */
+    const p = [...document.querySelectorAll('#toasts .toastp')]
+      .find(x=>/foot controller/i.test(x.textContent));
     if(!p) return null;
     p.click();
     const at = $('startup').classList.contains('on') ? wizSteps()[WIZ.i].key : null;
