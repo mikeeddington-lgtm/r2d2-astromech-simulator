@@ -51,9 +51,9 @@ jobs:
       - name: Run the suites before publishing anything
         run: ./test.sh
 
-      # The two ready-to-run sketch packs the README links to. They are
+      # The ready-to-run sketch packs the README links to. They are
       # GENERATED from the sketch folders in this repository — no zip is
-      # committed, so neither can go stale. make-packs.sh refuses to write
+      # committed, so none can go stale. make-packs.sh refuses to write
       # anything if a pack would ship broken.
       - name: Fetch Pololu's own Maestro library
         run: git clone --depth 1 https://github.com/pololu/maestro-arduino.git /tmp/maestro-arduino
@@ -72,22 +72,23 @@ jobs:
             docs/manual/bench-card.html
             arduino/packs/dist/R2_Bench_Console.zip
             arduino/packs/dist/MaestroReplacement.zip
+            arduino/packs/dist/Esp32Droid.zip
           body: |
             **Download `R2D2-Simulator.html` and open it in Chrome or Edge.**
             That is the whole installation — one self-contained file, no server,
             no internet. `PCA-Studio.html` is the standalone servo bench.
 
             **New to it?** `R2D2-Simulator-Manual.html` is the builder's
-            manual — twenty chapters with seven screen-capture clips, in one
+            manual — twenty-one chapters with eight screen-capture clips, in one
             offline file like the simulator itself. `quickstart.html` is the
             first hour on one printed side; `bench-card.html` is the servo
             bench card for the workshop wall.
 
-            **Wiring real hardware?** `R2_Bench_Console.zip` and
-            `MaestroReplacement.zip` are ready-to-run Arduino sketch packs.
-            Unzip one into your sketchbook, edit `Config.h`, upload. One
-            library from Library Manager and nothing else to download; the
-            README inside each is the step-by-step.
+            **Wiring real hardware?** `R2_Bench_Console.zip`,
+            `MaestroReplacement.zip` and `Esp32Droid.zip` are ready-to-run
+            Arduino sketch packs. Unzip one into your sketchbook, edit
+            `Config.h`, upload. One library from Library Manager and nothing
+            else to download; the README inside each is the step-by-step.
 
             See CREDITS.md for what in this file belongs to other people, and
             on what terms.

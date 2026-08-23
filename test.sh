@@ -69,6 +69,10 @@ else
   note_fail "pca-studio/PCA-Studio.html is stale — run ./build.sh"
 fi
 
+rc=0; out=$(node tools/check-packs.js 2>&1) || rc=$?
+echo "$out"
+[ $rc -eq 0 ] || note_fail "release sketch packs do not match the pack builder"
+
 # run_suite <label-for-the-list> <command...> — runs one suite, shows its
 # summary or FAIL lines, and records a failure on any non-zero status. Node's
 # status is taken before anything else runs, because a pipe would replace it.
