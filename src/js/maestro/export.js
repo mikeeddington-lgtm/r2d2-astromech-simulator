@@ -561,8 +561,12 @@ function exportLintNote(){
   const n = (rep && rep.counts && rep.counts.err) || 0;
   if(!n) return note;
   const first = (rep.items || []).find(i=>i.level === 'err');
+  /* lint messages quote CHANNEL and SEQUENCE names verbatim (lint.js:147,
+     154, 266, 301), and those come from an imported .mstr or the bench name
+     box. Escaped HERE, at the one place the note is built, rather than at
+     each of the two receipts that print it. */
   return ' <b style="color:var(--rd,#c33)">Written with '+n+' validation error'
-       + (n===1?'':'s')+' outstanding'+(first ? ': '+first.msg : '')+'</b>'
+       + (n===1?'':'s')+' outstanding'+(first ? ': '+xmlEsc(first.msg) : '')+'</b>'
        + ' \u2014 it is your file, but check the Validate panel before you flash it.'
        + note;
 }

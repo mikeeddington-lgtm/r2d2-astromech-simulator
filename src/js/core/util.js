@@ -7,7 +7,7 @@
 
 /* Shown top-left in the header so a stale copy is obvious at a glance.
    BUMP THIS on every delivery (HANDOVER §change log gets the same number). */
-const APP_VERSION = '1.75.0';
+const APP_VERSION = '1.75.1';
 /* The licence the app's own About box states — one string, one place.
    Scoped on purpose: MIT covers THIS project's code and artwork, and the
    About box has to say so rather than implying it covers the geometry, the
@@ -87,9 +87,23 @@ if(SIM.draw === undefined) SIM.draw = true;
    Declared here so every later script can use them. */
 const $  = id=>document.getElementById(id);
 const el = (t,c,x)=>{const e=document.createElement(t); if(c)e.className=c; if(x!==undefined)e.textContent=x; return e;};
+/* ============================ NAMES ARE TEXT  (v1.75.1, 2026-08-23)
+   This built its heading with innerHTML, so any caller passing a value that
+   came from a person or a file was handing that file a script tag. It was
+   REPRODUCED, not theorised: a Model Builder part renamed
+   `<img src=x onerror=…>` executed in the page that holds the Web Serial
+   handle to a servo board. `right` is the one most callers use for a name —
+   mbPartLabel(), a channel, a file — so it is the one that mattered.
+
+   Text nodes, not escaping. An escaper is a thing the next caller can
+   forget; a text node cannot be talked into being markup. All 64 call sites
+   were checked first and not one passes a tag, so nothing was lost — the
+   single site that passed an HTML ENTITY (`Speed &amp; feel`) is now a
+   plain ampersand, which is what it always meant. */
 function sect(host, title, right){
   const s=el('div','sect'); const h=el('h3');
-  h.innerHTML = title + (right?'<span>'+right+'</span>':'');
+  h.appendChild(document.createTextNode(title == null ? '' : String(title)));
+  if(right){ const sp=el('span'); sp.textContent = String(right); h.appendChild(sp); }
   s.appendChild(h); host.appendChild(s); return s;
 }
 

@@ -39,6 +39,27 @@ function blkAfterChange(){
   blkDraw();
 }
 
+/* ==================== A COLOUR IS VALIDATED, NOT ESCAPED (2026-08-23)
+
+   blkColor() only returns one of BLK_PALETTE's hexes until somebody sets an
+   override; after that it returns whatever sits in PROJ.blkColors, which is
+   read straight out of an imported project JSON or out of localStorage. That
+   value is then spliced into style="background:...".
+
+   Escaping the double quote would close the attribute break and stop there,
+   and stopping there is not enough. Whatever survives escaping is still CSS,
+   and CSS inside a style attribute is not inert: url(...) reaches the
+   network, a position and a z-index cover the page with something that looks
+   like our own UI. An escaper says "say anything you like, just not that one
+   character" — the wrong sentence for a value whose entire legal vocabulary
+   is a hex colour.
+
+   So this whitelists instead: #rgb through #rrggbbaa is passed through, and
+   anything else becomes the neutral grey the sequence bricks already wear.
+   A bad colour then looks wrong, which is the correct outcome — the project
+   file that carried it is lying about being a colour. */
+function safeColor(v){ return /^#[0-9a-fA-F]{3,8}$/.test(String(v)) ? String(v) : '#6b7a88'; }
+
 /* ------------------------------------------------------------- library */
 function blkBuildLib(){
   const host = $('libList');
@@ -47,15 +68,19 @@ function blkBuildLib(){
   const acts = blockActions();
   acts.forEach(a=>{
     h += '<div class="libitem" draggable="true" data-kind="act" data-ref="'+a.act+'">'
-      +  '<span class="sw" style="background:'+blkColor(a.act)+'"></span>'
+      +  '<span class="sw" style="background:'+safeColor(blkColor(a.act))+'"></span>'
       +  '<span>'+esc(a.label)+'</span><span class="sub">'+esc(a.sub)+'</span></div>';
   });
   const groups = blockGroups();
   if(groups.length){
     h += '<div class="libgrp">Groups — dropped as a shape</div>';
     groups.forEach(g=>{
-      h += '<div class="libitem" data-kind="group" data-ref="'+g.id+'">'
-        +  '<span class="sw" style="background:'+blkColor(g.members[0])+'"></span>'
+      /* g.id is 'w-' + the first word of a channel NAME (45-blocks-host.js),
+         so it is user text wearing a prefix: a channel called x"onmouseover=…
+         ends the data-ref attribute and writes a handler beside it. g.label
+         on the next line was already escaped; this half was not (2026-08-23). */
+      h += '<div class="libitem" data-kind="group" data-ref="'+esc(g.id)+'">'
+        +  '<span class="sw" style="background:'+safeColor(blkColor(g.members[0]))+'"></span>'
         +  '<span>'+esc(g.label)+'</span><span class="sub">×'+g.members.length+'</span></div>';
     });
   }
@@ -94,7 +119,6 @@ function blkBuildLib(){
     e.dataTransfer.effectAllowed = 'copy';
   };
 }
-function esc(s){ return String(s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 
 /* A routine has to exist before a brick can go into it — but adopting a
    sequence that already HAS frames is destructive: the first brick to land
@@ -213,7 +237,7 @@ function blkBrickHtml(b){
   const r = blockEffRamps(b);
   const amp = (b.amp === undefined) ? 1 : b.amp;
   return '<div class="brick'+(BLK.sel===b.id?' sel':'')+'" data-id="'+b.id+'" '
-    + 'style="left:'+x+'px;width:'+w+'px;background:'+blkColor(b.ref)+'" '
+    + 'style="left:'+x+'px;width:'+w+'px;background:'+safeColor(blkColor(b.ref))+'" '
     + 'title="'+esc(blkLabel(b.ref))+' — '+b.dur+' ms, ramps '+Math.round(r.rise)+'/'+Math.round(r.fall)+'">'
     + '<span class="grip l"></span>'
     + '<span class="ramp l" style="width:'+Math.round(r.rise*BLK.pxPerMs)+'px"></span>'
@@ -231,7 +255,9 @@ function blkBuildShapePickers(){
   if(!on) return;
   const keep = on.value;
   const groups = blockGroups();
-  on.innerHTML = groups.map(g=>'<option value="'+g.id+'">'+esc(g.label)+'</option>').join('');
+  /* the same group id in a value="" attribute, escaped for the same reason
+     as the library row above (2026-08-23). */
+  on.innerHTML = groups.map(g=>'<option value="'+esc(g.id)+'">'+esc(g.label)+'</option>').join('');
   if(keep && groups.some(g=>g.id === keep)) on.value = keep;
 }
 

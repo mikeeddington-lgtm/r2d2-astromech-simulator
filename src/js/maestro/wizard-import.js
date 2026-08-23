@@ -230,7 +230,10 @@ function impwizStepFound(host){
     host.appendChild(h);
     bad.forEach(([t,d])=>{
       const n = el('div','note am');
-      n.innerHTML = '<b>'+t+'</b><br><span class="iwdim">'+d+'</span>';
+      /* t can quote a sub name parsed out of the imported <Script> with
+         /sub\s+(\S+)/ — \S+ happily matches a whole tag. The sibling report
+         blocks at :418 and :274 already xmlEsc; this one was missed. */
+      n.innerHTML = '<b>'+xmlEsc(t)+'</b><br><span class="iwdim">'+xmlEsc(d)+'</span>';
       host.appendChild(n);
     });
   }else{

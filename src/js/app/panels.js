@@ -397,7 +397,9 @@ function buildMap(){
     BUILDMAP_NOTE = n;
   }else BUILDMAP_NOTE = null;
   $('hwBlurb').classList.add('prose');                 // the sketch blurb is a paragraph, not a caption
-  $('hwBlurb').innerHTML = '<code>'+PROFILE.file+'</code><br>'+PROFILE.blurb;
+  /* PROFILE.file/.blurb are constants for the three hand ports and are the
+   dropped .ino's FILENAME for an imported one (profiles/sketch-import.js) */
+  $('hwBlurb').innerHTML = '<code>'+xmlEsc(PROFILE.file)+'</code><br>'+xmlEsc(PROFILE.blurb);
   $('sndChipName').textContent = PROFILE.audio;
   $('sndBus').textContent = PROFILE.audio==='DY-SV5W' ? '· Serial0 (DYPlayerArduino)' : '· Serial0';
   const host=$('mapHost'); host.innerHTML='';
@@ -476,7 +478,7 @@ function buildConfig(){
   const con = buildConflicts().filter(c=>c.kind !== 'park');
   if(con.length){
     const n = el('div','note');
-    n.innerHTML = '<b>These do not line up</b><br>' + con.map(c=>'· '+c.text).join('<br>');
+    n.innerHTML = '<b>These do not line up</b><br>' + con.map(c=>'· '+xmlEsc(c.text)).join('<br>');
     sB.appendChild(n);
   }
   const hB = el('div','hint prose');
@@ -621,7 +623,7 @@ function cfgSketchSects(host){
 }
 
 function cfgSpeedSect(host){
-  const s1=sect(host,'Speed &amp; feel', PROFILE.footPWM()?'PWM hub':'serial');
+  const s1=sect(host,'Speed & feel', PROFILE.footPWM()?'PWM hub':'serial');
   cfgNumGrid(s1, PROFILE.cfg.speed);
   return s1;
 }

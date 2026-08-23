@@ -5,13 +5,32 @@
    Studio keeps the name because everything here calls buildChannels(). */
 function buildChannels(){ hwTableBuild('chTable'); }
 
+/* ============================ A NAME IS NOT MARKUP (2026-08-23, XSS fix)
+
+   The tab used to be assembled as an HTML string and handed to innerHTML
+   with s.name spliced in raw. A sequence name is typed into the tab strip
+   or read out of an imported project file, so it is attacker-controlled;
+   on 2026-08-23 a name holding an img tag with an onerror handler was
+   REPRODUCED running its script right here, from a file opened off disk.
+
+   This one is rebuilt out of DOM nodes rather than escaped. Escaping is a
+   promise you have to keep again every time somebody edits the string, and
+   this is the sink that actually fired — a text node cannot turn into an
+   element no matter what the name says, so the promise is kept by the DOM
+   instead of by the next person to touch the line. Same two spans, same
+   classes, same text, same order; only the assembly changed. */
 function buildSeqTabs(){
   const host=$('seqTabs'); host.innerHTML='';
   PROJ.sequences.forEach((s,k)=>{
     const d=document.createElement('div');
     d.className='seqtab'+(k===curSeq?' on':'')+(pcaSeqRunning(E,k)?' playing':'');
     const kind = s.gen==='osc' ? '\u223f' : s.gen==='wander' ? '\u2248' : ((s.frames?s.frames.length:0)+'f');
-    d.innerHTML='<span class="slot">'+k+'</span>'+s.name+' <span class="slot">('+kind+(s.loop&&!s.gen?' \u21bb':'')+(s.background?' bg':'')+')</span>';
+    const num=document.createElement('span'); num.className='slot'; num.textContent=k;
+    const tail=document.createElement('span'); tail.className='slot';
+    tail.textContent='('+kind+(s.loop&&!s.gen?' \u21bb':'')+(s.background?' bg':'')+')';
+    d.appendChild(num);
+    d.appendChild(document.createTextNode(s.name+' '));
+    d.appendChild(tail);
     d.onclick=()=>{
       curSeq=k;
       /* undo history follows the routine being edited — opening another one
@@ -29,7 +48,11 @@ function buildFrames(){
   if(!seq){ t.innerHTML=''; return; }
   if(seq.gen){ buildGenRows(t, seq); return; }
   let h='<tr><th>#</th><th class="fname">frame</th><th>ms</th>';
-  PROJ.channels.forEach((c,i)=>{ h+='<th class="chcol" title="'+c.name+'">'+i+' '+c.name+'</th>'; });
+  /* channel names are user text too (2026-08-23, same XSS review as the tab
+     strip): two sinks on one line — the double-quoted title attribute, where
+     a quote in the name ends the attribute early and starts writing others,
+     and the header text itself. Both go through esc(). */
+  PROJ.channels.forEach((c,i)=>{ h+='<th class="chcol" title="'+esc(c.name)+'">'+i+' '+esc(c.name)+'</th>'; });
   h+='<th></th></tr>';
   seq.frames.forEach((fr,f)=>{
     h+='<tr data-f="'+f+'"><td class="pin">'+f+'</td>'
@@ -75,7 +98,9 @@ function buildGenRows(t, seq){
   let h='<tr><th>#</th><th>channel</th><th>from</th><th>to</th><th>period ms</th><th>phase&deg;</th><th></th></tr>';
   seq.entries.forEach((g,i)=>{
     h+='<tr data-g="'+i+'"><td class="pin">'+i+'</td>'
-      +'<td><select data-k="ch">'+PROJ.channels.map((c,ci)=>'<option value="'+ci+'"'+(g.ch===ci?' selected':'')+'>'+ci+' '+c.name+'</option>').join('')+'</select></td>'
+      /* the same channel name, reaching the same innerHTML by a third road
+         (2026-08-23) — an option's label is markup like any other. */
+      +'<td><select data-k="ch">'+PROJ.channels.map((c,ci)=>'<option value="'+ci+'"'+(g.ch===ci?' selected':'')+'>'+ci+' '+esc(c.name)+'</option>').join('')+'</select></td>'
       +'<td><input type="number" data-k="lo" value="'+g.lo+'" min="0" max="16000"></td>'
       +'<td><input type="number" data-k="hi" value="'+g.hi+'" min="0" max="16000"></td>'
       +'<td><input type="number" data-k="period" value="'+g.period+'" min="20" max="65535" step="100"></td>'

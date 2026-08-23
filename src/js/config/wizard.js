@@ -560,7 +560,7 @@ function wizHardwareStep(host, step){
     const h = el('div','hint');
     h.innerHTML = b.firmwarePinned
       ? '<b>This choice is yours and the setup will not change it.</b> The hardware questions after this one grey out anything '
-        + buildLabel('firmware', b.firmware) + ' cannot drive, and say why — so you can see the consequence before you buy the board.'
+        + xmlEsc(buildLabel('firmware', b.firmware)) + ' cannot drive, and say why — so you can see the consequence before you buy the board.'
       : 'Pick one and it stays picked. Until you do, the setup keeps this in step with your hardware answers on its own.';
     host.appendChild(h);
   }
@@ -620,7 +620,7 @@ function wizHardwareStep(host, step){
     }else if(typeof isSketchProfile === 'function' && isSketchProfile(b.firmware)){
       const sl = sect(host, 'Where to get it', 'your own sketch');
       const hl = el('div','hint');
-      hl.innerHTML = 'This one is yours — the <code>' + (PROFILES[b.firmware]||{}).file + '</code> you dropped on the window. '
+      hl.innerHTML = 'This one is yours — the <code>' + xmlEsc((PROFILES[b.firmware]||{}).file) + '</code> you dropped on the window. '
         + 'The simulator runs exactly what that file says.';
       sl.appendChild(hl);
     }
@@ -1304,7 +1304,9 @@ function wizServoSetupStep(host, step){
     keep.appendChild(kh);
     const knote = el('div','optnote');
     knote.innerHTML = '<b>They are already in this build</b> — the bench and the import both write the same channel '
-      + 'table, so there is nothing to load. ' + (story ? story.charAt(0).toUpperCase()+story.slice(1)+'. ' : '')
+      /* story is servoCfgStory() — 'imported from <the file you opened>'; the
+         sibling site in wizard-import.js already xmlEsc'd it and this one did not */
+      + 'table, so there is nothing to load. ' + (story ? xmlEsc(story.charAt(0).toUpperCase()+story.slice(1))+'. ' : '')
       + (cal ? cal + ' of them you captured on the dial yourself. ' : '')
       + 'Keep them and carry on; the two answers beside this one replace them.';
     keep.appendChild(knote);
@@ -1768,7 +1770,9 @@ function wizReviewStep(host){
   const park = con.filter(c=>c.kind === 'park');
   if(live.length){
     const n = el('div','note');
-    n.innerHTML = '<b>These do not line up</b><br>' + live.map(c=>'· '+c.text).join('<br>');
+    /* c.text embeds buildLabel('firmware',…) and PROFILE.short, both of which
+       are the dropped .ino's name once a sketch has been imported */
+    n.innerHTML = '<b>These do not line up</b><br>' + live.map(c=>'· '+xmlEsc(c.text)).join('<br>');
     host.appendChild(n);
   }
   if(park.length){

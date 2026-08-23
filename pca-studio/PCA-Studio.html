@@ -682,6 +682,26 @@ function download(name, text, mime){
   a.download=name; document.body.appendChild(a); a.click(); a.remove();
   setTimeout(()=>URL.revokeObjectURL(a.href),4000);
 }
+
+/* ============================== ONE ESCAPER, LOADED FIRST (2026-08-23)
+
+   esc() turns text into markup-safe text — & < > and the double quote,
+   which covers both places Studio ever interpolates: the text between two
+   tags, and the value inside a double-quoted attribute.
+
+   It used to live at the bottom of 50-blocks-ui.js, the LAST file in the
+   manifest, because the brick library was the first view that happened to
+   want it. A helper defined in the last file is a trap waiting for someone
+   to call it from the first: every view in between builds markup by hand,
+   and none of them can reach an escaper that has not been parsed yet.
+
+   On 2026-08-23 we found out what that costs. A sequence named with an img
+   tag carrying an onerror handler was REPRODUCED executing in the sequence
+   tabs — the fix that sink needed was two files too late to use. Names come
+   off the user's keyboard and out of imported project JSON, so they are
+   attacker-controlled text either way, and every later view needs the same
+   one escaper. So it lives here, in the first file the manifest loads. */
+function esc(s){ return String(s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 </script>
 <script>/* src/js/maestro/servo-units.js */
 'use strict';
@@ -3216,13 +3236,32 @@ function hwTableSync(){
    Studio keeps the name because everything here calls buildChannels(). */
 function buildChannels(){ hwTableBuild('chTable'); }
 
+/* ============================ A NAME IS NOT MARKUP (2026-08-23, XSS fix)
+
+   The tab used to be assembled as an HTML string and handed to innerHTML
+   with s.name spliced in raw. A sequence name is typed into the tab strip
+   or read out of an imported project file, so it is attacker-controlled;
+   on 2026-08-23 a name holding an img tag with an onerror handler was
+   REPRODUCED running its script right here, from a file opened off disk.
+
+   This one is rebuilt out of DOM nodes rather than escaped. Escaping is a
+   promise you have to keep again every time somebody edits the string, and
+   this is the sink that actually fired — a text node cannot turn into an
+   element no matter what the name says, so the promise is kept by the DOM
+   instead of by the next person to touch the line. Same two spans, same
+   classes, same text, same order; only the assembly changed. */
 function buildSeqTabs(){
   const host=$('seqTabs'); host.innerHTML='';
   PROJ.sequences.forEach((s,k)=>{
     const d=document.createElement('div');
     d.className='seqtab'+(k===curSeq?' on':'')+(pcaSeqRunning(E,k)?' playing':'');
     const kind = s.gen==='osc' ? '\u223f' : s.gen==='wander' ? '\u2248' : ((s.frames?s.frames.length:0)+'f');
-    d.innerHTML='<span class="slot">'+k+'</span>'+s.name+' <span class="slot">('+kind+(s.loop&&!s.gen?' \u21bb':'')+(s.background?' bg':'')+')</span>';
+    const num=document.createElement('span'); num.className='slot'; num.textContent=k;
+    const tail=document.createElement('span'); tail.className='slot';
+    tail.textContent='('+kind+(s.loop&&!s.gen?' \u21bb':'')+(s.background?' bg':'')+')';
+    d.appendChild(num);
+    d.appendChild(document.createTextNode(s.name+' '));
+    d.appendChild(tail);
     d.onclick=()=>{
       curSeq=k;
       /* undo history follows the routine being edited — opening another one
@@ -3240,7 +3279,11 @@ function buildFrames(){
   if(!seq){ t.innerHTML=''; return; }
   if(seq.gen){ buildGenRows(t, seq); return; }
   let h='<tr><th>#</th><th class="fname">frame</th><th>ms</th>';
-  PROJ.channels.forEach((c,i)=>{ h+='<th class="chcol" title="'+c.name+'">'+i+' '+c.name+'</th>'; });
+  /* channel names are user text too (2026-08-23, same XSS review as the tab
+     strip): two sinks on one line — the double-quoted title attribute, where
+     a quote in the name ends the attribute early and starts writing others,
+     and the header text itself. Both go through esc(). */
+  PROJ.channels.forEach((c,i)=>{ h+='<th class="chcol" title="'+esc(c.name)+'">'+i+' '+esc(c.name)+'</th>'; });
   h+='<th></th></tr>';
   seq.frames.forEach((fr,f)=>{
     h+='<tr data-f="'+f+'"><td class="pin">'+f+'</td>'
@@ -3286,7 +3329,9 @@ function buildGenRows(t, seq){
   let h='<tr><th>#</th><th>channel</th><th>from</th><th>to</th><th>period ms</th><th>phase&deg;</th><th></th></tr>';
   seq.entries.forEach((g,i)=>{
     h+='<tr data-g="'+i+'"><td class="pin">'+i+'</td>'
-      +'<td><select data-k="ch">'+PROJ.channels.map((c,ci)=>'<option value="'+ci+'"'+(g.ch===ci?' selected':'')+'>'+ci+' '+c.name+'</option>').join('')+'</select></td>'
+      /* the same channel name, reaching the same innerHTML by a third road
+         (2026-08-23) — an option's label is markup like any other. */
+      +'<td><select data-k="ch">'+PROJ.channels.map((c,ci)=>'<option value="'+ci+'"'+(g.ch===ci?' selected':'')+'>'+ci+' '+esc(c.name)+'</option>').join('')+'</select></td>'
       +'<td><input type="number" data-k="lo" value="'+g.lo+'" min="0" max="16000"></td>'
       +'<td><input type="number" data-k="hi" value="'+g.hi+'" min="0" max="16000"></td>'
       +'<td><input type="number" data-k="period" value="'+g.period+'" min="20" max="65535" step="100"></td>'
@@ -4860,6 +4905,27 @@ function blkAfterChange(){
   blkDraw();
 }
 
+/* ==================== A COLOUR IS VALIDATED, NOT ESCAPED (2026-08-23)
+
+   blkColor() only returns one of BLK_PALETTE's hexes until somebody sets an
+   override; after that it returns whatever sits in PROJ.blkColors, which is
+   read straight out of an imported project JSON or out of localStorage. That
+   value is then spliced into style="background:...".
+
+   Escaping the double quote would close the attribute break and stop there,
+   and stopping there is not enough. Whatever survives escaping is still CSS,
+   and CSS inside a style attribute is not inert: url(...) reaches the
+   network, a position and a z-index cover the page with something that looks
+   like our own UI. An escaper says "say anything you like, just not that one
+   character" — the wrong sentence for a value whose entire legal vocabulary
+   is a hex colour.
+
+   So this whitelists instead: #rgb through #rrggbbaa is passed through, and
+   anything else becomes the neutral grey the sequence bricks already wear.
+   A bad colour then looks wrong, which is the correct outcome — the project
+   file that carried it is lying about being a colour. */
+function safeColor(v){ return /^#[0-9a-fA-F]{3,8}$/.test(String(v)) ? String(v) : '#6b7a88'; }
+
 /* ------------------------------------------------------------- library */
 function blkBuildLib(){
   const host = $('libList');
@@ -4868,15 +4934,19 @@ function blkBuildLib(){
   const acts = blockActions();
   acts.forEach(a=>{
     h += '<div class="libitem" draggable="true" data-kind="act" data-ref="'+a.act+'">'
-      +  '<span class="sw" style="background:'+blkColor(a.act)+'"></span>'
+      +  '<span class="sw" style="background:'+safeColor(blkColor(a.act))+'"></span>'
       +  '<span>'+esc(a.label)+'</span><span class="sub">'+esc(a.sub)+'</span></div>';
   });
   const groups = blockGroups();
   if(groups.length){
     h += '<div class="libgrp">Groups — dropped as a shape</div>';
     groups.forEach(g=>{
-      h += '<div class="libitem" data-kind="group" data-ref="'+g.id+'">'
-        +  '<span class="sw" style="background:'+blkColor(g.members[0])+'"></span>'
+      /* g.id is 'w-' + the first word of a channel NAME (45-blocks-host.js),
+         so it is user text wearing a prefix: a channel called x"onmouseover=…
+         ends the data-ref attribute and writes a handler beside it. g.label
+         on the next line was already escaped; this half was not (2026-08-23). */
+      h += '<div class="libitem" data-kind="group" data-ref="'+esc(g.id)+'">'
+        +  '<span class="sw" style="background:'+safeColor(blkColor(g.members[0]))+'"></span>'
         +  '<span>'+esc(g.label)+'</span><span class="sub">×'+g.members.length+'</span></div>';
     });
   }
@@ -4915,7 +4985,6 @@ function blkBuildLib(){
     e.dataTransfer.effectAllowed = 'copy';
   };
 }
-function esc(s){ return String(s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 
 /* A routine has to exist before a brick can go into it — but adopting a
    sequence that already HAS frames is destructive: the first brick to land
@@ -5034,7 +5103,7 @@ function blkBrickHtml(b){
   const r = blockEffRamps(b);
   const amp = (b.amp === undefined) ? 1 : b.amp;
   return '<div class="brick'+(BLK.sel===b.id?' sel':'')+'" data-id="'+b.id+'" '
-    + 'style="left:'+x+'px;width:'+w+'px;background:'+blkColor(b.ref)+'" '
+    + 'style="left:'+x+'px;width:'+w+'px;background:'+safeColor(blkColor(b.ref))+'" '
     + 'title="'+esc(blkLabel(b.ref))+' — '+b.dur+' ms, ramps '+Math.round(r.rise)+'/'+Math.round(r.fall)+'">'
     + '<span class="grip l"></span>'
     + '<span class="ramp l" style="width:'+Math.round(r.rise*BLK.pxPerMs)+'px"></span>'
@@ -5052,7 +5121,9 @@ function blkBuildShapePickers(){
   if(!on) return;
   const keep = on.value;
   const groups = blockGroups();
-  on.innerHTML = groups.map(g=>'<option value="'+g.id+'">'+esc(g.label)+'</option>').join('');
+  /* the same group id in a value="" attribute, escaped for the same reason
+     as the library row above (2026-08-23). */
+  on.innerHTML = groups.map(g=>'<option value="'+esc(g.id)+'">'+esc(g.label)+'</option>').join('');
   if(keep && groups.some(g=>g.id === keep)) on.value = keep;
 }
 
@@ -8188,6 +8259,15 @@ function calDrive(ch, qus){
    the SVG the pointer was captured on — so a drag died on its first frame
    and the dial could only be clicked. Anything that changes on every frame
    belongs in calPaint(); anything structural belongs in the shell. */
+/* A channel name is whatever an imported .mstr, a servo-config .json or the
+   bench's name box said it was, and this heading was building it with
+   innerHTML. Its own escaper, deliberately: this file is in BOTH manifests,
+   and xmlEsc() lives in maestro/boards.js which PCA Studio does not load —
+   reaching for it here would throw a ReferenceError and blank the dial in
+   Studio only, which is exactly the kind of bug nobody finds. (2026-08-23) */
+function calEsc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;')
+                          .replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
 function setupCalRender(){
   const host = $('calWrap'); if(!host) return;
   const cal = SETUP.cal;
@@ -8196,7 +8276,7 @@ function setupCalRender(){
   const range = calRange();
 
   host.innerHTML = '<div class="calpanel">'
-    + '<div class="calhead"><b>'+(c.name||('Channel '+cal.ch))+'</b>'
+    + '<div class="calhead"><b>'+calEsc(c.name||('Channel '+cal.ch))+'</b>'
     + '<span class="stat">channel '+cal.ch+' · board '+(cal.ch>>4)+' pin '+(cal.ch&15)+'</span>'
     + '<span class="sp" style="flex:1"></span>'
     /* v1.70.1 — this line used to read `safe range · 1000–2000 µs` beside a

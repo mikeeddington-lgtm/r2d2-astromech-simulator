@@ -248,6 +248,15 @@ function calDrive(ch, qus){
    the SVG the pointer was captured on — so a drag died on its first frame
    and the dial could only be clicked. Anything that changes on every frame
    belongs in calPaint(); anything structural belongs in the shell. */
+/* A channel name is whatever an imported .mstr, a servo-config .json or the
+   bench's name box said it was, and this heading was building it with
+   innerHTML. Its own escaper, deliberately: this file is in BOTH manifests,
+   and xmlEsc() lives in maestro/boards.js which PCA Studio does not load —
+   reaching for it here would throw a ReferenceError and blank the dial in
+   Studio only, which is exactly the kind of bug nobody finds. (2026-08-23) */
+function calEsc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;')
+                          .replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
 function setupCalRender(){
   const host = $('calWrap'); if(!host) return;
   const cal = SETUP.cal;
@@ -256,7 +265,7 @@ function setupCalRender(){
   const range = calRange();
 
   host.innerHTML = '<div class="calpanel">'
-    + '<div class="calhead"><b>'+(c.name||('Channel '+cal.ch))+'</b>'
+    + '<div class="calhead"><b>'+calEsc(c.name||('Channel '+cal.ch))+'</b>'
     + '<span class="stat">channel '+cal.ch+' · board '+(cal.ch>>4)+' pin '+(cal.ch&15)+'</span>'
     + '<span class="sp" style="flex:1"></span>'
     /* v1.70.1 — this line used to read `safe range · 1000–2000 µs` beside a

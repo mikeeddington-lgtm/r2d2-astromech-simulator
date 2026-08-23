@@ -136,7 +136,7 @@ function buildMaestroPane(){
   const pca = (typeof boardIsPca === 'function') && MSTR.loaded && boardIsPca(MSTR.board);
   if(!PROFILE.hasMaestro && !pca && !(typeof buildCanSequence === 'function' && buildCanSequence())){
     const n=el('div','note cy prose');
-    n.innerHTML='<b>'+PROFILE.short+' has no Maestro.</b> This sketch drives the body through two PCA9685 boards, so there is no settings file to import. Switch to <b>Maestro 2025</b> or <b>Maestro 2022</b> to use this tab.';
+    n.innerHTML='<b>'+xmlEsc(PROFILE.short)+' has no Maestro.</b> This sketch drives the body through two PCA9685 boards, so there is no settings file to import. Switch to <b>Maestro 2025</b> or <b>Maestro 2022</b> to use this tab.';
     host.appendChild(n);
     return;
   }
@@ -960,7 +960,7 @@ function exportMstr(){
   toast('Exported '+a.download+' — verify endpoints on YOUR hardware before running at speed', 'warn');
   const lintNote = (typeof exportLintNote === 'function') ? exportLintNote() : '';
   if(lintNote) lg('warn','  '+lintNote.replace(/<[^>]+>/g,''));
-  const m=$('maeMsg'); if(m){ m.innerHTML='Exported <b>'+a.download+'</b> — open it in Control Center, then Apply Settings. '+
+  const m=$('maeMsg'); if(m){ m.innerHTML='Exported <b>'+xmlEsc(a.download)+'</b> — open it in Control Center, then Apply Settings. '+
     '<b style="color:var(--am)">Before running at speed: verify every servo\'s endpoints and direction on YOUR hardware.</b> '+
     'The travel values in this file are simulator placeholders, and a wrong endpoint can stall a servo against the shell.'+
     lintNote + EXPORT_PORTABILITY_NOTE; }

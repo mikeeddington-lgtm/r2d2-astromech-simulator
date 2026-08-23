@@ -176,7 +176,7 @@ function buildSelCard(){
 
   const sub = el('div','selsub');
   sub.innerHTML = '<b>'+xmlEsc(partBase(name))+'</b>'
-    + (hp ? ' · '+hp.kind + (az!==null ? ' · '+az.toFixed(0)+'° '+azWord(az) : '') : '')
+    + (hp ? ' · '+xmlEsc(hp.kind) + (az!==null ? ' · '+az.toFixed(0)+'° '+azWord(az) : '') : '')
     + (mov && mov.act ? ' · drives <b>'+xmlEsc(mov.act)+'</b>' : (mov ? ' · rigged, no servo' : ' · static'));
   card.appendChild(sub);
 

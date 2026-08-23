@@ -52,7 +52,7 @@ function exportPcaHeader(){
      function rather than next to one of its callers. */
   const lintNote = (typeof exportLintNote === 'function') ? exportLintNote() : '';
   if(lintNote) lg('warn','  '+lintNote.replace(/<[^>]+>/g,''));
-  const m=$('maeMsg'); if(m){ m.innerHTML='Exported <b>'+a.download+'</b> for the <b>MaestroPCA</b> library (the cheap PCA9685 route). '
+  const m=$('maeMsg'); if(m){ m.innerHTML='Exported <b>'+xmlEsc(a.download)+'</b> for the <b>MaestroPCA</b> library (the cheap PCA9685 route). '
     +'Slot numbers match this loadout, so the sketch\'s restartScript(n) calls are identical to the Maestro build. '
     +'<b style="color:var(--am)">Verify endpoints and oscillator calibration on YOUR hardware at low speed first.</b>'
     +lintNote + EXPORT_PORTABILITY_NOTE; }
