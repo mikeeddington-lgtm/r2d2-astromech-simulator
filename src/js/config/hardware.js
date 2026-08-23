@@ -1324,7 +1324,66 @@ function buildSyncBench(b){
      and only PCA_Bridge lets it. Never overwrite a deliberate choice. */
   if(!hw.sketch) hw.sketch = 'bridge';
   HW.setSetup(hw);
+  /* ...and if the Bench is open on screen while this happens, its own copy
+     has to move too. SETUP.hw is a detached Object.assign taken once at
+     setupOpen(), so writing CFG.hwSetup under it changed nothing the builder
+     could see: the startup wizard said two boards and the Bench's step 2 went
+     on saying three. That was half of Mike's 2026-08-22 report. */
+  buildPushBenchLive(hw);
   return true;
+}
+
+/* ==================== ONE BOARD COUNT, TWO SPINNERS  (v1.75.0, 2026-08-22)
+   Mike: "If I set the number of PCA's under Servo Hardware i see all the
+   servos and boards but if I change or set it under Setup your servo Hardware
+   it doesnt work they should be linked".
+
+   They were two numbers that happened to be about the same boards. The
+   startup wizard writes PREFS.build.pcaBoards; the Bench writes SETUP.hw.boards
+   and only commits it to CFG.hwSetup on Finish. Build → Bench existed but
+   wrote past the live copy (fixed just above); Bench → build did not exist at
+   all, on purpose — setupAdoptBoards() is a deliberate BUTTON because growing
+   the table is not something to do behind somebody's back.
+
+   That reasoning still holds for the table and is why this does not go near
+   it: this sets the ANSWER and lets buildApply() decide what the table does,
+   which since v1.67.0 means growing quietly and OFFERING to shrink, naming
+   the rows and how many drive a part. So the two spinners are one number, and
+   nobody's calibration is deleted by a number box. */
+function buildAdoptBenchBoards(n){
+  if(typeof buildSet !== 'function' || typeof servoCoprocId !== 'function') return false;
+  const b = buildGet();
+  if(!buildUsesCoproc(b)) return false;            /* a Maestro build has no expanders to count */
+  n = Math.max(1, Math.min(PCA_MAX_BOARDS_UI, n|0));
+  if(buildPcaPerLink(b, buildServoTopo(b)) === n) return false;
+  /* the ANSWER, not the shape — hardware.js reads a direct board answer back
+     into the topology, so pcaBoards alone gets undone by whatever domeServo
+     currently says (learned the hard way in v1.64.0's fixtures) */
+  const id = servoCoprocId(n);
+  buildSet('domeServo', id);
+  if(b.servoSplit !== 'two') buildSet('bodyServo', id);
+  buildSet('pcaBoards', n);
+  if(typeof buildApply === 'function') buildApply();
+  if(typeof buildEnsureMaestro === 'function') buildEnsureMaestro();
+  /* the startup wizard may be open behind the Bench — repaint its spinner
+     rather than leaving the two disagreeing again from the other side */
+  const su = (typeof $ === 'function') ? $('startup') : null;
+  if(su && su.classList.contains('on') && typeof buildStartup === 'function') buildStartup();
+  if(typeof boardVizSync === 'function') boardVizSync();
+  if(typeof lg === 'function') lg('sys','expander boards \u2192 '+n+' \u00b7 '+(n*16)+' channels (from the servo bench)');
+  return true;
+}
+
+/* the Bench's live copy of the answers, when it is on screen. Kept next to
+   buildSyncBench() because the two are one idea seen from both ends. */
+function buildPushBenchLive(hw){
+  if(typeof SETUP === 'undefined' || !SETUP.open || !SETUP.hw) return false;
+  let moved = false;
+  ['mcu','boards'].forEach(k=>{
+    if(hw[k] !== undefined && SETUP.hw[k] !== hw[k]){ SETUP.hw[k] = hw[k]; moved = true; }
+  });
+  if(moved && typeof setupRender === 'function') setupRender();
+  return moved;
 }
 
 /* ============================ A SMALLER BOARD IS AN OFFER  (v1.67.0)

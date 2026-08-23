@@ -82,20 +82,29 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
 
   /* =================================================================
      v1.70.1 — THE DROID IS NOT A CONFIG EDITOR DOOR
+     ...SUPERSEDED, 2026-08-22 (v1.75.0)
 
-     A walkthrough clicked the canvas to give the stage keyboard focus,
-     pressed a key, and found #selcard open on the panel it happened to
-     hit: name, colour, groups, pivot/travel and the Maestro channel
-     re-map. The owner's ruling is that a plain click keeps working
-     while a PARTS PANE is open — Configure → Model, and the setup's
-     Panels step — and does nothing on the Drive screen.
+     The old rule: a walkthrough clicked the canvas to give the stage
+     keyboard focus, pressed a key, and found #selcard open on the panel
+     it happened to hit — name, colour, groups, pivot/travel and the
+     Maestro channel re-map. So a plain click only worked while a PARTS
+     PANE was open (Configure → Model, and the setup's Panels step) and
+     did nothing on the Drive screen.
 
-     The two non-pointer callers (config/tab.js's assign-row Test
-     button, app/panels.js's Outputs row expander) are legitimate and
-     both live in #side, so they must keep opening the card wherever
-     they are pressed — the Outputs table is a DRIVE pane.
+     Mike overruled it: "I should be able to click on a panel on the
+     model and bring up its configuration including what servo drives
+     it", everywhere except sim only. The stray-selection worry is
+     answered by the click-vs-drag threshold instead of by a place —
+     6 px and 500 ms, so an orbit is never a pick — and #selcard is the
+     right card because it already carries "Driven by".
+
+     What did NOT change: kiosk still refuses, at both the listener and
+     selectPart(); selPartsPaneOpen() is kept and still answers what it
+     always answered; and the two non-pointer callers (config/tab.js's
+     assign-row Test button, app/panels.js's Outputs row expander) still
+     open the card wherever they are pressed.
      ================================================================= */
-  console.log('\n════ a plain stage click only opens the card where part work happens ════');
+  console.log('\n════ a plain stage click opens the part card on any screen ════');
   const paneWas = await ev(()=>({ws:WS.cur}));
   await page.evaluate(()=>{ deselectPart(); wsSet('drive'); });
   await page.waitForTimeout(150);
@@ -103,12 +112,19 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
     typeof selPartsPaneOpen==='function' && selPartsPaneOpen()===false));
   await page.mouse.click(mid[0], mid[1]);
   await page.waitForTimeout(250);
-  ok('a click on the droid from the Drive screen selects nothing', await ev(()=>
-    SEL.name===null && !$('selcard').classList.contains('on')), await ev(()=>String(SEL.name)));
-  ok('...and the guard is on the function, not the listener', await ev(()=>{
+  ok('a click on the droid from the Drive screen NOW opens its card', await ev(()=>
+    SEL.name!==null && $('selcard').classList.contains('on')), await ev(()=>String(SEL.name)));
+  ok('...and the card names the channel that drives it', await ev(()=>{
+    const c = $('selcard');
+    /* the whole point of Mike's ask: the card that opens has to say what
+       servo moves this panel, not just what colour it is */
+    return !!c && /Channel/.test(c.textContent) && /ch \d+/.test(c.textContent);
+  }), await ev(()=>$('selcard').textContent.slice(0,160)));
+  ok('...and selectPart() from the stage no longer refuses on Drive', await ev(()=>{
+    deselectPart();
     const n = CAD.moving.find(m=>m.base==='DataPortDoor').name;
     selectPart(n,'stage');
-    return SEL.name===null;
+    return SEL.name===n;
   }));
   ok('...while the sidebar callers still open it — the Outputs row is a Drive pane', await ev(()=>{
     const n = CAD.moving.find(m=>m.base==='DataPortDoor').name;

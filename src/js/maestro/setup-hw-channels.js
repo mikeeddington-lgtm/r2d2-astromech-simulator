@@ -647,7 +647,10 @@ function setupBindSimple(){
   body.oninput = e=>{
     const f = e.target.dataset.f; if(!f) return;
     SETUP.hw[f] = (e.target.type === 'number') ? (+e.target.value|0) : e.target.value;
-    if(f === 'boards') SETUP.hw.boards = Math.max(1, Math.min(8, SETUP.hw.boards));
+    /* the ceiling is PCA_MAX_BOARDS_UI, not a literal 8 — the input's own
+       max attribute is written from the constant (setup-hw.js §setupStep-
+       Expander), and two copies of one limit is how they drift apart */
+    if(f === 'boards') SETUP.hw.boards = Math.max(1, Math.min(PCA_MAX_BOARDS_UI, SETUP.hw.boards));
     /* the ESP32 sketch exists only for the ESP32, and vice versa — moving
        between boards must not leave a choice that cannot be flashed */
     if(f === 'mcu'){
@@ -663,7 +666,18 @@ function setupBindSimple(){
     if(e.target.type !== 'number') setupRender();
   };
   body.onchange = e=>{
-    if(e.target.dataset.f && e.target.type === 'number') setupRender();
+    const f = e.target.dataset.f;
+    if(!f || e.target.type !== 'number') return;
+    /* THE TWO SPINNERS ARE ONE NUMBER NOW. This box only ever wrote
+       SETUP.hw.boards, so the startup wizard's "How many expander boards?"
+       went on answering with the old count and the build kept the old
+       channel table — two questions about one droid, disagreeing. Called
+       from onchange and NOT from oninput above: a half-typed "1" on its way
+       to "12" must not adopt one board and shrink the world.
+       Guarded by typeof because PCA Studio loads this file without the
+       build config — the standing rule is to guard the function. */
+    if(f === 'boards' && typeof buildAdoptBenchBoards === 'function') buildAdoptBenchBoards(SETUP.hw.boards);
+    setupRender();
   };
   body.onclick = e=>{
     const b = e.target.closest('button'); if(!b) return;
@@ -756,6 +770,23 @@ function setupUse(i, on){
     c.mode = 'Input'; c.name = '';
   }
   setupSync();
+}
+/* THE SELECTION, MOVED WITHOUT A RE-RENDER. Everything a changed SETUP.sel
+   shows is a class on a <tr> and the contents of #chCfg, so both can be put
+   right in place — a class toggle moves nothing, and #chCfg is a sibling of
+   the table, so rebuilding it cannot detach the control in a row that the
+   click is still activating (the two-click bug, see body.onclick below).
+   Deliberately NOT a whole render: this runs on the click that lands in a
+   text field, and a render there costs the caret. */
+function setupSelPaint(i){
+  const body = $('setBody'); if(!body) return;
+  const rows = body.querySelectorAll('tr[data-ch]');
+  for(let k=0;k<rows.length;k++) rows[k].classList.toggle('sel', +rows[k].dataset.ch === i);
+  /* outerHTML because setupChPanel() returns the #chCfg element itself, not
+     its insides. The handlers are delegated on #setBody, so the replacement
+     is live the moment it lands. */
+  const panel = document.getElementById('chCfg');
+  if(panel) panel.outerHTML = setupChPanel();
 }
 function setupBindChannels(){
   const body = $('setBody');
@@ -960,11 +991,20 @@ function setupBindChannels(){
       const ri = +row.dataset.ch;
       if(SETUP.sel !== ri){
         SETUP.sel = ri;
-        /* re-render for the panel, but NOT out from under a control the
-           click is on its way to: the input handler above needs the
-           element that was clicked to still be the one that changes. */
+        /* TWO CLICKS TO TICK ONE BOX. setupRender() rebuilds #setBody by
+           innerHTML, so rendering here tore the checkbox out of the document
+           while the click was still activating it: the `input` event never
+           reached body.oninput, setupUse() never ran, and the box only took
+           on the SECOND click — the first had spent itself selecting the
+           row. So a click that landed on a control selects the row and
+           renders nothing; body.oninput / body.onchange redraw after they
+           have written the state. A click on the row itself still renders,
+           because nothing else is going to. */
         if(!e.target.closest('input,select,button')){ setupRender(); return; }
-        setupRender();
+        /* the selection still has to be VISIBLE though, and several data-k
+           handlers above (name, sleepMs, ease, the µs fields) never render
+           at all — so paint it the cheap way instead. */
+        setupSelPaint(ri);
       }
     }
     const b = e.target.closest('button'); if(!b) return;

@@ -249,7 +249,7 @@ const REFUSAL = 'this build has no servo board yet — answer the servo question
   ok('a backdrop click folds the overlay away', await ev(()=>!$('kbdHelp')));
 
   console.log('\n════ the Advanced switch, and what a reload remembers ════');
-  await ev(()=>wsSet('bench'));
+  await ev(()=>{ closeStartup(); wsSet('bench'); });
   ok('the switch shows on the Bench tab row only', await ev(()=>{
     const onBench = !$('wsAdvWrap').hidden && $('wsAdv').checked===false;
     return onBench && $('tabs').contains($('wsAdvWrap'));
@@ -406,9 +406,22 @@ const REFUSAL = 'this build has no servo board yet — answer the servo question
      Math.abs(rateRun['-1'] - 1) < 1e-6, JSON.stringify(rateRun));
   ok('nor can a typed 0, a NaN or an absurd rate — each still arrives at the target',
      ['0','NaN','1000000000','2.2'].every(k=>Math.abs(rateRun[k] - 1) < 1e-6), JSON.stringify(rateRun));
+  /* v1.75.0 — these boxes are not on the Config tab any more. Mike asked for
+     the sketch's own settings to move into the setup, "under the right area
+     but as a advance button that only displays them when advance is press",
+     so Simulation lives on the Firmware step behind its Advanced tick. The
+     clamps are what this block is about and they moved with the boxes; the
+     helper below opens the door the user opens. */
+  const openSimBoxes = () => ev(()=>{
+    closeStartup();
+    wizOpen(wizStepIndex('firmware'));
+    WIZ_ADV.firmware = true;
+    buildStartup();
+  });
+  const SIMROW = '#startupBody .cfgrow';
+  await openSimBoxes();
   ok('the Sim inputs carry a min and a max, the way loopHz always should have', await ev(()=>{
-    wsSet('config');
-    const rows = [...document.querySelectorAll('#pCfg .cfgrow')].filter(r=>{
+    const rows = [...document.querySelectorAll('#startupBody .cfgrow')].filter(r=>{
       const l = r.querySelector('label');
       return l && /^(loopHz|maestroRate|servoSpeed|maxSpeed|maxYaw|domeRate)\b/.test(l.title||'');
     });
@@ -416,11 +429,11 @@ const REFUSAL = 'this build has no servo board yet — answer the servo question
       const i = r.querySelector('input[type=number]');
       return i && i.min !== '' && i.max !== '' && parseFloat(i.min) > 0;
     });
-  }), await ev(()=>[...document.querySelectorAll('#pCfg .cfgrow')]
+  }), await ev(()=>[...document.querySelectorAll('#startupBody .cfgrow')]
        .filter(r=>{const l=r.querySelector('label');return l && /^(loopHz|maestroRate|servoSpeed|maxSpeed|maxYaw|domeRate)\b/.test(l.title||'');})
        .map(r=>{const l=r.querySelector('label'),i=r.querySelector('input');return (l.title||'').split(' ')[0]+'['+i.min+'..'+i.max+']';}).join(' ')));
   ok('…and typing past a limit is pulled back rather than accepted', await ev(()=>{
-    const row = [...document.querySelectorAll('#pCfg .cfgrow')]
+    const row = [...document.querySelectorAll('#startupBody .cfgrow')]
       .find(r=>{ const l=r.querySelector('label'); return l && /^loopHz\b/.test(l.title||''); });
     if(!row) return false;
     const i = row.querySelector('input[type=number]');
@@ -438,13 +451,15 @@ const REFUSAL = 'this build has no servo board yet — answer the servo question
   const mRate = await ev(()=>{
     const was = PROFILE.id;
     loadProfile('maestro25');
-    const row = [...document.querySelectorAll('#pCfg .cfgrow')]
+    buildStartup();                       // the boxes are the wizard's now — repaint them
+    const row = [...document.querySelectorAll('#startupBody .cfgrow')]
       .find(r=>{ const l=r.querySelector('label'); return l && /^maestroRate\b/.test(l.title||''); });
     const i = row && row.querySelector('input[type=number]');
     let typed = null;
     if(i){ i.value = '-1'; i.dispatchEvent(new Event('change')); typed = CFG.maestroRate; }
     const got = i ? {min:i.min, max:i.max, typed, box:i.value} : {missing:true};
     loadProfile(was);
+    buildStartup();
     return got;
   });
   console.log('      maestroRate box: '+JSON.stringify(mRate));

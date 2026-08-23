@@ -389,9 +389,134 @@ function wizModelBanner(host, step){
    when a step earns it; the twenty-one cards are not affected either way. */
 const WIZ_BIG_PIC = {controller:1};
 
+/* ====================== INCLUDE THE ASTROPIXELS?  (v1.75.0, 2026-08-22)
+   Mike: "Also add a tick box at teh top to include or exclude the
+   Astropixels". The answer already existed — domeLights has an explicit
+   "None yet" — but three option cards is the wrong shape for a question that
+   is really yes/no for most people: are the lights in this dome or not.
+
+   So the tick sits above the cards and drives the same one answer. Ticking it
+   is domeLights = astropixels. Un-ticking it does NOT jump to "None yet" if
+   the builder had said Teeces — that answer is theirs and it is on the wiring
+   sheet — so the previous non-AstroPixels choice comes back, and only a build
+   that had nothing else to say lands on "None yet". The cards stay: this is
+   collapse, not hide, and somebody fitting Teeces still needs to say so. */
+let WIZ_LIGHTS_WAS = '';
+function wizDomeLightsTick(host, b){
+  const on = b.domeLights === 'astropixels';
+  const lab = el('label','svadv');
+  lab.title = 'AstroPixels are the only dome lighting this simulator drives for real \u2014 '
+            + 'NeoPixel logics, PSIs and holoprojectors on one data line. Un-tick it and the dome '
+            + 'still lights, but with the stand-in blink rather than your sketch.';
+  const chk = document.createElement('input');
+  chk.type = 'checkbox'; chk.checked = on; chk.id = 'wizLightsOn';
+  chk.addEventListener('change',()=>{
+    if(chk.checked){ buildSet('domeLights','astropixels'); }
+    else{
+      buildSet('domeLights', WIZ_LIGHTS_WAS && WIZ_LIGHTS_WAS !== 'astropixels' ? WIZ_LIGHTS_WAS : 'none');
+    }
+    buildStartup();
+  });
+  if(!on) WIZ_LIGHTS_WAS = b.domeLights;
+  lab.appendChild(chk);
+  lab.appendChild(document.createTextNode('include the AstroPixels \u2014 simulate the dome lighting for real'));
+  host.appendChild(lab);
+}
+
+/* ================= ONE ADVANCED TICK PER STEP  (v1.75.0, 2026-08-22)
+   Mike: "move Items under Configure that are not part of the Setup Popup into
+   the setup pop up but have under the right area but as a advance button that
+   only displays them when advance is press for each area".
+
+   So each step that has a specialist half gets its own tick, and the tick
+   reveals the sections app/panels.js used to draw on the Config tab. The
+   pattern is WIZ_SERVO_ADV's, three hundred lines up: a module-level object
+   rather than a preference, because this is a view state and nobody wants
+   yesterday's curiosity remembered — and because a tick that persisted would
+   put the risky boxes in front of the next person to open the wizard.
+
+   Per STEP, not one switch for the whole wizard: the Bench has one because
+   the two things it hides are the same kind of risk, and these are not. The
+   servo endpoints can drive a horn into a hard stop; isLeftStickDrive cannot
+   hurt anything and is only here because it is not a question about hardware.
+   Collapse, don't hide — the tick is always visible, so you can see that
+   there is more here and that it does not apply to you. */
+const WIZ_ADV = {};
+function wizStepAdv(host, key, label, title, body){
+  const lab = el('label','svadv');
+  if(title) lab.title = title;
+  const chk = document.createElement('input');
+  chk.type = 'checkbox'; chk.checked = !!WIZ_ADV[key]; chk.id = 'wizAdv_'+key;
+  chk.addEventListener('change',()=>{ WIZ_ADV[key] = chk.checked; buildStartup(); });
+  lab.appendChild(chk);
+  lab.appendChild(document.createTextNode(label));
+  host.appendChild(lab);
+  if(!WIZ_ADV[key]) return false;
+  const box = el('div','wizadvbox');
+  host.appendChild(box);
+  body(box);
+  return true;
+}
+
+/* what each step hides behind its own tick. The step key is the build answer
+   it belongs to, so "the right area" is decided by the question, not by which
+   file the code happened to live in. */
+function wizStepAdvSect(host, step){
+  if(step.key === 'controller'){
+    if(typeof cfgInputMapSect !== 'function') return;
+    wizStepAdv(host, 'controller', 'advanced — which stick the sketch reads',
+      'isLeftStickDrive, and the axis map it produces. A sketch constant, not a hardware answer — '
+      + 'it is here because this is the step about what you drive with.',
+      box => cfgInputMapSect(box));
+    return;
+  }
+  if(step.key === 'servos'){
+    if(typeof cfgEndpointSects !== 'function' || !PROFILE.hasServos) return;
+    wizStepAdv(host, 'servos', 'advanced — the sketch\'s own servo endpoints',
+      'The open and closed microseconds compiled into the sketch, for every door, arm and pie. '
+      + 'These are the sketch\'s numbers, not the ones you measure on the Servo bench — and a wrong '
+      + 'one drives a horn into a hard stop.',
+      box => {
+        const w = el('div','note prose');
+        w.innerHTML = '<b>These are the sketch\'s numbers.</b> The travel you measure on the '
+          + '<b>Servo bench</b> lives in the channel table and is what this app drives; these are what '
+          + 'gets compiled into the .ino. Change them to match a sketch you have already flashed — '
+          + 'not to calibrate a servo.';
+        box.appendChild(w);
+        cfgEndpointSects(box);
+      });
+    return;
+  }
+  if(step.key === 'bodyDrive'){
+    if(typeof cfgSpeedSect !== 'function') return;
+    wizStepAdv(host, 'bodyDrive', 'advanced — speed, ramping and the deadzones',
+      'The drive speeds, turn speed, dome speed, ramping, both deadzones and the volume, exactly as '
+      + 'the sketch has them. Changing one here changes how the simulated droid feels immediately.',
+      box => cfgSpeedSect(box));
+    return;
+  }
+  if(step.key === 'firmware'){
+    if(typeof cfgSimSect !== 'function') return;
+    wizStepAdv(host, 'firmware', 'advanced — what this sketch does, and its constants',
+      'The known bugs in the chosen sketch, the Maestro slot map, how fast the simulation runs, and '
+      + 'the .ino constants to paste back into the Arduino IDE.',
+      box => {
+        if(typeof cfgSketchSects === 'function') cfgSketchSects(box);
+        if(typeof cfgMaestroSlotsSect === 'function') cfgMaestroSlotsSect(box);
+        cfgSimSect(box);
+        if(typeof cfgExportSect === 'function') cfgExportSect(box, buildStartup);
+      });
+  }
+}
+
 function wizHardwareStep(host, step){
   const b = buildGet();
   const unused = wizModelBanner(host, step);
+  if(step.key === 'domeLights') wizDomeLightsTick(host, b);
+  /* Mike, 2026-08-22: the sound piece belongs with the sound board question.
+     It is moved, not copied — see soundCardTo(). It goes AFTER the option
+     cards, because which chip is fitted is the question and loading the pack
+     of real sounds is what you do once you have answered it. */
 
   const grid = el('div','optgrid' + (WIZ_BIG_PIC[step.key] ? ' bigpic' : '') + (unused ? ' na' : ''));
   BUILD_OPTIONS[step.key].forEach(o=>{
@@ -407,6 +532,8 @@ function wizHardwareStep(host, step){
     });
   });
   host.appendChild(grid);
+
+  if(step.key === 'sound' && typeof soundCardTo === 'function' && !unused) soundCardTo(host);
 
   if(step.key === 'firmware'){
     const rec = firmwareRecommend(b);
@@ -531,6 +658,10 @@ function wizHardwareStep(host, step){
       : 'Plug a real pad in and press a button — the on-screen controller mirrors it. The keyboard drives it too (see the Controls tab).';
     host.appendChild(n);
   }
+
+  /* last, under everything the step itself says — the specialist half is a
+     footnote to the question, not a rival to it */
+  if(!unused) wizStepAdvSect(host, step);
 }
 
 /* -------------------------------------------------------------- model
@@ -955,6 +1086,10 @@ function wizServosStep(host, step){
   gb.addEventListener('click',()=>wizGo(wizStepIndex('_servoSet')));
   go.appendChild(gb);
   host.appendChild(go);
+
+  /* this step has its own renderer rather than the generic one, so it needs
+     its own call to the per-step Advanced — the sketch's compiled endpoints */
+  if(!unused) wizStepAdvSect(host, step);
 }
 
 /* ------------------------------------- and the table, if it has not followed
@@ -1966,6 +2101,10 @@ function wizDomeMapDoor(host){
 function buildStartup(){
   const host = $('startupBody');
   if(!host) return;
+  /* the sound card is a real element that gets re-parented onto the Sound
+     step (core/soundbank.js), and the very next line empties this host — so
+     take it out of harm's way first and let the step below ask for it back */
+  if(typeof soundCardPark === 'function') soundCardPark();
   host.innerHTML = '';
   const steps = wizSteps();
   const step = steps[WIZ.i] || steps[0];

@@ -256,6 +256,30 @@ function sbankSyncUI(){
     : 'no sound files — drop the Padawan zip here to hear the real thing';
   s.classList.toggle('ok', SBANK.count>0);
 }
+/* ---------------------------------- WHERE THE SOUND CARD LIVES (v1.75.0)
+   One element, three possible parents: the Controls pane it was built in,
+   the setup's Sound step, and a hidden park for the moment in between.
+   Re-parenting rather than re-rendering is what keeps the boot-time
+   bindings on #btnSounds and #btnSoundsClear alive, and what keeps the
+   live readout hud.js paints every frame pointing at a node that exists. */
+function soundCardTo(host){
+  const card = $('secSound');
+  if(!card || !host || card.parentNode === host) return card;
+  host.appendChild(card);
+  return card;
+}
+function soundCardPark(){
+  /* back to the Controls pane when there is one — the setup is shut, and
+     that is where somebody mid-drive looks to see what is playing */
+  const home = $('pHelp') || $('sndPark');
+  const card = $('secSound');
+  if(!card || !home || card.parentNode === home) return card;
+  const after = $('sndMoved');
+  if(after && after.parentNode === home) home.insertBefore(card, after);
+  else home.appendChild(card);
+  return card;
+}
+
 function sbankBindUI(){
   const b = $('btnSounds'); if(!b) return;
   const fin = document.createElement('input');

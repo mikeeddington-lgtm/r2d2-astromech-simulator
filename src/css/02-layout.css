@@ -61,6 +61,20 @@ header .spacer{flex:1}
    the state text every other module and suite reads. */
 #hdrBezel .chip > .chipab,
 #hdrBezel .chip > .chipst{display:none}
+/* v1.75.0 — the job wizard's header button carries a glyph and a word.
+   The word goes at the FIRST fit tier, before anything else is touched,
+   because a new button must not cost the status chips their labels: it is
+   the newcomer, so it sheds first. ▦ on its own still opens the same four
+   jobs and keeps its full title. */
+#btnJobs{display:inline-flex;align-items:center;gap:6px}
+/* at hdrjob the word is gone and the glyph tightens with it — six status
+   chips were losing their labels over the last dozen pixels */
+body.hdrjob #btnJobs{padding:0 5px;gap:0}
+body.hdrjob   #btnJobs .hlbl,
+body.hdrshort #btnJobs .hlbl,
+body.hdrdots  #btnJobs .hlbl,
+body.hdrtiny  #btnJobs .hlbl,
+body.hdrbare  #btnJobs .hlbl{display:none}
 body.hdrshort #hdrBezel .chip{padding:0 7px;gap:5px}
 body.hdrshort #hdrBezel .chip > .chipab{display:block}
 body.hdrshort #hdrBezel .chip > span:last-child{display:none}

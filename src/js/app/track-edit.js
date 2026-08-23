@@ -698,7 +698,19 @@ function trackEditSave(name){
 function trackEditInstallButton(){
   const anchor = $('btnTrack');
   if(!anchor || $('btnTrackEdit')) return;
-  const b = el('button','sbtn','✎ EDIT');
+  /* "Edit Track", not "EDIT" (2026-08-22, Mike): beside a button that
+     already says TRACK, one bare verb reads as a mode rather than a door,
+     and the Model Builder's sibling chip (🔧 BUILD, scene/builder.js) has the
+     same shape. The ✎ stays — it is what marks these two as the ones that
+     open an editor rather than toggle the stage. Written in words, not
+     shouted: .sbtn is text-transform:uppercase, so the stage reads EDIT
+     TRACK either way and the source stays readable, which is how every
+     other stage button is already written (`Reset pose`, `BG: auto`).
+     Longer by four characters, and nothing measures #stageTools: it is a
+     flex row that SCROLLS below 900px of stage rather than clipping or
+     abbreviating (02-layout.css), and the header's fit tiers only ever
+     look at the status chips (app/main.js). Nothing to overflow. */
+  const b = el('button','sbtn','✎ Edit Track');
   b.id = 'btnTrackEdit';
   b.title = 'Track Builder — move the control points, gates and cones';
   b.addEventListener('click', trackEditOpen);

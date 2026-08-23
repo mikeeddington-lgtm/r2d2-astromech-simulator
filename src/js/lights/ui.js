@@ -44,20 +44,56 @@ const LUI_PRESETS = [
 
 const LUI = {sel:{}, holoSel:{}};
 
+/* include or exclude the AstroPixels — the build answer, from this pane.
+   Kept whole here rather than shared with the wizard's copy because
+   config/wizard.js is not loaded in PCA Studio and one global namespace
+   means one name per idea; the two agree by writing the same key. */
+let LUI_LIGHTS_WAS = '';
+function luiIncludeTick(host){
+  if(typeof buildGet !== 'function' || typeof buildSet !== 'function') return null;
+  const b = buildGet();
+  const on = b.domeLights === 'astropixels';
+  if(!on) LUI_LIGHTS_WAS = b.domeLights;
+  const lab = el('label','svadv');
+  lab.title = 'the only dome lighting this simulator drives for real \u2014 un-tick it and the '
+            + 'dome falls back to the stand-in blink';
+  const chk = document.createElement('input');
+  chk.type = 'checkbox'; chk.checked = on; chk.id = 'luiInclude';
+  chk.addEventListener('change',()=>{
+    buildSet('domeLights', chk.checked ? 'astropixels'
+      : (LUI_LIGHTS_WAS && LUI_LIGHTS_WAS !== 'astropixels' ? LUI_LIGHTS_WAS : 'none'));
+    /* apxInit() re-reads the build and rebuilds the rig; apxSync() then puts
+       the stand-in lights back (or takes them away) on the next frame */
+    if(typeof apxInit === 'function') apxInit();
+    if(typeof buildCadPane === 'function') buildCadPane();
+    else if(typeof rebuildProfileUI === 'function') rebuildProfileUI();
+  });
+  lab.appendChild(chk);
+  lab.appendChild(document.createTextNode('include the AstroPixels'));
+  host.appendChild(lab);
+  return lab;
+}
+
 function buildDomeLightsSect(host){
   if(typeof APX === 'undefined') return;
   const fw = apxFirmware();
   const iface = LE_IFACES.find(i => i.id === APX.iface) || LE_IFACES[0];
   const s = sect(host, 'Dome lighting', APX.on ? 'AstroPixels' : 'not simulated');
 
-  /* Why the section might be inert. The build wizard owns this answer, so
-     the pane's job is to say which answer is doing it and where to change
-     it — not to offer a switch that contradicts the build. */
+  /* The tick, at the top, because it is the first question (v1.75.0). The
+     old note here said the pane must not "offer a switch that contradicts
+     the build" — and that is still right, which is why this switch does not
+     contradict it: it WRITES the build's own domeLights answer, the same one
+     the Setup step's tick writes, and then re-derives APX from it. One
+     answer, two places to give it. Mike asked for the tick on 2026-08-22. */
+  luiIncludeTick(s);
+
   if(!APX.on){
     const why = el('div','note cy prose');
     why.innerHTML = '<b>The dome lights are not being simulated.</b> ' +
       'This build\'s <b>Dome lighting</b> answer is not AstroPixels, so the logics and PSIs are running ' +
-      'the stand-in\'s own idle blink. Change it on the <b>Setup</b> step and the real LogicEngine effects come on.';
+      'the stand-in\'s own idle blink. Tick <b>include the AstroPixels</b> above \u2014 or answer the ' +
+      '<b>Dome lighting</b> step in Setup \u2014 and the real LogicEngine effects come on.';
     s.appendChild(why);
     return s;
   }

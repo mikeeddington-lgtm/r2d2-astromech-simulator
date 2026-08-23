@@ -284,7 +284,12 @@ body.wizsplit #stage{border-left:1px solid var(--line2)}
 #stprail{padding:11px var(--stpPad)}
 .raildot{font-size:10.5px;padding:5px 12px}
 .stpbody .sect h3{font-size:11.5px}
-.stpbody .hint,.stpbody .note{font-size:var(--fs-data);line-height:1.7}
+/* :not(.prose) since v1.75.0 — the wizard's compact type is for CAPTIONS.
+   The sketch's bug notes moved onto the Firmware step and are three real
+   paragraphs; this rule was quietly winning over 05-controls.css and
+   drawing them at data size. A paragraph reads like a paragraph wherever
+   it is drawn — look-boards.test.js pins it. */
+.stpbody .hint:not(.prose),.stpbody .note:not(.prose){font-size:var(--fs-data);line-height:1.7}
 .stpbody .b{font-size:11px;padding:7px 12px}
 .stpfoot .b{font-size:12px;padding:9px 16px}
 .stpfoot .hint{font-size:var(--fs-data)}
@@ -923,4 +928,8 @@ svg.flow{width:auto;max-width:100%;height:auto;display:block}
   color:var(--dimmer);
 }
 .svadv:hover{color:var(--txt)}
+/* v1.75.0 — what a per-step Advanced tick reveals. Inset and ruled off so
+   it reads as a footnote to the question above it rather than more of it. */
+.wizadvbox{margin:6px 0 2px;padding:2px 0 2px 12px;border-left:2px solid var(--line)}
+.wizadvbox .sect{margin-top:10px}
 .svadv input{accent-color:var(--cta)}

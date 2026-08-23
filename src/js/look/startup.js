@@ -102,6 +102,10 @@ function openStartup(){
   wizOpen();
 }
 function closeStartup(){
+  /* the Sound step borrows the real sound card; give it back before the
+     overlay goes, or the live readout spends the rest of the session
+     painting into a node nobody can see (core/soundbank.js) */
+  if(typeof soundCardPark === 'function') soundCardPark();
   $('startup').classList.remove('on');
   if(typeof wizSplit === 'function') wizSplit(false);   // put the app layout back
   PREFS.seenStartup = true;

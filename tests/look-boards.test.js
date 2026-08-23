@@ -154,12 +154,20 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
   /* v1.15.0: labels/values/tables stay mono; real paragraphs carry .prose
      (sans, --fs-body). These pin the split so a restyle can't silently put
      the Config bug notes back into 10px caps. */
-  ok('the Config pane bug notes are sans prose at body size (≥13px)', await ev(()=>{
-    const p = $('cfgHost').querySelector('.note.prose');
+  /* v1.75.0 — the bug notes moved with the rest of the sketch's own
+     settings, onto the setup's Firmware step behind its Advanced tick. The
+     typography rule is unchanged and is still worth pinning; only the
+     address changed. */
+  ok('the sketch bug notes are sans prose at body size (≥13px)', await ev(()=>{
+    closeStartup();
+    wizOpen(wizStepIndex('firmware'));
+    WIZ_ADV.firmware = true; buildStartup();
+    const p = $('startupBody').querySelector('.note.prose');
     if(!p) return false;
     const cs = getComputedStyle(p);
     return !/mono|Menlo|Consolas/i.test(cs.fontFamily) && parseFloat(cs.fontSize) >= 13;
   }));
+  await ev(()=>closeStartup());
   ok('the Maestro pane explainer is sans prose too', await ev(()=>{
     const p = $('maeHost').querySelector('.prose');
     if(!p) return false;

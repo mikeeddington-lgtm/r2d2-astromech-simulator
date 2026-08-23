@@ -90,11 +90,21 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
     && Math.round($('tabCad').getBoundingClientRect().right) <= window.innerWidth),
     await ev(()=>document.documentElement.scrollWidth+' vs '+window.innerWidth));
 
-  await page.setViewportSize({ width: 1500, height: 950 });
+  /* 1520, not 1500 (v1.75.0). The header gained a button — the job wizard's
+     "Build & files" — and it costs twenty pixels of window before the chips
+     get their labels back. That is the whole cost, because 'hdrjob' is a tier
+     above hdrshort that sheds ONE thing: the word on that new button. So the
+     assertion below is joined by the one after it, which is the invariant that
+     actually matters — when something has to give, it is the newcomer's word
+     and not the six status chips that have carried labels since v1.0. */
+  await page.setViewportSize({ width: 1520, height: 950 });
   await settled();
   ok('chip labels and the version tag return on a wide screen', await ev(()=>
     getComputedStyle($('chDrive').lastElementChild).display!=='none'
     && getComputedStyle($('verTag')).display!=='none'));
+  ok('…and the only thing shed at that width is the new button’s own word', await ev(()=>
+    !/hdrshort|hdrdots|hdrtiny|hdrbare/.test(document.body.className)),
+    await ev(()=>document.body.className));
   await page.setViewportSize({ width: 1280, height: 780 });
   await settled();
 
@@ -663,14 +673,32 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
   console.log('\n════ the builder’s manual — one URL, four doors (v1.57.0) ════');
   /* Mike: "make the manual really prominent on the sim". Four places open it,
      and the thing worth pinning is not that the buttons exist but that all
-     four go through the SAME constant: four hardcoded copies of a release URL
-     is four things to forget when the repository moves, and the one that gets
-     forgotten is always the one somebody actually clicks. */
+     four go through the SAME constant: four hardcoded copies of a URL is four
+     things to forget when the repository moves, and the one that gets
+     forgotten is always the one somebody actually clicks. Since v1.75.0 the
+     repo half of that constant is APP_REPO's, not a second typing of it. */
+  /* The reachability probe is NOT what this block is about — track-ui.test.js
+     owns it — and it fires eight seconds after any manualOpen(), which is long
+     after this block has moved on. Left alone it lands a dialog over the app
+     mid-suite. Worse, whether it lands at all depends on the sandbox's egress
+     allowlist rather than on the code: github.com answers here and
+     *.github.io does not, so moving the manual to Pages in v1.75.0 flipped
+     this from silently-reachable to definitely-not. Pin it, so this file
+     tests the four doors and nothing about the network. */
+  await ev(()=>{ manualReach = ()=>Promise.resolve(true); });
   const man = await ev(()=>{
     const got = {url: (typeof MANUAL_URL === 'string') ? MANUAL_URL : ''};
-    got.https   = /^https:\/\/github\.com\//.test(got.url);
-    got.release = /\/releases\/latest\/download\//.test(got.url);
-    got.file    = got.url.endsWith('R2D2-Simulator-Manual.html');
+    /* v1.75.0 — the manual is a LIVE PAGE now, not a release asset. Mike:
+       "Can we make the Manual a live page on the git hub so its alway upto
+       date". So the doors follow a Pages URL, the release download stays as
+       the fallback named when Pages does not answer, and the thing to pin is
+       that BOTH are still composed from APP_REPO rather than typed out —
+       which was the original point of this block. */
+    got.pages    = got.url === MANUAL_PAGES_URL;
+    got.pagesUrl = /^https:\/\/[^./]+\.github\.io\/[^/]+\/manual\/$/.test(got.url);
+    got.release  = /\/releases\/latest\/download\/R2D2-Simulator-Manual\.html$/.test(MANUAL_RELEASE_URL);
+    got.fromRepo = MANUAL_RELEASE_URL.indexOf(APP_REPO + '/') === 0
+                && got.url.indexOf(APP_REPO.split('/').pop() + '/manual/') > 0;
 
     /* door 1 — the header, beside ? */
     const hdr = $('btnManual');
@@ -708,8 +736,8 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
       .map(id=>{ const b=$(id); return b ? /manual/i.test(b.textContent) : false; });
     return got;
   });
-  ok('there is ONE manual URL, and it is the release download',
-     man.https && man.release && man.file, man.url);
+  ok('there is ONE manual URL, it is the live page, and both it and the release fallback come from APP_REPO',
+     man.pages && man.pagesUrl && man.release && man.fromRepo, JSON.stringify(man));
   ok('door 1 — a Manual button in the header, beside the ?',
      man.header && man.inHeader && man.byTheQuestionMark, JSON.stringify(man));
   ok('door 2 — on the setup screen’s head, so every step has it, not just one',

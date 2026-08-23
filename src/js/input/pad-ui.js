@@ -113,13 +113,38 @@ function dz(v){ return Math.abs(v)<INPUT.rawDeadzone ? 0 : v; }
    hidden there anyway — 10-kiosk.css) and a modal overlay (uiModalOpen(),
    core/util.js), which are physical rather than logical exclusions.
 
-   HOW OFTEN. pollInput() runs once a frame, so a check with no edge in it
-   is a toast sixty times a second. It fires on the RISING edge of an
-   attempt-burst — centred to pushed — and once the user has armed the feet
-   even once this session the fact has been learned by doing, so the window
-   between repeats widens from a couple of seconds to a minute. Arming
-   stamps that window, which is what makes the disarm-and-try-again case
-   quiet rather than immediately loud again.
+   HOW OFTEN (rewritten 2026-08-22). pollInput() runs once a frame, so a
+   check with no edge in it is a toast sixty times a second. The RISING
+   edge of an attempt-burst — centred to pushed — is still what fires it,
+   and two pushes closer together than DRIVEHINT_BURST still read as one
+   attempt, so a stick hunting around the deadzone cannot machine-gun
+   plates. What is GONE is the "you already know this" half. It used to
+   widen the gap to a full minute the moment the user had armed the feet
+   even once, and the armed branch re-stamped that window on EVERY armed
+   frame, so the minute only started counting from the disarm — arm,
+   disarm, push the stick, silence. That is the case Mike reported, and his
+   ruling is that the prompt belongs on every attempt made while the feet
+   are disarmed. Having armed once is not evidence that you remember; it is
+   usually the reason you are surprised. So this hint keeps no score of who
+   has learned what, and the armed branch below drops the standing plate
+   and forgets the push without starting any quiet timer.
+
+   WHICH CLOCK. The burst window runs on WALL clock, not SIM.millis, for
+   the reason core/toast.js gives at the top of that file: simulated time
+   stalls behind wall time under load and stops dead while a blocking
+   delay() holds the loop, so a SIM.millis window quietly stretches into
+   minutes of real silence in exactly the moments the droid feels most
+   broken. The plate this is rate-limiting already lives on wall clock;
+   two clocks disagreeing about the same second is not worth the trouble.
+
+   THE D-PAD IS AN ATTEMPT TOO. UP/DOWN/LEFT/RIGHT arrive as BUTTONS and
+   nothing in this file merges them into LX/LY, so a D-pad push used to
+   reach this check as a perfectly centred stick and say nothing at all.
+   Somebody thumbing the D-pad at a droid that will not move is trying to
+   drive, so the seam hands their press state in beside the sticks as a
+   second kind of attempt. Only to THIS check, deliberately: merging the
+   D-pad into LX/LY would change what MOVES the droid, and Mike asked about
+   what PROMPTS.
 
    WHY "hold". A tap of ↵ can fall entirely between two pollInput() calls
    and never produce the rising edge getButtonClick('START') needs. The old
@@ -132,9 +157,15 @@ function dz(v){ return Math.abs(v)<INPUT.rawDeadzone ? 0 : v; }
    dismisses it early through the same toastDrop() a click on the plate
    itself uses. */
 const DRIVEHINT_MSG   = 'Feet are disarmed — hold Enter (Start) to arm.';
-const DRIVEHINT_BURST = 1500;    // ms — two attempts closer than this are one attempt
-const DRIVEHINT_KNOWN = 60000;   // ms — the gap once they have armed the feet at least once
-const DRIVEHINT = { shownAt:-Infinity, plate:null, pushing:false, armedOnce:false };
+const DRIVEHINT_BURST = 1500;    // ms of WALL clock — two attempts closer than this are one attempt
+const DRIVEHINT = { shownAt:-Infinity, plate:null, pushing:false };
+
+/* The wall clock the burst window is measured on — see WHICH CLOCK above.
+   performance.now() where the host has it, Date.now() where it does not;
+   only differences are ever taken, so the two origins never have to agree. */
+function driveHintWall(){
+  return (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+}
 
 /* "Has this build said what drives the feet at all?" — Q7's third answer,
    added in config/hardware.js in the same release. buildFootUndecided() is
@@ -155,13 +186,11 @@ function driveFootUndecided(){
   return !o || o.undecided === true || o.sim === 'park';
 }
 
-function driveHintCheck(lx, ly){
+function driveHintCheck(lx, ly, dpad){
   if(FW.isDriveEnabled){
     if(DRIVEHINT.plate && typeof toastDrop==='function') toastDrop(DRIVEHINT.plate);
     DRIVEHINT.plate = null;
-    DRIVEHINT.pushing = false;
-    DRIVEHINT.armedOnce = true;
-    DRIVEHINT.shownAt = SIM.millis;          // arming IS the lesson landing — start the quiet window here
+    DRIVEHINT.pushing = false;               // drop the plate, forget the push, start NO quiet window
     return;
   }
   /* NOT AN ATTEMPT AT ALL, so the edge is not latched either and a stick
@@ -176,7 +205,7 @@ function driveHintCheck(lx, ly){
   if(typeof kioskOn==='function' && kioskOn()) return;
   if(typeof uiModalOpen==='function' && uiModalOpen()) return;
 
-  const pushing = Math.abs(lx)>INPUT.rawDeadzone || Math.abs(ly)>INPUT.rawDeadzone;
+  const pushing = Math.abs(lx)>INPUT.rawDeadzone || Math.abs(ly)>INPUT.rawDeadzone || !!dpad;
   const rising  = pushing && !DRIVEHINT.pushing;
   DRIVEHINT.pushing = pushing;
   if(!rising) return;
@@ -195,8 +224,8 @@ function driveHintCheck(lx, ly){
     return;
   }
 
-  const now = SIM.millis;
-  if(now - DRIVEHINT.shownAt < (DRIVEHINT.armedOnce ? DRIVEHINT_KNOWN : DRIVEHINT_BURST)) return;
+  const now = driveHintWall();
+  if(now - DRIVEHINT.shownAt < DRIVEHINT_BURST) return;
   DRIVEHINT.shownAt = now;
   if(typeof toast==='function') DRIVEHINT.plate = toast(DRIVEHINT_MSG, 'warn');
   /* and TEACH it, which is the owner's ruling on this fix: the attempt is
@@ -278,8 +307,11 @@ function pollInput(){
   }
 
   /* EVERY drive door has now landed in LX/LY — keyboard, on-screen pad,
-     real gamepad, RC. This is the seam; see driveHintCheck() above. */
-  driveHintCheck(LX, LY);
+     real gamepad, RC — and the D-pad's four buttons, which never merge into
+     the sticks, ride along as their own attempt flag rather than being
+     mixed in (that would change what drives). This is the seam; see
+     driveHintCheck() above. */
+  driveHintCheck(LX, LY, btn.UP || btn.DOWN || btn.LEFT || btn.RIGHT);
 
   /* trigger noise floor */
   if(btn.L2<25) btn.L2=0;

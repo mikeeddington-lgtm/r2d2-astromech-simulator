@@ -80,40 +80,50 @@ function selectRepaint(){
    deselectPart() is deliberately NOT guarded: it only ever closes, and
    kioskEnter() calls it on the way in. */
 
-/* =================== IS A PARTS PANE OPEN? (v1.70.1)
+/* =================== IS A PARTS PANE OPEN? (v1.70.1 — SUPERSEDED 2026-08-22)
 
-   The second guard, and it is about the OTHER way this card arrives
-   unasked. Kiosk is a stranger at a show; this is the owner, on their own
-   laptop, clicking the canvas to give the stage keyboard focus before
-   pressing a key — and getting #selcard on whichever panel the ray hit.
-   The card is not a hover tooltip: it is the part's whole configuration
-   (rename, colour, groups, pivot/travel, and the Maestro channel re-map
-   that rewrites MSTR.channels[n].act). A pointing device should not open
-   an editor for something you were not editing.
+   The argument this block used to make stays written down, because the
+   thing it worried about has not gone away. It was the second guard, and
+   it was about the OTHER way this card arrives unasked. Kiosk is a
+   stranger at a show; this was the owner, on their own laptop, clicking
+   the canvas to give the stage keyboard focus before pressing a key — and
+   getting #selcard on whichever panel the ray hit. The card is not a
+   hover tooltip: it is the part's whole configuration (rename, colour,
+   groups, pivot/travel, and the Maestro channel re-map that rewrites
+   MSTR.channels[n].act), and the rule that followed was that a pointing
+   device should not open an editor for something you were not editing. So
+   the plain click kept working where you were already doing part work —
+   Configure → Model (#pCad), the pane this card IS, and the setup's Panels
+   step, the split step that gives up half the window to the stage
+   precisely so you can click the part you are assigning — and did nothing
+   on the Drive screen.
 
-   The owner's ruling is a PLACE, not a modifier: the plain click keeps
-   working where you are already doing part work, and does nothing on the
-   Drive screen. Two places qualify and the app already says both of them
-   out loud, so nothing new has to be tracked:
+   Mike overruled that on 2026-08-22. He asked for “I should be able to
+   click on a panel on the model and bring up its configuration including
+   what servo drives it etc.”, was asked where it should apply, and chose
+   everywhere except kiosk. So that is the rule now: a click on a panel
+   opens the part card on whatever screen you are on, and sim is the one
+   place that still refuses — selectPart()'s kioskOn() guard above, with
+   10-kiosk.css's own line on #selcard standing behind it. The card was
+   always the right answer to what he asked for: the “Driven by” channel
+   picker, the colour and the test slider are already on it.
 
-     · Configure → Model (#pCad) — the pane this card IS. Every editor on
-       the card has its twin in there, so a click that opens it is a click
-       into the pane you are looking at. `.act` is app/panels.js's own tab
-       state, and applyWs() keeps it honest when a workspace change hides
-       the tab, so this answers "open" rather than "exists".
+   The old worry is answered by a threshold rather than by a place — the
+   `moved > 6 || dt > 500` test in initSelect() means a click that was
+   really an orbit drag never reaches the ray, and a click on empty stage
+   deselects, which is exactly what it already did in the pane this card
+   belongs to. If the accidental focus-click ever becomes a real
+   complaint, the fix is a modifier or a read-only card on the Drive
+   screen, not this test back in front of the pointer path.
 
-     · the setup's Panels step — '_panels' is in WIZ_SPLIT (config/
-       wizard.js), the list of steps that give up half the window to the
-       stage PRECISELY so you can click the part you are assigning. The
-       overlay owns the window while it is up, so it is asked first and it
-       answers for the whole app: any other step of it is not part work.
-
-   Deliberately NOT a workspace test. 'config' also holds the Config tab,
-   which is sketch constants, and the two legitimate non-pointer callers
-   (config/tab.js's assign-row Test, app/panels.js's Outputs row) sit in
-   panes this returns false for — the Outputs table is a DRIVE pane. They
-   pass no `from`, so they are unaffected: this gates the pointer path,
-   not the card. */
+   selPartsPaneOpen() itself is kept, and is still the honest answer to
+   “is a parts pane showing”: `.act` is app/panels.js's own tab state and
+   applyWs() keeps it honest when a workspace change hides the tab, and
+   the wizard is asked first because the overlay owns the window while it
+   is up. It is simply no longer wired to the pointer path. It was never
+   the test for the two non-pointer callers either (config/tab.js's
+   assign-row Test, app/panels.js's Outputs row — the Outputs table is a
+   DRIVE pane); they pass no `from` and never asked it anything. */
 function selPartsPaneOpen(){
   const su = $('startup');
   if(su && su.classList.contains('on')){
@@ -126,8 +136,10 @@ function selPartsPaneOpen(){
 }
 
 function selectPart(name, from){
+  /* the ONE refusal left (2026-08-22, see above): sim. `from` is still
+     passed by the pointer path so a future place-rule has something to
+     read, but nothing tests it any more. */
   if(typeof kioskOn === 'function' && kioskOn()) return;
-  if(from === 'stage' && !selPartsPaneOpen()) return;
   SEL.name = name;
   applyPaint();                                    // repaints all, then selectRepaint() highlights
   buildSelCard();
@@ -447,6 +459,49 @@ function motionGuessAmount(mov, k){
   return Math.round(v*10)/10;
 }
 
+/* ============== “THERE IS NOTHING HERE TO PICK” (2026-08-22)
+
+   pickAt() needs CAD.active, and with the Procedural model chosen there
+   is no pickable geometry at all — the procedural meshes (scene/
+   droid-proc.js) carry no userData.partName, so every ray misses. Before
+   today that silence was invisible, because the click did nothing on most
+   screens anyway. Now that a click picks everywhere, a click that lands on
+   a panel-shaped thing and produces nothing is the one way the new rule
+   reads as a bug, so it answers instead of failing quietly.
+
+   Only for the DROID. The mouse, the Anzellan head, the Builder and the
+   servo gauges are not this card's subject, and a click on one of them
+   going quiet is correct rather than broken.
+
+   Rate-limited the way the other one-shot hints are (buildFootUnsetSay in
+   config/hardware.js, driveHintCheck in input/pad-ui.js) — once, then not
+   again for 30 s, and cleared the moment the CAD model IS on the stage so
+   switching away and back does not buy thirty seconds of silence.
+   performance.now() rather than SIM.millis, unlike those two: this is the
+   pointer path, which is already on the wall clock two lines up, and a
+   hint about a click must not go quiet because the sketch stalled.
+
+   No uiModalOpen() test either. The click reached a CANVAS inside #stage,
+   so the stage is on screen and taking the pointer — which during the
+   setup means the split Panels step, and somebody assigning panels to a
+   procedural droid is precisely the person who needs to hear this.
+
+   Returns true when it has handled the click, so a miss on a stage that
+   was never pickable does not also deselect whatever the Outputs row or
+   the assign row just opened. */
+const SEL_PROC_HINT = { shownAt:-Infinity };
+function selProcHintSay(){
+  if(typeof CAD === 'undefined') return false;
+  if(CAD.loaded && CAD.active){ SEL_PROC_HINT.shownAt = -Infinity; return false; }
+  if(typeof modelGet === 'function' && modelGet() !== 'droid') return false;
+  const now = performance.now();
+  if(now - SEL_PROC_HINT.shownAt < 30000) return true;
+  SEL_PROC_HINT.shownAt = now;
+  if(typeof toast === 'function')
+    toast('part picking needs the MK4 CAD model — the procedural stand-in has no separate panels', 'warn');
+  return true;
+}
+
 /* ----------------------------------------------------------- bindings */
 function initSelect(){
   const stage = $('stage');
@@ -467,14 +522,18 @@ function initSelect(){
     const dt = performance.now()-d0.t;
     d0=null;
     if(moved>6 || dt>500) return;                  // that was an orbit drag
-    /* v1.70.1 — "does nothing on the Drive screen" includes the miss: a
-       click on empty stage used to deselect, which would shut a card the
-       Outputs row had just opened. So the whole pick is skipped, and
-       selectPart()'s own guard below stands behind it. */
-    if(!selPartsPaneOpen()) return;
+    /* 2026-08-22 — the parts-pane test that used to stand here went with
+       the ruling at the top of this file: the pick runs on every screen
+       now, and sim is the only refusal. Keeping it in front of pickAt()
+       rather than leaving it all to selectPart() matters for the hint
+       below — a stranger at a show must not be told about CAD models.
+       Everything past this line is a genuine click on the canvas, which
+       is what lets that hint speak without firing on every orbit drag. */
+    if(typeof kioskOn === 'function' && kioskOn()) return;
     const name = pickAt(e.clientX, e.clientY);
-    if(name) selectPart(name, 'stage');
-    else deselectPart();
+    if(name){ selectPart(name, 'stage'); return; }
+    if(selProcHintSay()) return;                   // nothing here is pickable — say so
+    deselectPart();
   });
   window.addEventListener('keydown', e=>{
     if(e.key==='Escape' && SEL.name && !$('startup').classList.contains('on')) deselectPart();

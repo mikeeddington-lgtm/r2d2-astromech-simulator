@@ -262,7 +262,12 @@ function chipAb(text){
 }
 
 /* the tiers, widest first — see 02-layout.css for what each one hides */
-const HDR_TIERS = ['', 'hdrshort', 'hdrdots', 'hdrtiny', 'hdrbare'];
+/* v1.75.0 — 'hdrjob' is a tier ABOVE hdrshort that sheds exactly one thing:
+   the word on the job wizard's new header button. A button added in 2026
+   must not cost the status chips the labels they have always had at a
+   normal window size, so the newcomer gives up its word first and the
+   ladder only starts abbreviating the chips once that has not been enough. */
+const HDR_TIERS = ['', 'hdrjob', 'hdrshort', 'hdrdots', 'hdrtiny', 'hdrbare'];
 let HDR_FITKEY = '';
 
 /* is any label the cluster is currently SHOWING cut off? The spans carry
@@ -283,7 +288,7 @@ function hdrChipsClipped(){
 function syncHeaderFit(){
   const b = document.body;
   for(const tier of HDR_TIERS){
-    b.classList.remove('hdrshort','hdrdots','hdrtiny','hdrbare');
+    b.classList.remove('hdrjob','hdrshort','hdrdots','hdrtiny','hdrbare');
     if(tier) b.classList.add(tier);
     if(!hdrChipsClipped()) return;
   }
@@ -393,6 +398,12 @@ window.addEventListener('load',()=>{
      while that view is up and a tile is selected. */
   if(typeof svKey==='function') document.addEventListener('keydown', svKey);
   if(typeof svRestore==='function') svRestore();
+  /* the job wizard's top-bar door (v1.75.0). Static markup, bound once at
+     boot like every other header button; jobwizOpen() is maestro's, so the
+     typeof guard keeps this file honest in a build without it. */
+  if($('btnJobs')) $('btnJobs').addEventListener('click',()=>{
+    if(typeof jobwizOpen === 'function') jobwizOpen();
+  });
   if($('btnManualHelp')) $('btnManualHelp').addEventListener('click', manualOpen);
   if($('btnManualStp'))  $('btnManualStp').addEventListener('click', manualOpen);
   $('btnModel').addEventListener('click',()=>stagePicker('btnModel', modelOptions(), modelGet(), id=>modelSet(id)));

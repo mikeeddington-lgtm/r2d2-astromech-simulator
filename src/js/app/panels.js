@@ -485,115 +485,32 @@ function buildConfig(){
 
   /* ---- the sketch ---- */
   cfgAnchor(host,'cfgSketch','Sketch');
-  /* the sketch bug notes are real paragraphs — .prose gives them the sans
-     and calms the inline bolds; the amber/cyan border still says warn/info */
-  PROFILE.notes.forEach(n=>{
-    const d=el('div','note'+(n.k==='info'?' cy':'')+' prose');
-    d.innerHTML=n.h; host.appendChild(d);
-  });
+  /* ============== THE SKETCH CONSTANTS MOVED  (v1.75.0, 2026-08-22)
+     Mike: "Can we move Items under Configure that are not part of the Setup
+     Popup into the setup pop up but have under the right area but as a
+     advance button that only displays them when advance is press for each
+     area". So they went, whole, to the step whose question they answer —
+     Speed & feel to Foot drive, Input mapping to Controller, the two endpoint
+     tables to Servo hardware, and the sketch's own business (its bug notes,
+     the dome fix, the Maestro slots, Simulation and the .ino export) to
+     Firmware. Each one is behind that step's own Advanced tick.
 
-  if(PROFILE.id==='mod2026'){
-    const l=el('label','sw');
-    const cb=document.createElement('input'); cb.type='checkbox'; cb.id='cbFixDome'; cb.checked=SIM.fixDomeBug;
-    cb.addEventListener('change',e=>{ SIM.fixDomeBug=e.target.checked; lg('sys','dome automation fix '+(SIM.fixDomeBug?'ENABLED':'disabled')); });
-    l.appendChild(cb); l.appendChild(document.createTextNode('Apply the dome-automation fix'));
-    host.appendChild(l);
-  }
-
-  /* THE SIM BOX IS A RATE, NOT A FREE NUMBER.
-     These inputs had no min and no max, so `maestroRate` could be typed
-     negative — and a negative ramp rate makes every actuator step AWAY from
-     its target for ever (app/animate.js has the whole story and the clamp
-     that now catches it). main.js has always clamped CFG.loopHz at the
-     point of use, 20–2000; these are the same limits said out loud, on the
-     box, where a typed value can be refused before it ever reaches the
-     model. Anything not named here keeps its old free-number behaviour —
-     the entry is the claim that we know what a sane range IS. */
-  const CFG_LIMITS = {
-    loopHz:     {min:20,   max:2000},
-    maestroRate:{min:0.05, max:60},
-    servoSpeed: {min:10,   max:20000},
-    maxSpeed:   {min:0.1,  max:20},
-    maxYaw:     {min:0.1,  max:20},
-    domeRate:   {min:0.1,  max:30}
-  };
-  const numGrid=(parent,list)=>{
-    const g=el('div','cfggrid2');
-    list.forEach(([k,label])=>{
-      const r=el('div','cfgrow');
-      const lb=el('label',null,label); lb.title=k+'  (default '+PROFILE.defaults[k]+')';
-      const i=document.createElement('input');
-      i.type='number'; i.value=CFG[k];
-      i.step=(k==='maxSpeed'||k==='maxYaw'||k==='domeRate'||k==='maestroRate')?0.1:1;
-      const lim=CFG_LIMITS[k];
-      if(lim){
-        i.min=lim.min; i.max=lim.max;
-        lb.title += '  ·  ' + lim.min + '–' + lim.max;
-      }
-      i.addEventListener('change',()=>{
-        let v=parseFloat(i.value); if(isNaN(v)){ i.value=CFG[k]; return; }
-        /* the browser only ENFORCES min/max on a stepper click or a form
-           submit — a typed number arrives whatever it says — so the box is
-           pulled back here and the input repainted with what was taken */
-        if(lim){ v=clamp(v, lim.min, lim.max); if(v!==parseFloat(i.value)) i.value=v; }
-        CFG[k]=v;
-        if(k==='vol') SND.vol=v;
-        if(k==='FOOT_CONTROLLER'){
-          CFG[k]=v?1:0; i.value=CFG[k];
-          MOT.leftFoot=MOT.rightFoot=90; MOT.drive=MOT.turn=0; MOT.driveAt=MOT.footAt=-1e9;
-          lg('sys','FOOT_CONTROLLER = '+CFG[k]+(CFG[k]?'  (individual ESCs / hub motors)':'  (Sabertooth serial)'));
-          buildOutputs();
-        }
-        if(k.indexOf('DRIVESPEED')===0 && [CFG.DRIVESPEED1,CFG.DRIVESPEED2,CFG.DRIVESPEED3].indexOf(FW.drivespeed)<0) FW.drivespeed=CFG.DRIVESPEED1;
-        lg('sys',`config: ${k} = ${CFG[k]}`);
-      });
-      r.appendChild(lb); r.appendChild(i); g.appendChild(r);
-    });
-    parent.appendChild(g);
-  };
-
-  const s1=sect(host,'Speed &amp; feel', PROFILE.footPWM()?'PWM hub':'serial');
-  numGrid(s1, PROFILE.cfg.speed);
-
-  const s2=sect(host,'Input mapping');
-  const l2=el('label','sw');
-  const cb2=document.createElement('input'); cb2.type='checkbox'; cb2.checked=FW.isLeftStickDrive;
-  cb2.addEventListener('change',e=>{ FW.isLeftStickDrive=e.target.checked; applyStickMapping(); axHint(); lg('sys','isLeftStickDrive = '+FW.isLeftStickDrive); });
-  l2.appendChild(cb2); l2.appendChild(document.createTextNode('isLeftStickDrive'));
-  s2.appendChild(l2);
-  const ah=el('div','hint'); ah.id='axisHint'; s2.appendChild(ah);
-
-  if(PROFILE.hasServos){
-    const s3=sect(host,'Body servo endpoints','0x40'); numGrid(s3, PROFILE.cfg.body);
-    const s4=sect(host,'Dome pie panels','0x41');      numGrid(s4, PROFILE.cfg.pie);
-  }
-
-  if(PROFILE.hasMaestro){
-    const s5=sect(host,'Maestro sequence slots','what each sequence does');
-    const trig=['RT+▲','RT+▶','RT+▼','RT+◀','LT+▲','LT+▶','LT+▼','LT+◀'];
-    for(let n=0;n<8;n++){
-      const r=el('div','cfgrow'); r.style.gridTemplateColumns='58px 1fr';
-      r.appendChild(el('label',null, n+' · '+trig[n]));
-      const sel=document.createElement('select'); sel.className='msel';
-      ANIM_IDS.forEach(id=>{
-        const o=document.createElement('option'); o.value=id; o.textContent=ANIMS[id].label;
-        if(CFG.maestroScript[n]===id) o.selected=true;
-        sel.appendChild(o);
-      });
-      sel.addEventListener('change',()=>{ CFG.maestroScript[n]=sel.value; lg('sys',`slot ${n} → ${ANIMS[sel.value].label}`); });
-      r.appendChild(sel); s5.appendChild(r);
-    }
-    const h=el('div','hint prose');
-    h.innerHTML='These sequences live on the Maestro itself, so set them to match what you actually loaded onto the board. The sim only knows the slot number the sketch fires.';
-    s5.appendChild(h);
-  }
-
-  const s6=sect(host,'Simulation'); numGrid(s6, PROFILE.cfg.sim);
-  if(PROFILE.hasServos){
-    const h=el('div','hint prose');
-    h.innerHTML='Loop rate decides how long the frame-counted arm moves take — they run for 1000 passes, so 250 Hz ≈ 4 s.';
-    s6.appendChild(h);
-  }
+     They MOVED rather than being mirrored. Two places to change the same
+     number is two places to be wrong, and this tab has been round that loop
+     once already — "anything that's in the setup should be removed from the
+     config tab", July. What stays here is the line below saying where they
+     went, and the anchor id, so the jump bar still has three stops. */
+  const sMoved = sect(host,'Sketch constants','now in the setup');
+  const mv = el('div','hint prose');
+  mv.innerHTML = 'Speed &amp; feel, the stick mapping, the servo endpoints, the Maestro slots and the '
+    + '<b>.ino</b> export are in <b>Setup</b> now \u2014 each one under the question it answers, behind '
+    + 'that step\'s <b>Advanced</b> tick. Nothing was removed and no default changed.';
+  sMoved.appendChild(mv);
+  const mvBar = el('div','conbar');
+  const bMv = el('button','b prim','Open the setup');
+  bMv.addEventListener('click',()=>{ if(typeof wizOpen === 'function') wizOpen(); });
+  mvBar.appendChild(bMv);
+  sMoved.appendChild(mvBar);
 
   /* ---- panel <-> servo, back on this tab (v1.39.2) ----
      It was moved out in July with the rest of the setup answers ("anything
@@ -625,6 +542,146 @@ function buildConfig(){
     sIO.appendChild(h);
   }
 
+  axHint();
+}
+
+/* =============== THE SKETCH'S OWN SETTINGS, AS SECTIONS  (v1.75.0)
+   These were closures over buildConfig()'s locals, which is the only reason
+   they could be drawn in exactly one place. They are functions taking a host
+   now, so the setup's steps can call them behind their own Advanced tick
+   (config/wizard.js) — same keys, same clamps, same log lines, no copies.
+
+   THE SIM BOX IS A RATE, NOT A FREE NUMBER. These inputs had no min and no
+   max, so `maestroRate` could be typed negative — and a negative ramp rate
+   makes every actuator step AWAY from its target for ever (app/animate.js
+   has the whole story and the clamp that now catches it). main.js has always
+   clamped CFG.loopHz at the point of use, 20–2000; these are the same limits
+   said out loud, on the box, where a typed value can be refused before it
+   ever reaches the model. Anything not named here keeps its old free-number
+   behaviour — the entry is the claim that we know what a sane range IS. */
+const CFG_LIMITS = {
+  loopHz:     {min:20,   max:2000},
+  maestroRate:{min:0.05, max:60},
+  servoSpeed: {min:10,   max:20000},
+  maxSpeed:   {min:0.1,  max:20},
+  maxYaw:     {min:0.1,  max:20},
+  domeRate:   {min:0.1,  max:30}
+};
+
+function cfgNumGrid(parent, list){
+  const g=el('div','cfggrid2');
+  list.forEach(([k,label])=>{
+    const r=el('div','cfgrow');
+    const lb=el('label',null,label); lb.title=k+'  (default '+PROFILE.defaults[k]+')';
+    const i=document.createElement('input');
+    i.type='number'; i.value=CFG[k];
+    i.step=(k==='maxSpeed'||k==='maxYaw'||k==='domeRate'||k==='maestroRate')?0.1:1;
+    const lim=CFG_LIMITS[k];
+    if(lim){
+      i.min=lim.min; i.max=lim.max;
+      lb.title += '  ·  ' + lim.min + '–' + lim.max;
+    }
+    i.addEventListener('change',()=>{
+      let v=parseFloat(i.value); if(isNaN(v)){ i.value=CFG[k]; return; }
+      /* the browser only ENFORCES min/max on a stepper click or a form
+         submit — a typed number arrives whatever it says — so the box is
+         pulled back here and the input repainted with what was taken */
+      if(lim){ v=clamp(v, lim.min, lim.max); if(v!==parseFloat(i.value)) i.value=v; }
+      CFG[k]=v;
+      if(k==='vol') SND.vol=v;
+      if(k==='FOOT_CONTROLLER'){
+        CFG[k]=v?1:0; i.value=CFG[k];
+        MOT.leftFoot=MOT.rightFoot=90; MOT.drive=MOT.turn=0; MOT.driveAt=MOT.footAt=-1e9;
+        lg('sys','FOOT_CONTROLLER = '+CFG[k]+(CFG[k]?'  (individual ESCs / hub motors)':'  (Sabertooth serial)'));
+        buildOutputs();
+      }
+      if(k.indexOf('DRIVESPEED')===0 && [CFG.DRIVESPEED1,CFG.DRIVESPEED2,CFG.DRIVESPEED3].indexOf(FW.drivespeed)<0) FW.drivespeed=CFG.DRIVESPEED1;
+      lg('sys',`config: ${k} = ${CFG[k]}`);
+    });
+    r.appendChild(lb); r.appendChild(i); g.appendChild(r);
+  });
+  parent.appendChild(g);
+}
+
+/* what is wrong with this sketch, and the one switch that works around it */
+function cfgSketchSects(host){
+  /* the sketch bug notes are real paragraphs — .prose gives them the sans
+     and calms the inline bolds; the amber/cyan border still says warn/info */
+  PROFILE.notes.forEach(n=>{
+    const d=el('div','note'+(n.k==='info'?' cy':'')+' prose');
+    d.innerHTML=n.h; host.appendChild(d);
+  });
+  if(PROFILE.id==='mod2026'){
+    const l=el('label','sw');
+    const cb=document.createElement('input'); cb.type='checkbox'; cb.id='cbFixDome'; cb.checked=SIM.fixDomeBug;
+    cb.addEventListener('change',e=>{ SIM.fixDomeBug=e.target.checked; lg('sys','dome automation fix '+(SIM.fixDomeBug?'ENABLED':'disabled')); });
+    l.appendChild(cb); l.appendChild(document.createTextNode('Apply the dome-automation fix'));
+    host.appendChild(l);
+  }
+}
+
+function cfgSpeedSect(host){
+  const s1=sect(host,'Speed &amp; feel', PROFILE.footPWM()?'PWM hub':'serial');
+  cfgNumGrid(s1, PROFILE.cfg.speed);
+  return s1;
+}
+
+function cfgInputMapSect(host){
+  const s2=sect(host,'Input mapping');
+  const l2=el('label','sw');
+  const cb2=document.createElement('input'); cb2.type='checkbox'; cb2.checked=FW.isLeftStickDrive;
+  cb2.addEventListener('change',e=>{ FW.isLeftStickDrive=e.target.checked; applyStickMapping(); axHint(); lg('sys','isLeftStickDrive = '+FW.isLeftStickDrive); });
+  l2.appendChild(cb2); l2.appendChild(document.createTextNode('isLeftStickDrive'));
+  s2.appendChild(l2);
+  const ah=el('div','hint'); ah.id='axisHint'; s2.appendChild(ah);
+  axHint();
+  return s2;
+}
+
+function cfgEndpointSects(host){
+  if(!PROFILE.hasServos) return false;
+  const s3=sect(host,'Body servo endpoints','0x40'); cfgNumGrid(s3, PROFILE.cfg.body);
+  const s4=sect(host,'Dome pie panels','0x41');      cfgNumGrid(s4, PROFILE.cfg.pie);
+  return true;
+}
+
+function cfgMaestroSlotsSect(host){
+  if(!PROFILE.hasMaestro) return false;
+  const s5=sect(host,'Maestro sequence slots','what each sequence does');
+  const trig=['RT+▲','RT+▶','RT+▼','RT+◀','LT+▲','LT+▶','LT+▼','LT+◀'];
+  for(let n=0;n<8;n++){
+    const r=el('div','cfgrow'); r.style.gridTemplateColumns='58px 1fr';
+    r.appendChild(el('label',null, n+' · '+trig[n]));
+    const sel=document.createElement('select'); sel.className='msel';
+    ANIM_IDS.forEach(id=>{
+      const o=document.createElement('option'); o.value=id; o.textContent=ANIMS[id].label;
+      if(CFG.maestroScript[n]===id) o.selected=true;
+      sel.appendChild(o);
+    });
+    sel.addEventListener('change',()=>{ CFG.maestroScript[n]=sel.value; lg('sys',`slot ${n} → ${ANIMS[sel.value].label}`); });
+    r.appendChild(sel); s5.appendChild(r);
+  }
+  const h=el('div','hint prose');
+  h.innerHTML='These sequences live on the Maestro itself, so set them to match what you actually loaded onto the board. The sim only knows the slot number the sketch fires.';
+  s5.appendChild(h);
+  return true;
+}
+
+function cfgSimSect(host){
+  const s6=sect(host,'Simulation'); cfgNumGrid(s6, PROFILE.cfg.sim);
+  if(PROFILE.hasServos){
+    const h=el('div','hint prose');
+    h.innerHTML='Loop rate decides how long the frame-counted arm moves take — they run for 1000 passes, so 250 Hz ≈ 4 s.';
+    s6.appendChild(h);
+  }
+  return s6;
+}
+
+/* the .ino constants and the way back to the sketch's own numbers. `redraw`
+   is whatever put this on screen — buildConfig() from the Config tab,
+   buildStartup() from the setup's Firmware step — because Restore defaults
+   has to repaint the boxes it just changed, wherever they are. */
+function cfgExportSect(host, redraw){
   const s7=sect(host,'Export');
   const bar=el('div','conbar');
   const bE=el('button','b prim','Copy .ino constants');
@@ -635,14 +692,16 @@ function buildConfig(){
   bD.addEventListener('click',()=>{
     CFG = JSON.parse(JSON.stringify(PROFILE.defaults));
     FW.drivespeed=CFG.DRIVESPEED1; SND.vol=CFG.vol;
-    buildConfig(); buildOutputs();
+    buildOutputs();
     if(typeof rebuildMaestroUI==='function') rebuildMaestroUI();   // maestroSource just reset
     lg('sys','config restored to sketch defaults');
-    $('expMsg').textContent='Defaults restored.';
+    if(typeof redraw === 'function') redraw();
+    else buildConfig();
+    const m2=$('expMsg'); if(m2) m2.textContent='Defaults restored.';
   });
-
-  axHint();
+  return s7;
 }
+
 function axHint(){
   const e=$('axisHint'); if(!e) return;
   const swap = PROFILE.swapsStickButtons;

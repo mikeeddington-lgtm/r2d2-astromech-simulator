@@ -473,14 +473,32 @@ function buildMaestroPane(){
      button. Nothing was renamed and no id moved, so #btnCfgImport,
      #btnAssignPanels, #btnExpPca and #lnkMstrFull are the same elements
      doing the same jobs for whatever else reaches for them. */
+  /* ================ IT MOVED TO THE TOP BAR (v1.75.0, 2026-08-22)
+     Mike: "Move Build, Import, Export or assign to a top bar position". The
+     four jobs are what most people open this pane FOR, and they were most of
+     the way down it, behind a tab called Board. So the door is now
+     #btnJobs in the header, beside Setup — see src/html/body.html.
+
+     What stays here is a line saying so. That is this project's own rule for
+     anything that moves out from under somebody (the Bench's Advanced tick
+     leaves the same kind of line): a control that vanishes without a
+     forwarding address reads as a control that was taken away. The button id
+     #btnJobWiz is KEPT, on the line, because tests and other code reach for
+     it by id and because the nearest door should still be one click away
+     when you are already standing here. */
   const doorBar = el('div','conbar');
-  const bJob = el('button','b prim','Build, import, export or assign…');
+  const bJob = el('button','b','Build, import, export or assign…');
   bJob.id = 'btnJobWiz';
   bJob.title = 'what do you want to do? — four jobs, each one walked through, '
-             + 'with the specialist file formats behind Advanced';
+             + 'with the specialist file formats behind Advanced. Also on the '
+             + 'top bar, as “Build & files”.';
   bJob.addEventListener('click',()=>{ if(typeof jobwizOpen === 'function') jobwizOpen(); });
   doorBar.appendChild(bJob);
   s0.appendChild(doorBar);
+  const moved = el('div','hint dim');
+  moved.innerHTML = 'This one moved to the top bar \u2014 <b>Build &amp; files</b>, next to Setup, '
+                  + 'reachable from every screen. It is the same four jobs.';
+  s0.appendChild(moved);
   const doorHint = el('div','hint prose');
   doorHint.innerHTML = '<b>' + xmlEsc(IO_FORMATS_SENTENCE) + '</b>';
   s0.appendChild(doorHint);

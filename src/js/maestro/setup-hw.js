@@ -374,14 +374,24 @@ function setupPowerCheck(){
    (its row and its data-k, or its id) rather than by element identity,
    because the element it was is gone.
 
+   THERE ARE TWO SCROLLERS, not one — and for two releases this only put
+   back the outer one. The channel table has its own vertical scrollbar
+   (.setscroll{max-height:34vh;overflow:auto}), so #setBody could be exactly
+   where you left it while the list inside it had jumped back to channel 0 —
+   which is the same complaint, one box further in. `chTop` is that inner
+   scrollTop, and it goes back BEFORE focus is restored, because focus()
+   scrolls its element into view and would otherwise undo the restore we had
+   just done. Hence focus({preventScroll:true}) below: the browser does not
+   get a vote on where the reader is looking.
+
    This is the one place that can fix it for every control in the wizard.
    Doing it per-handler would mean remembering, in twelve call sites, a
    thing that is nothing to do with what any of them is for. */
 function setupScrollSave(){
   const body = $('setBody');
-  const st = {top: body ? body.scrollTop : 0, left: 0, foc: null};
+  const st = {top: body ? body.scrollTop : 0, left: 0, chTop: 0, foc: null};
   const sc = body && body.querySelector('.setscroll');
-  if(sc) st.left = sc.scrollLeft;
+  if(sc){ st.left = sc.scrollLeft; st.chTop = sc.scrollTop; }
   const a = document.activeElement;
   if(a && body && body.contains(a)){
     const row = a.closest ? a.closest('[data-ch]') : null;
@@ -400,7 +410,9 @@ function setupScrollLoad(st){
   const body = $('setBody'); if(!body) return;
   body.scrollTop = st.top;
   const sc = body.querySelector('.setscroll');
-  if(sc) sc.scrollLeft = st.left;
+  /* the table's OWN scrollbar, put back before focus so nothing can fight
+     it — without this every render threw the reader back to channel 0 */
+  if(sc){ sc.scrollLeft = st.left; sc.scrollTop = st.chTop || 0; }
   const f = st.foc; if(!f) return;
   let el2 = null;
   if(f.id) el2 = document.getElementById(f.id);
@@ -409,7 +421,9 @@ function setupScrollLoad(st){
     if(row) el2 = row.querySelector('[data-k="'+f.k+'"]');
   }
   if(!el2 || typeof el2.focus !== 'function') return;
-  el2.focus();
+  /* preventScroll — a plain focus() scrolls the field into view and undoes
+     the two scroll positions just restored above */
+  try{ el2.focus({preventScroll:true}); }catch(e){ el2.focus(); }
   /* a caret only makes sense in a text-ish field, and setSelectionRange
      throws on the others (number inputs included, in some browsers) */
   if(f.s0 !== null && el2.setSelectionRange){

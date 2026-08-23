@@ -54,24 +54,35 @@ label.sw input{accent-color:var(--cta);width:13px;height:13px;cursor:pointer}
        overrides would half-apply otherwise), and
      · the extra specificity outranks the per-pane mono rules that live in
        07-startup.css (.tuhow/.tuwhy — the Learn tab) without touching that
-       file, which another agent owns this stage. */
-.pane .prose{
+       file, which another agent owns this stage.
+
+   v1.75.0 — and .stpbody now too, for the same reason at a different
+   address. The sketch's bug notes moved onto the setup's Firmware step,
+   where `.stpbody .note{font-size:var(--fs-data)}` was winning and drawing
+   three paragraphs of prose as 11.5px mono. A paragraph reads like a
+   paragraph wherever it happens to be; look-boards.test.js pins it. */
+.pane .prose,
+.stpbody .prose{
   font-family:var(--sans);font-size:var(--fs-body);line-height:1.55;max-width:70ch;
   color:var(--dim);letter-spacing:0;text-transform:none;margin-top:8px;
 }
 /* emphasis is WEIGHT, not colour — cyan/amber inline bolds fighting each
    other was review finding F2. Colour only where it encodes meaning: a
    warning stays amber via an inline style or the .note border. */
-.pane .prose b{color:var(--txt);font-weight:600}
+.pane .prose b,
+.stpbody .prose b{color:var(--txt);font-weight:600}
 /* code and identifiers keep the mono, on a quiet chip */
-.pane .prose code{
+.pane .prose code,
+.stpbody .prose code{
   font-family:var(--mono);font-size:.85em;color:var(--txt);
   background:var(--track);border-radius:3px;padding:.5px 4px;white-space:nowrap;
 }
 /* a prose callout keeps its meaning in the BORDER and the wash — amber =
    warning, cyan = info — while the text itself reads like text */
-.pane .note.prose{color:var(--dim)}
-.pane .note.prose b{color:var(--txt)}
+.pane .note.prose,
+.stpbody .note.prose{color:var(--dim)}
+.pane .note.prose b,
+.stpbody .note.prose b{color:var(--txt)}
 /* the title size, where a card has one (Learn lesson titles carry .ttl) */
 .pane .ttl{font-family:var(--sans);font-size:var(--fs-title);font-weight:600}
 /* sound */

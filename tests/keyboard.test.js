@@ -241,7 +241,7 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
     INPUT.keys = {};
     if(typeof DRIVEHINT !== 'undefined'){
       DRIVEHINT.shownAt = -Infinity; DRIVEHINT.plate = null;
-      DRIVEHINT.pushing = false; DRIVEHINT.armedOnce = false;
+      DRIVEHINT.pushing = false;
     }
     document.querySelectorAll('#toasts .toastp').forEach(p=>p.remove());
   });
@@ -274,7 +274,10 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
     return n === 1;
   }));
   ok('…and a SECOND attempt, after letting go, speaks again', await ev(()=>{
-    SIM.millis += 5000;
+    /* the burst window is WALL clock since v1.75.0, not SIM.millis — a sketch
+       that blocks must not be able to silence the hint — so this reaches past
+       it directly rather than winding on a clock the hint no longer reads */
+    DRIVEHINT.shownAt = -Infinity;
     window.dispatchEvent(new KeyboardEvent('keydown', {code:'KeyW', key:'w', bubbles:true, cancelable:true}));
     pollInput();
     const n = document.querySelectorAll('#toasts .toastp').length;
@@ -323,11 +326,20 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
     return n === 1;
   }));
 
-  /* BACK OFF ONCE THEY KNOW. Somebody who has armed the feet once this
-     session has been taught the fact; repeating it every time they disarm
-     is the nagging the brief rules out. */
+  /* IT SAYS IT EVERY TIME, 2026-08-22. The old rule here was BACK OFF ONCE
+     THEY KNOW: somebody who had armed the feet once this session had been
+     taught the fact, so a later disarmed attempt went quiet for sixty
+     seconds. Mike reported the consequence — "should prompt any time its
+     tried but the model hasnt been activated" — and he is right, because
+     the armed branch re-stamped the timer on EVERY armed frame, so the
+     sixty seconds only began the moment you disarmed. Arm, disarm, push the
+     stick: silence, with no way to tell that from a broken prompt.
+
+     What stops it machine-gunning instead is the rising edge and one short
+     burst window, both asserted above. This is the same scenario as before,
+     asserting the opposite answer. */
   await hintReset();
-  ok('after arming once, a later disarmed attempt does NOT nag again', await ev(()=>{
+  ok('after arming once, a later disarmed attempt STILL says so', await ev(()=>{
     window.dispatchEvent(new KeyboardEvent('keydown', {code:'Enter', key:'Enter', bubbles:true, cancelable:true}));
     pollInput(); fwLoop();
     window.dispatchEvent(new KeyboardEvent('keyup', {code:'Enter', key:'Enter', bubbles:true, cancelable:true}));
@@ -338,13 +350,13 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
     window.dispatchEvent(new KeyboardEvent('keyup', {code:'Enter', key:'Enter', bubbles:true, cancelable:true}));
     pollInput(); fwLoop();
     document.querySelectorAll('#toasts .toastp').forEach(p=>p.remove());
-    SIM.millis += 5000;
+    DRIVEHINT.shownAt = -Infinity;
     window.dispatchEvent(new KeyboardEvent('keydown', {code:'KeyW', key:'w', bubbles:true, cancelable:true}));
     pollInput();
     const n = document.querySelectorAll('#toasts .toastp').length;
     window.dispatchEvent(new KeyboardEvent('keyup', {code:'KeyW', key:'w', bubbles:true, cancelable:true}));
     pollInput();
-    return armed && !FW.isDriveEnabled && n === 0;
+    return armed && !FW.isDriveEnabled && n === 1;
   }));
 
   /* THE OTHER REASON THE FEET DO NOT MOVE (v1.70.0, Q7's third answer,
@@ -459,7 +471,7 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
     setTutor(false);
     TUTOR.done = {}; TUTOR.seen = {}; TUTOR.tipped = false;
     if(typeof DRIVEHINT !== 'undefined'){
-      DRIVEHINT.shownAt = -Infinity; DRIVEHINT.pushing = false; DRIVEHINT.armedOnce = false;
+      DRIVEHINT.shownAt = -Infinity; DRIVEHINT.pushing = false;
     }
     FW.isDriveEnabled = false;
     window.dispatchEvent(new KeyboardEvent('keydown', {code:'KeyW', key:'w', bubbles:true, cancelable:true}));
@@ -474,7 +486,7 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
     setTutor(false);
     TUTOR.done = {sound:true}; TUTOR.tipped = false;
     if(typeof DRIVEHINT !== 'undefined'){
-      DRIVEHINT.shownAt = -Infinity; DRIVEHINT.pushing = false; DRIVEHINT.armedOnce = false;
+      DRIVEHINT.shownAt = -Infinity; DRIVEHINT.pushing = false;
     }
     window.dispatchEvent(new KeyboardEvent('keydown', {code:'KeyW', key:'w', bubbles:true, cancelable:true}));
     pollInput();

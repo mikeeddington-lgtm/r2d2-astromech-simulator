@@ -56,6 +56,13 @@
     </div>
     <div id="viewsel" title="How much of the app to show"></div>
     <button class="hbtn" id="btnSetup" title="The build setup — hardware, wiring, panels and colours">Setup</button>
+    <!-- v1.75.0 — Mike: "Move Build, Import, Export or assign to a top bar
+         position". It was a button most of the way down the Board pane, which
+         meant the four jobs people actually come here to do were three clicks
+         and a scroll behind a tab called Board. It is a door, like Setup is a
+         door, so it sits next to it. The pane keeps a line saying where it
+         went — see maestro/ui-pane.js. -->
+    <button class="hbtn" id="btnJobs" title="Build sequences, import a config, export, or assign panels to channels — the four jobs, each one walked through, with the specialist file formats behind Advanced">▦<span class="hlbl">Build &amp; files</span></button>
     <button class="hbtn" id="btnKbd" title="Keyboard shortcuts (? or F1)">?</button>
     <button class="hbtn" id="btnAppMenu" title="Save &amp; load, text size and the light/dark theme">Menu</button>
   </header>
@@ -126,7 +133,7 @@
                its steps, so it is reachable from all fifteen of them.
                Somebody stuck on question six is exactly who needs it, and
                they are not going to go back to step one to find it. -->
-          <button class="hbtn" id="btnManualStp" title="The builder’s manual — twenty-one chapters on getting a real droid moving with this. Opens in a new tab.">📖 Manual</button>
+          <button class="hbtn" id="btnManualStp" title="The builder’s manual — twenty-one chapters on getting a real droid moving with this. Opens the live page in a new tab, so it needs a connection at the moment you click.">📖 Manual</button>
           <div id="stpTheme" class="stpthm" title="light or dark — from any step"></div>
           <button class="hbtn" id="btnStartupX" title="Close">Close</button>
         </div>
@@ -374,9 +381,17 @@
             the setup questions, the servo bench to try a sequence on, finding your end stops, bricks,
             getting it onto the board, and what to do when nothing moves.</div>
           <div class="conbar"><button class="b prim" id="btnManualHelp">📖 Open the manual</button></div>
-          <div class="hint dim">Opens in a new tab from the latest release — it needs a connection at the moment you click.</div>
+          <div class="hint dim">Opens in a new tab as a live page, always the current one — it needs a connection at the moment you click.</div>
         </div>
-        <div class="sect">
+        <!-- v1.75.0 — Mike: "Teh sounds peaice should move to teh sound
+             baord area of the setup". It does, and it is the SAME element
+             that moves: soundCardTo() re-parents this node into the setup's
+             Sound step and soundCardPark() takes it back, so the ids, the
+             bindings made once at boot and the live readout hud.js writes to
+             every frame all survive the trip. A copy would have been two
+             things to keep right. The line below stays here saying where it
+             went, which is this project's rule for anything that moves. -->
+        <div class="sect" id="secSound">
           <h3>Sound <span id="sndChip"></span></h3>
           <div id="sndBox">
             <div id="sndNum">--</div>
@@ -393,6 +408,8 @@
             <button class="b" id="btnSoundsClear" title="forget the stored sound files">✕</button>
           </div>
         </div>
+        <div class="hint dim" id="sndMoved">The sound board lives in <b>Setup ▸ Sound</b> now — which chip is fitted,
+          and the pack of real sounds to load. It comes back here while the setup is shut.</div>
         <div id="hwBlurb" class="hint" style="margin:-6px 0 14px"></div>
         <div id="mapHost"></div>
       </div>
@@ -454,3 +471,10 @@
 
 <!-- ============ SET UP YOUR SERVO HARDWARE (overlay) ============ -->
 <div id="setupWrap" class="hide"></div>
+
+<!-- Where #secSound waits when neither the Controls pane nor the setup's
+     Sound step is showing it. It stays IN the document on purpose: hud.js
+     writes $('sndNum') and friends every frame and panels.js writes the chip
+     name, and a detached node would make both of those a null dereference
+     the first time somebody opened the setup. Hidden, present, one home. -->
+<div id="sndPark" hidden></div>

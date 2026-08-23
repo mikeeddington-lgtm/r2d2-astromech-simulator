@@ -545,8 +545,29 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
   ok('it shows the build read-only, with a way into the setup', await ev(()=>
     $('cfgHost').querySelectorAll('.bsumrow').length===BUILD_STEPS.length &&
     Array.from($('cfgHost').querySelectorAll('button')).some(b=>/Open the setup/.test(b.textContent))));
-  ok('the sketch constants stayed', await ev(()=>
-    /Speed/.test($('cfgHost').textContent) && $('cfgHost').querySelectorAll('input[type=number]').length>4));
+  /* v1.75.0 — and now they have gone too, on Mike's word: "move Items under
+     Configure that are not part of the Setup Popup into the setup pop up …
+     as a advance button that only displays them when advance is press for
+     each area". So the July rule finally covers the constants as well. The
+     two halves below are the whole of what makes that a move rather than a
+     deletion: nothing numeric is left on the tab, and the tab says where it
+     went with a door to it. */
+  ok('the sketch constants have left the Config tab', await ev(()=>
+    $('cfgHost').querySelectorAll('input[type=number]').length === 0));
+  ok('…and the tab says where they went, with a way there', await ev(()=>
+    /in <b>Setup<\/b> now|in Setup now/.test($('cfgHost').innerHTML.replace(/\s+/g,' '))
+    && Array.from($('cfgHost').querySelectorAll('button')).some(b=>/Open the setup/.test(b.textContent))));
+  ok('…and they are on the Firmware step, behind its Advanced tick', await ev(()=>{
+    closeStartup();
+    wizOpen(wizStepIndex('firmware'));
+    WIZ_ADV.firmware = false; buildStartup();
+    const hidden = document.querySelectorAll('#startupBody input[type=number]').length;
+    WIZ_ADV.firmware = true; buildStartup();
+    const shown = document.querySelectorAll('#startupBody input[type=number]').length;
+    const said = /Simulation/.test($('startupBody').textContent);
+    closeStartup();
+    return hidden === 0 && shown > 4 && said;
+  }));
   /* v1.45.0 — Mike: "Remove the Maestro 2025 reference/image." The buttons
      went in v1.4.0 and the read-only tag that replaced them has gone too, so
      the header no longer spells a board maker's product name across the

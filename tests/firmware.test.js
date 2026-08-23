@@ -79,12 +79,18 @@ const ok = (n,c,extra='') => { c?pass++:fail++;
   ok('stock firmware: auto-turn armed but Syren gets 0 (bug reproduced)',
      stock.auto && stock.turning && stock.dome===0, JSON.stringify(stock));
 
+  /* v1.75.0 — the dome-automation fix moved to the setup's Firmware step,
+     behind that step's Advanced tick, with the rest of the sketch's own
+     business. Open the door the user opens rather than reaching for an id
+     that is only rendered while it is open. */
+  await ev(()=>{ closeStartup(); wizOpen(wizStepIndex('firmware')); WIZ_ADV.firmware = true; buildStartup(); });
   await ev(()=>{const c=document.getElementById('cbFixDome'); c.checked=true; c.dispatchEvent(new Event('change'));});
   await ev(()=>{FW.automateDelay=0; FW.automateMillis=0; FW.isDomeTurningAuto=false;});
   await page.waitForTimeout(900);
   const fixed = await ev(()=>({turning:FW.isDomeTurningAuto, dome:MOT.dome}));
   ok('with the fix: Syren actually receives ±75', Math.abs(fixed.dome)===75, JSON.stringify(fixed));
   await ev(()=>{const c=document.getElementById('cbFixDome'); c.checked=false; c.dispatchEvent(new Event('change'));});
+  await ev(()=>closeStartup());
 
   console.log('\n== servo endpoints round-trip ==');
   const cfgOk = await ev(()=>{

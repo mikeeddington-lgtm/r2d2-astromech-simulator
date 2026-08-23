@@ -9,8 +9,8 @@
    docs/manual/src/build.py). It is not inlined here on purpose: the
    simulator is already 8 MB, the clips in the manual are captured FROM a
    built simulator — so bundling it would mean building this file twice —
-   and a manual attached to the release is always the current one, while an
-   inlined copy would go stale the moment either half moved. That is the
+   and a manual that lives at its own URL is always the current one, while
+   an inlined copy would go stale the moment either half moved. That is the
    same reasoning that keeps R2D2-Simulator.html itself out of the repo.
 
    So this file owns ONE constant and the four places that open it. The
@@ -34,12 +34,43 @@
    door out to a browser tab.
    ===================================================================== */
 
-/* The release download, not a blob or a tree path: `releases/latest`
-   always resolves to the manual built alongside whatever simulator the
-   person is running, and it is the same URL README.md hands out. */
-const MANUAL_URL = 'https://github.com/mikeeddington-lgtm/r2d2-astromech-simulator'
-                 + '/releases/latest/download/R2D2-Simulator-Manual.html';
+/* =====================================================================
+   WHERE THE MANUAL LIVES (v1.74.2, 2026-08-22)
+
+   It was the release download from v1.57.0 to here: `releases/latest`
+   resolves to the manual built alongside whatever simulator the person is
+   running, which is a real virtue — it is PINNED to their copy. But it is
+   only ever as current as the last tag: a chapter corrected on Tuesday is
+   not readable by anybody until somebody cuts a release. Mike's call —
+   serve it from GitHub Pages, where docs/manual/ is published on every
+   push to main, so the manual a builder opens is the manual as it stands.
+
+   The release download does not go away; it becomes the FALLBACK, and it
+   is named as one to the user in manualSayUnreachable() below. A Pages
+   site can be turned off, can 404 for the minute a deploy is running, and
+   is one more thing between a person in a garage and their documentation.
+   Two doors out is the whole point of that message.
+
+   BOTH ARE COMPOSED FROM APP_REPO (core/util.js), which is the one string
+   that says where this project lives. The old constant re-typed the repo
+   by hand — this file exists to stop four copies of a URL going stale, and
+   it was quietly carrying a second copy of the repo inside its own one
+   constant, which is the same bug one level down.
+
+   The github.com/<owner>/<repo> → <owner>.github.io/<repo>/ mapping is
+   GitHub's, not ours, so a replace off APP_REPO is honest rather than
+   clever; `/manual/` is our own path within the Pages site. If APP_REPO
+   ever stops looking like a github.com URL the replace leaves it untouched
+   and the button lands on the repo — wrong, but not broken, and visible
+   the first time anybody clicks it. (util.js promises no trailing slash;
+   the pattern tolerates one anyway rather than failing silently.) */
 const MANUAL_FILE = 'R2D2-Simulator-Manual.html';
+const MANUAL_PAGES_URL = APP_REPO.replace(
+  /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/?$/, 'https://$1.github.io/$2/manual/');
+const MANUAL_RELEASE_URL = APP_REPO + '/releases/latest/download/' + MANUAL_FILE;
+/* the one all four doors follow, and the only line that has to move if the
+   manual is ever served from somewhere else again. */
+const MANUAL_URL = MANUAL_PAGES_URL;
 
 /* =====================================================================
    THE BLANK TAB (v1.71.1)
@@ -71,6 +102,36 @@ const MANUAL_FILE = 'R2D2-Simulator-Manual.html';
        status — a 404 looks like a 200 — but reachability is the question,
        and HEAD means the 5 MB body is never fetched.
 
+   WHAT CHANGED WHEN THE MANUAL MOVED TO PAGES (v1.74.2, 2026-08-22). That
+   first line up there was true of github.com and is NOT true of GitHub
+   Pages: Pages serves static assets with `Access-Control-Allow-Origin: *`,
+   and `*` matches a null origin like everything else. So the request the
+   old block dismissed is now readable, and readable means a STATUS — the
+   one thing no-cors could never give us. A 404 stops looking like a 200,
+   which matters more here than it did before: the release download either
+   existed or the whole release did, whereas a Pages path can 404 on its
+   own while the site around it is perfectly up (a deploy mid-flight, a
+   docs/manual/ that failed to build). That is precisely the failure a
+   probe should be able to name.
+
+   So the probe is now two-step, cors first and no-cors second, and the
+   ORDER is the safety:
+     1. fetch(MANUAL_URL, {method:'HEAD'})   — plain, CORS-checked. If it
+        resolves we read res.status: <400 is there, >=400 is honestly not
+        there. This is the new answer, and only Pages can give it.
+     2. …and if that rejects, fall through to the old no-cors probe rather
+        than believing the rejection. A CORS refusal and a dead network
+        both arrive as the same TypeError, so step 1 alone would call a
+        working manual missing the day a proxy strips the header, a browser
+        treats file:// harder than the spec says, or the URL moves back to
+        somewhere that does not send ACAO. Step 2 cannot be refused, so the
+        worst case is exactly the behaviour we had before the move: an
+        opaque response means reached, a TypeError means it did not.
+   The cost of being wrong in each direction is why it is arranged this
+   way. A missed 404 is a blank tab with no explanation — bad. A false
+   "your manual is gone" over a manual that is fine is worse: it is the app
+   lying to somebody who cannot check.
+
    So the shape is: open the tab on the click (synchronously — a popup
    blocker only trusts a window.open inside the user's own gesture, and the
    probe is far too slow to wait for), and probe ALONGSIDE it. If the probe
@@ -84,9 +145,10 @@ const MANUAL_FILE = 'R2D2-Simulator-Manual.html';
    honest: when the answer is a shrug (nothing to probe with, or the probe
    never came back), and when a modal is already up and must not be stolen.
 
-   A PROBE IS NOT PROOF, so it never blocks the tab: no-cors cannot see a
-   404, a corporate proxy can answer for GitHub, and navigator.onLine is a
-   famous liar in both directions. Everything here only ever ADDS a voice.
+   A PROBE IS NOT PROOF, so it never blocks the tab: the no-cors half still
+   cannot see a 404, a corporate proxy can answer for GitHub, and
+   navigator.onLine is a famous liar in both directions. Everything here
+   only ever ADDS a voice.
    ===================================================================== */
 const MANUAL_PROBE_MS = 8000;    // ms — past this the answer is "no answer", not "no manual"
 
@@ -101,23 +163,49 @@ function manualReach(){
     let done = false;
     const settle = v=>{ if(!done){ done = true; resolve(v); } };
     setTimeout(()=>settle(null), MANUAL_PROBE_MS);
-    fetch(MANUAL_URL, {method:'HEAD', mode:'no-cors', cache:'no-store'})
-      .then(()=>settle(true), ()=>settle(false));
+    /* one reader for both attempts, because the two answers arrive in the
+       same shape and only differ in how much of it we are allowed to see:
+       an OPAQUE response is the no-cors reply — it got there, and the
+       status is withheld by design, so "reached" is all it can ever mean.
+       A readable status is the Pages/CORS reply, and that one can say no. */
+    const read = res=>{
+      if(!res || res.type === 'opaque') return settle(true);
+      if(typeof res.status === 'number' && res.status > 0) return settle(res.status < 400);
+      settle(true);                       // readable but statusless — reached is the honest read
+    };
+    fetch(MANUAL_URL, {method:'HEAD', cache:'no-store'})
+      .then(read, ()=>{
+        /* refused, or never carried — the two are indistinguishable from
+           here, so ask the question that cannot be refused before calling
+           anybody's manual missing. */
+        fetch(MANUAL_URL, {method:'HEAD', mode:'no-cors', cache:'no-store'})
+          .then(read, ()=>settle(false));
+      });
   });
 }
 
 /* What to do about it, which is the half a bare error message leaves out:
-   the manual is a separate file on the Releases page, and one download
-   while you still have a connection makes it yours for good. */
+   the manual is a page on the web, there is a SECOND copy attached to every
+   release when that page will not answer, and one download while you still
+   have a connection makes it yours for good.
+
+   Two doors, in that order, because they fail independently (v1.74.2): the
+   live page is the current one and the release asset is the one that is
+   still there when Pages is not. A person reading this message has already
+   had one door shut in their face; naming only the door that just failed
+   is not much of an answer. */
 function manualSayUnreachable(sure){
   const what = sure
-    ? 'That tab is blank because this machine cannot reach GitHub right now. '
-    : 'If that tab is blank, this machine cannot reach GitHub. ';
-  const todo = 'The manual is not inside the simulator — it is a separate page on the '
-             + 'Releases page, and it needs a connection at the moment you click. '
-             + 'Next time you are online, download ' + MANUAL_FILE + ' once and keep it beside '
-             + 'this file: it is one self-contained page and it opens offline for ever after.';
-  if(typeof lg === 'function') lg('warn', 'the builder’s manual could not be reached — ' + MANUAL_URL);
+    ? 'That tab is blank because this machine could not reach the manual just now. '
+    : 'If that tab is blank, this machine could not reach the manual. ';
+  const todo = 'The manual is not inside the simulator — it is a live page on the web, kept in step '
+             + 'with the app, so it needs a connection at the moment you click. If it is the page '
+             + 'that is down rather than your connection, the same manual is attached to every '
+             + 'release as a fallback. And next time you are online, download ' + MANUAL_FILE
+             + ' once and keep it beside this file: it is one self-contained page and it opens '
+             + 'offline for ever after.';
+  if(typeof lg === 'function') lg('warn', 'the builder’s manual could not be reached — ' + MANUAL_URL
+                                        + ' (fallback ' + MANUAL_RELEASE_URL + ')');
   /* One question at a time is appConfirm()'s own rule — a new one CANCELS a
      stale one — and this arrives on a timer the user did not start, so it is
      the one thing here that could take something away: an answer they were
@@ -126,10 +214,10 @@ function manualSayUnreachable(sure){
      .dlgwrap is z-index 300 against #startup's 120, so door 2's message is
      seen rather than buried under the wizard it was clicked from. */
   if(sure && !document.querySelector('.dlgwrap') && typeof appConfirm === 'function'){
-    appConfirm(what + todo + '\n\n' + MANUAL_URL,
+    appConfirm(what + todo + '\n\n' + MANUAL_URL + '\n\nFallback: ' + MANUAL_RELEASE_URL,
                {title:'The manual lives online', yes:'Close', no:''});
   }else if(typeof toast === 'function'){
-    toast(what + todo + ' — ' + MANUAL_URL, 'warn');
+    toast(what + todo + ' — ' + MANUAL_URL + ' (fallback: ' + MANUAL_RELEASE_URL + ')', 'warn');
   }
 }
 
@@ -167,8 +255,8 @@ function manualButton(cls, label){
      one three of the four doors' users never open a panel to find. Every
      door carries it now, in the one string all four already share. */
   b.title = 'The builder’s manual — twenty-one chapters and eight clips, on getting a real droid '
-          + 'moving with this. Opens ' + MANUAL_FILE + ' from the latest release, so it needs a '
-          + 'connection at the moment you click — download it once to keep it offline.';
+          + 'moving with this. Opens the live page in a new tab, always the current one, so it needs '
+          + 'a connection at the moment you click — download it once to keep it offline.';
   b.addEventListener('click', manualOpen);
   return b;
 }
@@ -185,7 +273,7 @@ function manualCard(host, opts){
   p.innerHTML = o.blurb || ('Everything this simulator is for, written for somebody with a half-built droid: '
     + 'the nine setup questions, <b>the servo bench</b> to try a sequence on, finding your servo end stops, '
     + 'bricks, getting it onto the board, and what to do when nothing moves. '
-    + 'It opens in a new tab from the latest release.');
+    + 'It opens in a new tab, as a live page that is always the current one.');
   s.appendChild(p);
   const bar = el('div', 'conbar');
   const b = manualButton('b prim', '📖 Open the manual');
@@ -194,8 +282,9 @@ function manualCard(host, opts){
   s.appendChild(bar);
   if(o.note !== false){
     const n = el('div', 'hint dim',
-      'Needs a connection at the moment you click. Keep ' + MANUAL_FILE + ' beside this file '
-      + 'if you want it offline — it is one self-contained page too.');
+      'A live page on the web, not part of this file, so it needs a connection at the moment you '
+      + 'click. Save ' + MANUAL_FILE + ' beside this file if you want it offline — it is one '
+      + 'self-contained page too.');
     s.appendChild(n);
   }
   return s;
