@@ -1334,6 +1334,25 @@ the stage button reads **Edit Track**.
 
 **75 suite runs, all green.**
 
+**Postscript, same day — green here, red on the runner.** The header-fit
+assertion above was rewritten to a viewport width of 1520 px, and the real
+threshold turned out to sit at 1516. **A test four pixels from a cliff.**
+Text metrics differ between Chromium builds by more than four pixels, so it
+passed locally and failed in CI — which is the worst way for a test to fail,
+because the machine that can see the failure is not the machine that can fix
+it. The claim was never really about a number: it is that when the header
+runs out of room, the newcomer gives up its word before the six status chips
+give up theirs. So it is asserted as that rule now — sweep 1700 → 1200 and
+require that no width exists where a chip is abbreviated while the new button
+is still spelling itself out, plus a second assertion that the sweep really
+crossed both thresholds so it cannot pass vacuously. Resolution-independent,
+and it says what the commit message said.
+
+**The lesson is not "pick a bigger number".** It is that a magic constant in
+an assertion is a claim about the environment, and this suite runs on three
+of them. Where a threshold matters, find it by sweeping rather than by
+writing it down.
+
 ### 2026-08-22 - v1.74.1: the PSI panels were behind the model’s own lens
 
 They rendered perfectly and were never seen — which is the failure mode a

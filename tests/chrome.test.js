@@ -90,21 +90,40 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
     && Math.round($('tabCad').getBoundingClientRect().right) <= window.innerWidth),
     await ev(()=>document.documentElement.scrollWidth+' vs '+window.innerWidth));
 
-  /* 1520, not 1500 (v1.75.0). The header gained a button — the job wizard's
-     "Build & files" — and it costs twenty pixels of window before the chips
-     get their labels back. That is the whole cost, because 'hdrjob' is a tier
-     above hdrshort that sheds ONE thing: the word on that new button. So the
-     assertion below is joined by the one after it, which is the invariant that
-     actually matters — when something has to give, it is the newcomer's word
-     and not the six status chips that have carried labels since v1.0. */
-  await page.setViewportSize({ width: 1520, height: 950 });
+  /* NO MAGIC WIDTH HERE ANY MORE (v1.75.0). This used to assert at 1500, and
+     the header gaining the job wizard's "Build & files" button moved the
+     threshold to 1516 — so the first repair was to assert at 1520 instead,
+     which is a test sitting FOUR PIXELS from a cliff. Text metrics differ
+     between Chromium builds by more than four pixels, so that would have gone
+     red on a runner and green here, which is the worst way for a test to fail.
+
+     What is actually being claimed is a RULE, not a number: when the header
+     runs out of room the newcomer gives up its word BEFORE the six status
+     chips give up theirs. 'hdrjob' is a tier above hdrshort that sheds exactly
+     that one label. So assert it as a rule — sweep the widths and require that
+     no width exists where a chip is abbreviated while the new button is still
+     spelling itself out. That holds at any font size, on any runner. */
+  await page.setViewportSize({ width: 1700, height: 950 });
   await settled();
   ok('chip labels and the version tag return on a wide screen', await ev(()=>
     getComputedStyle($('chDrive').lastElementChild).display!=='none'
     && getComputedStyle($('verTag')).display!=='none'));
-  ok('…and the only thing shed at that width is the new button’s own word', await ev(()=>
-    !/hdrshort|hdrdots|hdrtiny|hdrbare/.test(document.body.className)),
-    await ev(()=>document.body.className));
+
+  const shedOrder = [];
+  for(let w = 1700; w >= 1200; w -= 20){
+    await page.setViewportSize({ width: w, height: 950 });
+    await settled();
+    shedOrder.push(await ev(()=>({
+      chips: getComputedStyle($('chDrive').lastElementChild).display !== 'none',
+      word:  !!$('btnJobs') && getComputedStyle($('btnJobs').querySelector('.hlbl')).display !== 'none'
+    })));
+  }
+  ok('the new button sheds its word before the chips shed theirs, at every width',
+     shedOrder.every(s => !(s.word && !s.chips)),
+     JSON.stringify(shedOrder.filter(s => s.word && !s.chips).slice(0,3)));
+  ok('…and both of them do eventually go, so the sweep really covered the range',
+     shedOrder.some(s => !s.word) && shedOrder.some(s => !s.chips),
+     JSON.stringify({widest: shedOrder[0], narrowest: shedOrder[shedOrder.length-1]}));
   await page.setViewportSize({ width: 1280, height: 780 });
   await settled();
 
