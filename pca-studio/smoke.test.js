@@ -1,5 +1,6 @@
-/* PCA Studio smoke test — standalone, NOT part of the sim's test.sh.
-   Run when you touch the app:  node pca-studio/smoke.test.js */
+/* PCA Studio smoke test. Part of ./test.sh since v1.43.0 (it runs last,
+   against the tracked PCA-Studio.html); run alone with
+   node pca-studio/smoke.test.js */
 const { launchBrowser } = require('../tests/harness');
 const path = require('path');
 const fs = require('fs');
@@ -693,6 +694,125 @@ const LIVE = fs.readFileSync(path.resolve(__dirname,'..','examples','R2-dome-pad
      idScenarios.coprocV2.blocked===false, 'chip: '+idScenarios.coprocV2.chip);
   ok('  and is recognised the same way when it answers "?"',
      idScenarios.coprocV2Ask.blocked===false);
+
+  /* ================================================================
+     v1.76.0 — review of 2026-09-01 (docs/REVIEW-2026-09-01.md). Three of
+     v1.69.0's hardware criticals were fixed in the SIM's copy of the seam
+     and never in Studio's, and one wizard step had thrown on every click
+     since the same release. Each is pinned here, red first.
+     ================================================================ */
+  console.log('\n════ every wizard step renders (H5) ════');
+  /* step 1, "PCA9685s", read PCA_MAX_BOARDS_UI from maestro/boards.js —
+     which Studio does not load — and threw ReferenceError, rendering an
+     empty card, from v1.69.0 to v1.75.1. This suite stepped 0→2→3→0→3→4 and
+     never asked for it. Now every step is asked for. */
+  const steps = await page.evaluate(()=>{
+    const out = [];
+    setupOpen(0);
+    for(let i=0;i<SETUP_STEPS.length;i++){
+      let err = null;
+      try{ setupGo(i); }catch(e){ err = e.message; }
+      out.push({i, key:SETUP_STEPS[i].key, len:document.getElementById('setBody').innerHTML.trim().length, err});
+    }
+    /* and the Boards field on step 1 is live */
+    try{ setupGo(1); }catch(e){}
+    const b = document.querySelector('#setBody input[data-f=boards]');
+    let boards = null, bErr = null;
+    if(b){ try{ b.value = '3'; b.dispatchEvent(new Event('input', {bubbles:true})); boards = SETUP.hw.boards; }catch(e){ bErr = e.message; } }
+    setupClose();
+    return {out, boards, bErr, hasBoardsField: !!b};
+  });
+  steps.out.forEach(st=> ok('step '+st.i+' ('+st.key+') renders without throwing', st.len > 0 && !st.err, st.err || ('body '+st.len+' chars')));
+  ok('the Boards field on the PCA9685s step writes the answer', steps.hasBoardsField && steps.boards === 3 && !steps.bErr,
+     steps.bErr || JSON.stringify({boards:steps.boards}));
+
+  console.log('\n════ a whole-sequence brick can be dropped (H5, seqTotal) ════');
+  /* blockSeqDur() called seqTotal(), which lives in maestro/playback.js —
+     sim only — so clicking a "Sequences — dropped whole" item threw and
+     added nothing */
+  const seqBrick = await page.evaluate(()=>{
+    /* a fresh routine to drop into, beside the two frame-list sequences */
+    PROJ.sequences.push({name:'__drop target', frames:[], blocks:[]});
+    curSeq = PROJ.sequences.length - 1;
+    rebuildAll(); blkBuildLib();
+    const seq = blkSeq();
+    const it = document.querySelector('#libList .libitem[data-kind=seq]');
+    if(!it) return {found:false};
+    const before = seq.blocks.length;
+    it.click();
+    const expect = (PROJ.sequences.find(s=>s.name===it.dataset.ref)||{frames:[]}).frames.reduce((a,f)=>a+f.duration,0);
+    const out = {found:true, before, after:seq.blocks.length, dur: seq.blocks.length ? seq.blocks[seq.blocks.length-1].dur : null, ref: it.dataset.ref, expect};
+    PROJ.sequences.pop(); curSeq = 0; rebuildAll();
+    return out;
+  });
+  ok('clicking a whole-sequence item adds one brick, sized to that sequence',
+     seqBrick.found && seqBrick.after === seqBrick.before + 1 && seqBrick.dur === Math.max(200, seqBrick.expect), JSON.stringify(seqBrick));
+
+  console.log('\n════ a table keystroke does not walk a driven servo to its stop (H3) ════');
+  /* rebuildEngine(true) carried target and not aim, so every keystroke in
+     the channel table rebuilt an engine that steered every driven servo to
+     its home — 0 on a homemode:Off channel, which pins it at c.min */
+  const aim = await page.evaluate(()=>{
+    const c = PROJ.channels[0]; c.mode='Servo'; c.min=4000; c.max=8000; c.homemode='Off'; c.home=0; c.speed=40; c.acceleration=0;
+    HW.rebuild(false);
+    let E = HW.engine();
+    pcaSetTarget(E, 0, 5000); pcaSetTarget(E, 0, 7000); for(let i=0;i<200;i++) pcaTick(E,10);
+    const before = {aim:E.st[0].aim, pos:E.st[0].pos256>>8, known:E.st[0].known};
+    buildChannels();
+    const nm = document.querySelector('#chTable tr[data-ch="0"] [data-f=name]');
+    nm.value = 'Dome pie'; nm.dispatchEvent(new Event('input', {bubbles:true}));   /* one keystroke */
+    E = HW.engine();
+    const after = {aim:E.st[0].aim, pos:E.st[0].pos256>>8, known:E.st[0].known};
+    for(let i=0;i<50;i++) pcaTick(E,10);
+    return {before, after, posLater: E.st[0].pos256>>8};
+  });
+  ok('the engine after a rename keystroke still aims where it did before',
+     aim.after.aim === aim.before.aim && aim.after.known === aim.before.known, JSON.stringify(aim));
+  ok('…and the servo stays put', aim.posLater === aim.before.pos, 'pos '+aim.before.pos+' → '+aim.posLater);
+
+  console.log('\n════ Finish sends the rate to the board before streaming at it (H2) ════');
+  const fin = await page.evaluate(async ()=>{
+    const flush = ()=>new Promise(r=>setTimeout(r,0));
+    const bytes = [];
+    const frames = a=>{ const f=[]; for(let i=0;i+2<a.length;i+=3) f.push({ch:a[i]&0x7F, val:(a[i+1]<<7)|a[i+2]}); return f; };
+    SER.kind = 'bridge'; SER.port = {}; SER.blocked = false;
+    SER.writer = { write:b=>{ bytes.push(...Array.from(b)); return Promise.resolve(); } };
+    HW.setFreq(50); HW.setOsc(25000000);
+    serialConfig(); await flush();
+    bytes.length = 0;
+    setupOpen(0); SETUP.hw.freq = 200;
+    setupApply(); await flush(); await flush();
+    const f = frames(bytes);
+    const cfg = f.findIndex(x=>x.ch===SER.cfgServo);
+    const pos = f.findIndex(x=>x.ch < 62 && x.val !== 8191);
+    const out = {hwFreq:HW.freq(), cfgVal: cfg>=0 ? f[cfg].val : null, cfgBeforeAnyPosition: cfg>=0 && (pos<0 || cfg<pos)};
+    SER.port = null; SER.writer = null; SER.sent = null; SER.kind = '';
+    return out;
+  });
+  ok('the config frame carries the new rate and precedes every position', fin.hwFreq === 200 && fin.cfgVal === 200 && fin.cfgBeforeAnyPosition, JSON.stringify(fin));
+
+  console.log('\n════ the channel table refuses a half-typed endpoint (H4) ════');
+  /* oninput wired to the wire: typing 1500 wrote 1, 15 and 150 µs to a real
+     servo before it wrote 1500. The bench's 500–2500 band now guards this
+     table too, and the boxes say so in their own min/max. */
+  const typed = await page.evaluate(()=>{
+    const c = PROJ.channels[0]; c.mode='Servo'; c.min=4000; c.max=8000; c.home=0; HW.rebuild(false);
+    buildChannels();
+    const mx = document.querySelector('#chTable tr[data-ch="0"] [data-f=max]');
+    const seen = [];
+    for(const v of ['1','15','150','1500']){ mx.value = v; mx.dispatchEvent(new Event('input',{bubbles:true})); seen.push({v, max:c.max, cls:mx.className}); }
+    const hm = document.querySelector('#chTable tr[data-ch="0"] [data-f=home]');
+    hm.value = '1900'; hm.dispatchEvent(new Event('input',{bubbles:true}));      /* outside the 1000–1500 the ends now allow */
+    return {seen, homeRefused: c.home !== 7600, homeCls: hm.className, attrs:[mx.min, mx.max]};
+  });
+  ok('1, 15 and 150 µs are refused and never written; 1500 lands',
+     typed.seen.slice(0,3).every(x=>x.max === 8000 && x.cls === 'bad') && typed.seen[3].max === 6000, JSON.stringify(typed.seen));
+  ok('a centre outside its own two ends is refused too', typed.homeRefused && typed.homeCls === 'bad', JSON.stringify(typed));
+  ok('the boxes carry the policy\'s own band as their min/max', typed.attrs[0] === '500' && typed.attrs[1] === '2500', typed.attrs.join('–'));
+
+  /* the ~80 blocks above used to print the count of page errors and never
+     assert it — a throw in any handler after load was invisible (M21) */
+  ok('no page errors anywhere in the run', errs.length===0, errs.join(' | '));
 
   console.log('\n'+pass+' passed, '+(fail?fail+' FAILED':'0 failed'));
   console.log('page errors: '+(errs.length?errs.join(' | '):'none'));

@@ -178,51 +178,14 @@ const HW = {
   rebuild(keep){
     const old = HWE;
     HWE = pcaCreate(MSTR.channels, MSTR.sequences || []);
-    if(keep && old){
-      for(let i=0;i<Math.min(old.st.length, HWE.st.length);i++){
-        const o = old.st[i], s = HWE.st[i];
-        if(!o || !s || !s.servo) continue;   /* a hole on either side is not a channel */
-        /* …AND THE OLD ROW HAS TO HAVE BEEN A SERVO TOO (2026-08-22). The
-           guard above asks only what the channel IS, so a channel that was
-           an Input and has just been made a Servo — a bench edit, or the
-           servo-config import that rebuilds after writing the table — had
-           the state pcaCreate's pcaGoHome just gave it overwritten by the
-           old row's zeros: active false, pos256 0, and `known` (not in the
-           copy below) left true, which is `pcaReleased`. It read as sitting
-           at 0 until the next drive+tick put it right.
-           A non-servo row has nothing worth carrying: it has never held a
-           position, and the freshly-homed state IS where that channel now
-           is. This narrows the copy rather than widening it, so it takes
-           nothing away from the `aim` carry below — that is about channels
-           which were servos before this rebuild and still are. */
-        if(!o.servo) continue;
-        /* AND `aim` WITH THEM (v1.66.3). `target` is where the channel was
-           ASKED to go; `aim` is where pcaStepChannel actually steers — the
-           two differ under PCA_EASE_OVERSHOOT, and only aim is read by the
-           kinematics (`const T = s.aim<<8`). Carrying four of the five left
-           the new engine holding pcaGoHome's aim instead of the live one, so
-           every driven channel ramped to its HOME the instant anything called
-           this — a tick on boot or rev, a typed endpoint, saving OR cancelling
-           the dial, setting a Part, finishing the wizard.
-           On a channel with homemode 'Off' that home is 0 (pcaHomeQus), which
-           drives it hard into c.min and PINS it there: pos256 clamps at the
-           endpoint every tick while T stays 0, so the `d===0` repair branch in
-           pcaStepChannel is never reached. With a board plugged in that is a
-           real horn walking to its stop and staying on it. */
-        s.active = o.active; s.pos256 = o.pos256; s.vel256 = o.vel256;
-        s.target = o.target; s.aim = o.aim;
-        const c = MSTR.channels[i]; if(!c) continue;
-        const lo = Math.min(c.min,c.max)<<8, hi = Math.max(c.min,c.max)<<8;
-        if(s.active){
-          s.pos256 = clamp(s.pos256, lo, hi);
-          s.target = clamp(s.target, lo>>8, hi>>8);
-          /* the endpoints may have just been narrowed — that is one of the
-             edits that brings us here — and an aim outside them is the same
-             drive-into-the-stop as above */
-          s.aim = clamp(s.aim, lo>>8, hi>>8);
-        }
-      }
-    }
+    /* THE CARRY LIVES IN THE ENGINE NOW — pcaCarryState() in pcaseq.js
+       (v1.76.0). The history of what it copies and why (`aim`, v1.66.3;
+       `known`, v1.76.0; the servo-on-both-sides rule, 2026-08-22) is written
+       above that function. It moved because this loop was the SIM's copy of
+       the rule, PCA Studio's 30-project.js was another, and the `aim` fix
+       reached only this one: three releases after the sim stopped walking a
+       driven servo to its stop on every keystroke, Studio still did. */
+    if(keep && old) pcaCarryState(old, HWE, MSTR.channels);
     /* every position the engine writes goes down the wire, if there is one */
     HWE.onWrite = (ch, qus)=>{ if(typeof serialWrite === 'function') serialWrite(ch, qus); };
     if(typeof serialSyncAll === 'function' && typeof SER !== 'undefined' && SER.port) serialSyncAll();
@@ -352,42 +315,22 @@ const HW = {
    different pulse width, silently. So the app has to remember what it told
    the board, because the board will never say.
 
-   Only two things ever write the config frame — serialConfig(), which
-   serialSetMode() fires the moment a connection is proved, and
-   serialSetFreq(). hwCfgSeen() therefore reads a freshly connected port as
-   "already carries whatever HW says today", and after that the record only
-   moves when this file moves it. A rate typed into the wizard changes HW and
-   not the record, which is exactly the disagreement hwCfgPush() is looking
-   for. */
-let HWCFG = null;                       /* {port, freq, osc} or null */
-function hwCfgSeen(){
-  if(typeof SER === 'undefined' || !SER.port){ HWCFG = null; return; }
-  if(!HWCFG || HWCFG.port !== SER.port)
-    HWCFG = {port:SER.port, freq:HW.freq(), osc:HW.osc()};
-}
-/* Reprogram the board, if and only if it is not already running what the app
-   is about to stream at it. The order is serialSetFreq()'s, for its reasons:
-   everything OFF first (a prescaler change under a moving servo is audible),
-   then the config frame, then forget every cached tick so the resync that
-   follows re-sends real numbers rather than sparing the wire against values
-   computed at the old rate.
-
-   A Pololu Maestro is not in this: its period is its own, it never sees these
-   frames, and its targets are quarter-µs with no tick maths in between. */
+   v1.76.0 — AND THE REMEMBERING BELONGS TO WHOEVER WRITES THE FRAME. This
+   file used to keep its own record (`HWCFG`), stamped when a port appeared
+   and moved only by this function. But serialSetFreq() — the rate box on the
+   link row — writes the config frame too, and never told this record, so
+   after "rate → 200 Hz" the board was at 200 while HWCFG still said 50; the
+   wizard's Finish then put the old rate back (its copy of the setup was
+   taken before the box was touched), this compare read 50 == 50, sent no
+   frame, and the resync streamed 50 Hz tick maths at a 200 Hz prescaler:
+   1500 µs asked for, 375 µs emitted, and then the port closed with the horn
+   on its stop. The record now lives in serial-link.js as `SER.sent`, written
+   by both frame writers and cleared on disconnect, and serialCfgSync() is
+   the one shared "send it if it differs" — which PCA Studio's host calls
+   too, because Studio's Finish had never sent the frame at all (v1.69.0's
+   §1.3 fix landed in this file only). */
 function hwCfgPush(){
-  if(typeof SER === 'undefined' || !SER.port || SER.blocked) return false;
-  if(SER.kind === 'maestro') return false;
-  if(typeof serialConfig !== 'function' || typeof serialAllOff !== 'function') return false;
-  hwCfgSeen();
-  if(HWCFG.freq === HW.freq() && HWCFG.osc === HW.osc()) return false;
-  serialAllOff();
-  SER.lastTicks = {};
-  serialConfig();
-  HWCFG = {port:SER.port, freq:HW.freq(), osc:HW.osc()};
-  HW.say('board reconfigured — '+HW.freq()+' Hz servo rate, '
-       + (HW.osc()/1000000)+' MHz oscillator. Everything was stopped first, '
-       + 'so drive a channel to wake it.');
-  return true;
+  return (typeof serialCfgSync === 'function') ? serialCfgSync() : false;
 }
 
 /* ------------------------------------------------------- the bench clock
@@ -402,10 +345,9 @@ function hwWanted(){
 /* Called from the animation frame. It does NOT step the engine — a fixed-rate
    engine driven off a variable-rate clock ripples (hw-clock.js). All this does
    is start and stop the heartbeat as the reason to have one comes and goes,
-   repaint what the heartbeat moved, and notice a board arriving or leaving so
-   HWCFG above knows which port its record belongs to. */
+   and repaint what the heartbeat moved. (It used to stamp the board-config
+   record too; that record is serial-link.js's `SER.sent` now, v1.76.0.) */
 function hwTick(){
-  hwCfgSeen();
   const want = hwWanted();
   if(want && !hwClockRunning()) hwClockStart();
   if(!want && hwClockRunning()) hwClockStop();

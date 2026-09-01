@@ -39,7 +39,19 @@ const HW = {
   setup(){ return PROJ.setup; },
   setSetup(hw){ PROJ.setup = hw; },
   appVersion(){ return STUDIO_VERSION + ' (PCA Studio)'; },
-  applied(){ curSeq = 0; rebuildAll(); },
+  /* THE RATE HAS TO REACH THE BOARD BEFORE THE STREAM DOES (v1.76.0). The
+     wizard's Finish lands here after setSetup()/setOsc(), and rebuildAll()
+     ends in a resync whose tick maths divide by the NEW rate. The sim's host
+     learned this in v1.66.3 (hw-host.js); this one never did, so a 200 Hz
+     rate chosen on step 2 streamed 200 Hz tick counts at a board still
+     running 50 Hz — 1500 µs asked for, 6 ms emitted, for the rest of the
+     session. serialCfgSync() is the shared "send the config frame if the
+     board is not already running it", in serial-link.js so a host cannot
+     forget it again. */
+  applied(){
+    if(typeof serialCfgSync === 'function') serialCfgSync();
+    curSeq = 0; rebuildAll();
+  },
 
   engine(){ return E; },
   rebuild(keep){ rebuildEngine(keep); },

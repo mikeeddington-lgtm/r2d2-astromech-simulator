@@ -336,7 +336,10 @@ function setupLiveSync(){
    A host that cannot answer "which panels are there" is not a host with no
    panels; it is a host the question does not apply to. */
 function setupDomeReady(){
+  /* every dome-map helper this file reaches for is named here, not just two
+     of them — tools/check-globals.js reads this list (v1.76.0) */
   return typeof buildDomeMap === 'function' && typeof domeMapCovers === 'function'
+      && typeof domeMapKeys === 'function'
       && !!setupParts().length && !!(typeof HW !== 'undefined' && HW.setPart);
 }
 /* the next servo channel nothing is mapped to, wrapping — so placing a
@@ -970,12 +973,21 @@ function setupBindChannels(){
     else if(k === 'sleep'){
       const ms = document.querySelector('#chCfg [data-k=sleepMs]');
       c.releaseMs = e.target.checked ? ((ms ? +ms.value|0 : 0) || 1200) : 0;
-      HW.save(); setupRender(); return;
+      HW.save(); HW.rebuild(true); setupRender(); return;
     }
     else if(k === 'sleepMs') c.releaseMs = (+e.target.value|0);
-    else if(k === 'ease'){ c.ease = e.target.value; HW.rebuild(true); }
+    else if(k === 'ease'){ c.ease = e.target.value; }
     else c[k] = (+e.target.value|0);
     HW.save();
+    /* THE ENGINE READS THESE ONCE, AT pcaCreate (v1.76.0). Speed, acceleration
+       and sleep typed here reached the table and the save, and not the
+       engine: the "Move it now" slider — whose tooltip promises the engine's
+       speed applies — kept moving at the old speed until some unrelated edit
+       rebuilt it, and on a paced Maestro serialMove() reads c.speed live, so
+       the BOARD ramped at the new speed while the model ramped at the old.
+       Two views onto one number, disagreeing. `ease` already rebuilt; now
+       every one of them does. */
+    if(k !== 'name') HW.rebuild(true);
   };
   body.onclick = e=>{
     /* SELECTING IS CLICKING THE ROW (v1.50.0). It used to be clicking the

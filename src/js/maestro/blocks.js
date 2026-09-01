@@ -344,7 +344,11 @@ function blockRemove(seq, id){
 function blockFind(seq, id){ return blockList(seq).find(b=>b.id === id) || null; }
 function blockSeqDur(name){
   const s = BLKH.sequences().find(x=>x.name === name);
-  return s ? Math.max(200, seqTotal(s)) : 1000;
+  /* summed here rather than through seqTotal(): that helper lives in
+     playback.js, which PCA Studio does not load, so dropping a whole-sequence
+     brick in Studio threw ReferenceError and added nothing (v1.76.0) */
+  const total = s && s.frames ? s.frames.reduce((a,f)=>a+(f.duration|0), 0) : 0;
+  return s ? Math.max(200, total) : 1000;
 }
 
 /* --------------------------------------------------------- compilation */

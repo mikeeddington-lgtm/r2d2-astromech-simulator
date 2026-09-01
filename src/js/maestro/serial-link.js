@@ -42,7 +42,11 @@ const SER = { port:null, writer:null, reader:null, q:[], flushing:false,
                  'bridge'/'coproc'/'coproc-live' speak this file's own three-byte
                  frames; 'maestro' speaks Pololu's protocol (maestro-link.js) and
                  shares nothing with them but the port. */
-              kind:'' };
+              kind:'',
+              /* what the board was last TOLD — {port, freq, osc} — written by
+                 the two config-frame writers below and read by
+                 serialCfgSync(). null until a frame has gone out (v1.76.0) */
+              sent:null };
 
 /* SER.wide, and everything that follows from it, in one place so the
    encoder, the guard and the config frames can never disagree. */
@@ -279,6 +283,7 @@ function serialCanAdoptBoards(){
 function serialAdoptBoardCount(n){
   if(typeof kioskOn === 'function' && kioskOn()) return false;
   if(!serialCanAdoptBoards()) return false;
+  if(typeof buildSet !== 'function') return false;   /* sim-only; guarded by name (check-globals) */
   n = Math.max(1, Math.min(PCA_MAX_BOARDS_UI, n|0));
   const was = HW.count();
   if(n * 16 <= was){
@@ -519,6 +524,7 @@ async function serialDisconnect(){
   try{ if(port) await port.close(); }catch(e){}
   SER.writer=null; SER.reader=null; SER.blocked=false;
   SER.kind='';
+  SER.sent=null;                        /* the next board starts from nothing said */
   /* the mode banner goes with the link it describes. hwLinkRender() ends with
      monWarn(SER.modeWarn) and runs on every setupRender() — so a message left
      standing here comes back on the next keystroke on the Channels step,
@@ -562,6 +568,38 @@ function serialConfig(){
   if(SER.kind === 'maestro') return;
   serialFrame(SER.cfgOsc,   Math.round(HW.osc()/10000));
   serialFrame(SER.cfgServo, HW.freq());
+  SER.sent = {port:SER.port, freq:HW.freq(), osc:HW.osc()};
+}
+/* ============================ SEND THE CONFIG IF THE BOARD IS NOT RUNNING IT
+   v1.76.0. The one shared answer to "is the board running what the app is
+   about to stream at it?" — compared against SER.sent, the record the two
+   frame writers keep, rather than against a record a host keeps for itself.
+   The order is serialSetFreq()'s, for its reasons: everything OFF first (a
+   prescaler change under a moving servo is audible), then the config frame,
+   then forget every cached tick so the resync that follows re-sends real
+   numbers rather than sparing the wire against values computed at the old
+   rate. A Pololu Maestro is not in this: its period is its own, it never
+   sees these frames, and its targets are quarter-µs with no tick maths in
+   between.
+
+   Both hosts call it from HW.applied() — the wizard's Finish. Before it
+   existed the sim compared against its own `HWCFG`, which the link-row rate
+   box never updated (hw-host.js says what that cost), and PCA Studio's
+   Finish compared against nothing and sent nothing: a 200 Hz rate chosen on
+   its wizard streamed 200 Hz tick maths at a 50 Hz board for the rest of
+   the session. */
+function serialCfgSync(){
+  if(!SER.port || SER.blocked) return false;
+  if(SER.kind === 'maestro') return false;
+  const t = SER.sent;
+  if(t && t.port === SER.port && t.freq === HW.freq() && t.osc === HW.osc()) return false;
+  serialAllOff();
+  SER.lastTicks = {};
+  serialConfig();
+  HW.say('board reconfigured — '+HW.freq()+' Hz servo rate, '
+       + (HW.osc()/1000000)+' MHz oscillator. Everything was stopped first, '
+       + 'so drive a channel to wake it.');
+  return true;
 }
 /* Change the servo refresh rate on a running board. The bridge sketch calls
    setPWMFreq() the moment this arrives, which reprograms the prescaler — so
@@ -591,6 +629,10 @@ function serialSetFreq(hz){
   serialAllOff();
   SER.lastTicks = {};
   serialFrame(SER.cfgServo, hz);
+  /* this is a config-frame writer too, so it keeps the record — the hole that
+     let Finish re-stream at the old rate with no frame in front of it (v1.76.0) */
+  SER.sent = {port:SER.port, freq:hz,
+              osc:(SER.sent && SER.sent.port === SER.port) ? SER.sent.osc : HW.osc()};
   HW.say('servo rate → '+hz+' Hz · one PCA9685 count is now '
          + (1000000/hz/4096).toFixed(2) + ' µs. Everything was stopped first; drive a channel to wake it.');
 }

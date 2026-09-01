@@ -73,6 +73,19 @@ rc=0; out=$(node tools/check-packs.js 2>&1) || rc=$?
 echo "$out"
 [ $rc -eq 0 ] || note_fail "release sketch packs do not match the pack builder"
 
+# v1.76.0 — a shared module reaching for a sim-only global is a Studio-only
+# ReferenceError that no sim suite can see and the smoke test sees only if
+# it walks the exact path. It happened three times before this line existed.
+printf '  %-24s ' "global scope"
+rc=0; out=$(node tools/check-globals.js 2>&1) || rc=$?
+if [ $rc -eq 0 ]; then
+  echo "$out"
+else
+  echo ""
+  echo "$out" | sed 's/^/  /'
+  note_fail "a shared module reaches for a global PCA Studio does not load — see tools/check-globals.js"
+fi
+
 # run_suite <label-for-the-list> <command...> — runs one suite, shows its
 # summary or FAIL lines, and records a failure on any non-zero status. Node's
 # status is taken before anything else runs, because a pipe would replace it.

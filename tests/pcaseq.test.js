@@ -466,6 +466,85 @@ const LIVE = fs.readFileSync(path.resolve(__dirname,'fixtures-live-dome.mstr'),'
   ok('sequences.h includes "MaestroPCA.h", not <MaestroPCA.h>',
      inc.line === '#include "MaestroPCA.h"' && !inc.angled, JSON.stringify(inc));
 
+  /* ================================================================
+     v1.76.0 — the state carry is the ENGINE's (pcaCarryState), shared by
+     both hosts. The sim's hw-host.js and Studio's 30-project.js each kept
+     a copy; the `aim` fix of v1.66.3 reached one of them. Review of
+     2026-09-01, H3 / H12.
+     ================================================================ */
+  console.log('\n════ pcaCarryState — one carry, two hosts ════');
+  const carry = await ev((rig)=>{
+    const mk = ()=>[
+      {i:0,name:'A', mode:'Servo',min:4000,max:8000,home:0,   homemode:'Off', speed:40,acceleration:0, ease:'overshoot'},
+      {i:1,name:'B', mode:'Servo',min:4000,max:8000,home:6000,homemode:'Goto',speed:40,acceleration:0},
+      {i:2,name:'C', mode:'Input',min:0,   max:1024,home:0,   homemode:'Off', speed:0, acceleration:0},
+      {i:3,name:'D', mode:'Servo',min:4000,max:8000,home:0,   homemode:'Off', speed:40,acceleration:0, releaseMs:100}
+    ];
+    const ch = mk();
+    const old = pcaCreate(ch, []);
+    pcaSetTarget(old, 3, 6000); for(let i=0;i<40;i++) pcaTick(old,10);    /* D: snap, arrive, release */
+    pcaSetTarget(old, 0, 5000);                 /* A: first command snaps… */
+    pcaSetTarget(old, 0, 7000);                 /* …the second overshoots: aim past the target for a while */
+    for(let i=0;i<5;i++) pcaTick(old,10);
+    const aimDiffers = old.st[0].aim !== old.st[0].target;
+    old.st[1].free = {lo:2000, hi:10000};       /* a dial window on B */
+    pcaSetTarget(old, 1, 3000); for(let i=0;i<200;i++) pcaTick(old,10);   /* past its own min, inside the window */
+    const before = {
+      a:{aim:old.st[0].aim, target:old.st[0].target, pos:old.st[0].pos256>>8, active:old.st[0].active, known:old.st[0].known},
+      b:{pos:old.st[1].pos256>>8, free:!!old.st[1].free},
+      d:{active:old.st[3].active, known:old.st[3].known, pos:old.st[3].pos256>>8}
+    };
+    /* the rebuild: same table, except C has just become a Servo */
+    const ch2 = mk(); ch2[2].mode = 'Servo'; ch2[2].min = 4000; ch2[2].max = 8000; ch2[2].home = 5000; ch2[2].homemode = 'Goto';
+    const E = pcaCreate(ch2, []);
+    pcaCarryState(old, E, ch2);
+    const after = {
+      a:{aim:E.st[0].aim, target:E.st[0].target, pos:E.st[0].pos256>>8, active:E.st[0].active, known:E.st[0].known},
+      b:{pos:E.st[1].pos256>>8, free:!!E.st[1].free},
+      c:{pos:E.st[2].pos256>>8, active:E.st[2].active, known:E.st[2].known},
+      d:{active:E.st[3].active, known:E.st[3].known, pos:E.st[3].pos256>>8}
+    };
+    /* and a narrowed table clamps what it carries */
+    const ch3 = mk(); ch3[0].max = 6000;
+    const E3 = pcaCreate(ch3, []);
+    pcaCarryState(old, E3, ch3);
+    const narrowed = {aim:E3.st[0].aim, target:E3.st[0].target, pos:E3.st[0].pos256>>8};
+    return {aimDiffers, before, after, narrowed};
+  });
+  ok('the test rig is live: overshoot has aim and target apart', carry.aimDiffers);
+  ok('`aim` is carried, not just `target` — the v1.66.3 fix, now in the engine',
+     carry.after.a.aim === carry.before.a.aim && carry.after.a.target === carry.before.a.target
+     && carry.after.a.pos === carry.before.a.pos, JSON.stringify({before:carry.before.a, after:carry.after.a}));
+  ok('a released servo stays released AND known, so its next move eases rather than snaps',
+     carry.before.d.active === false && carry.before.d.known === true
+     && carry.after.d.active === false && carry.after.d.known === true && carry.after.d.pos === carry.before.d.pos,
+     JSON.stringify({before:carry.before.d, after:carry.after.d}));
+  ok('the dial\'s window survives the rebuild, and so does the position inside it',
+     carry.after.b.free && carry.after.b.pos === 3000, JSON.stringify(carry.after.b));
+  ok('a channel that has just BECOME a servo is freshly homed, not overwritten with an Input\'s zeros',
+     carry.after.c.pos === 5000 && carry.after.c.active === true && carry.after.c.known === true, JSON.stringify(carry.after.c));
+  ok('a narrowed table clamps the carried aim, target and position into the new ends',
+     carry.narrowed.aim <= 6000 && carry.narrowed.target === 6000 && carry.narrowed.pos <= 6000, JSON.stringify(carry.narrowed));
+
+  console.log('\n════ pcaBounds — the clamp reads the dial\'s window, and only that ════');
+  const bounds = await ev(()=>{
+    const ch = [{i:0,name:'A', mode:'Servo',min:5000,max:7000,home:6000,homemode:'Goto',speed:40,acceleration:0}];
+    const E = pcaCreate(ch, []);
+    pcaSetTarget(E, 0, 4400); for(let i=0;i<100;i++) pcaTick(E,10);
+    const shut = {target:E.st[0].target, pos:E.st[0].pos256>>8};
+    E.st[0].free = {lo:2000, hi:10000};
+    pcaSetTarget(E, 0, 4400); for(let i=0;i<100;i++) pcaTick(E,10);
+    const open = {target:E.st[0].target, pos:E.st[0].pos256>>8};
+    E.st[0].free = null; E.st[0].target = 5000; E.st[0].aim = 5000;
+    for(let i=0;i<100;i++) pcaTick(E,10);
+    const back = {pos:E.st[0].pos256>>8};
+    return {shut, open, back};
+  });
+  ok('with no window the engine clamps to the table, exactly as the firmware does',
+     bounds.shut.target === 5000 && bounds.shut.pos === 5000, JSON.stringify(bounds.shut));
+  ok('with the window open the same command lands past the stored end',
+     bounds.open.target === 4400 && bounds.open.pos === 4400, JSON.stringify(bounds.open));
+  ok('…and a servo commanded back inside after the window shuts ramps there', bounds.back.pos === 5000, JSON.stringify(bounds.back));
 
   ok('no page errors', errs.length === 0, errs.join(' | '));
 

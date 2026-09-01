@@ -672,7 +672,7 @@ body.light{
 <script>/* pca-studio/src/js/00-core.js */
 'use strict';
 /* =============================================================== CORE */
-const STUDIO_VERSION = '0.12.2';
+const STUDIO_VERSION = '0.13.0';
 const $ = id=>document.getElementById(id);
 const clamp=(v,a,b)=>v<a?a:v>b?b:v;
 function log(msg, cls){ const l=$('log'); l.textContent=msg; l.className=cls||''; }
@@ -730,6 +730,12 @@ function esc(s){ return String(s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;'
    Both are held in quarter-µs, the unit everything downstream speaks. */
 const PW_STD  = {lo:4000, hi:8000};    /* 1000–2000 µs */
 const PW_ABS  = {lo:2000, hi:10000};   /* 500–2500 µs  */
+/* How many PCA9685s the live-drive wire protocol can address — 8 boards, 128
+   channels, of which 126 and 127 carry the board configuration
+   (serial-link.js). It is HERE, in the file both manifests load first,
+   because the setup bench and the serial layer read it and PCA Studio loads
+   those without maestro/boards.js, where it used to live (v1.76.0). */
+const PCA_MAX_BOARDS_UI = 8;
 function pwClass(qus){
   if(!qus) return '';                                   /* 0 is "no pulse", not a width */
   if(qus < PW_ABS.lo || qus > PW_ABS.hi) return 'bad';
@@ -840,7 +846,10 @@ function pcaCreate(channels, sequences){
       speed: c.speed|0, accel: c.acceleration|0,
       ease: pcaEaseNum(c.ease), releaseMs: c.releaseMs|0,
       settled:0, launch:0,
-      active:false, known:false, servo:/^servo/i.test(c.mode||'Servo')
+      active:false, known:false, servo:/^servo/i.test(c.mode||'Servo'),
+      /* the bench dial's window past the stored ends — null everywhere
+         else, see pcaBounds() */
+      free:null
     })),
     tracks: Array.from({length:PCA_MAX_TRACKS},()=>({seq:-1, frame:-1, frameT:0, mask:pcaMaskNew(), started:0})),
     bgWait: new Array(PCA_MAX_TRACKS).fill(-1),
@@ -934,6 +943,79 @@ function pcaGoHome(E){
   });
 }
 
+/* ========================================== THE BOUNDS A CHANNEL MOVES IN
+   Its calibrated min/max, either way round — the same Math.min/Math.max the
+   firmware takes — EXCEPT while the bench dial is measuring it (v1.76.0).
+   `s.free` is a {lo, hi} in quarter-µs that the dial opens around a channel
+   for exactly as long as the dial is on it (setup-hw-cal.js calDrive /
+   setupCalLeave); every clamp in this file reads it here, so the dial can
+   reach past the very ends it exists to find. Before this, pcaSetTarget()
+   honoured the widened range and pcaStepChannel() then clamped the position
+   back to the stored ends on the next tick — the first turn of the dial on a
+   fresh channel worked (nothing had driven it, so it snapped) and the second
+   did not, which read as flaky and made re-measuring a narrowed channel over
+   PCA_Bridge impossible.
+
+   PARITY NOTE: MaestroPCA.cpp has no dial and no `free`. With `free` null,
+   which it is on every path but the dial's, this is Math.min/Math.max of
+   the channel's own pair, integer-for-integer as before. */
+function pcaBounds(c, s){
+  if(s && s.free) return {lo:s.free.lo, hi:s.free.hi};
+  return {lo:Math.min(c.min,c.max), hi:Math.max(c.min,c.max)};
+}
+
+/* ================================ CARRYING STATE ACROSS A REBUILD (v1.76.0)
+   A host rebuilds the engine whenever the channel table changes — a renamed
+   channel, a typed endpoint, a ticked boot, a finished wizard — and a
+   rebuild is a fresh pcaCreate() + pcaGoHome(). What must survive it is
+   where every servo IS and where it is GOING, or the droid lurches on a
+   keystroke:
+
+     · `pos256`/`vel256`/`active`/`target` — v1.31.x
+     · `aim` — v1.66.3: `target` is where the channel was ASKED to go, `aim`
+       is where pcaStepChannel actually steers (they differ under
+       PCA_EASE_OVERSHOOT). Carrying four of the five left the new engine
+       holding pcaGoHome's aim, so every driven channel ramped to its HOME
+       on the next tick — and on a `homemode:'Off'` channel that home is 0,
+       which drives it hard into c.min and PINS it there.
+     · `known` — v1.76.0: a channel released by `releaseMs` is
+       `active:false, known:true`, which is what makes its next command
+       EASE from where it stopped instead of snapping. Dropping it turned
+       every bench edit into a snap on the next move.
+     · `free` — the dial's window, above, or a rebuild while the dial is
+       open would clamp the servo back to the stored ends mid-measurement.
+
+   It lives HERE, in the engine both hosts are built from, because it used
+   to live in the sim's hw-host.js — and PCA Studio's 30-project.js carried
+   its own copy that had never received the `aim` fix. In Studio a rename
+   keystroke therefore walked every driven servo to its stop, three
+   releases after the sim was fixed. One carry, two hosts.
+
+   Only channels that were servos on BOTH sides are carried: a channel that
+   has just been made a servo has never held a position, and the freshly
+   homed state IS where it now is (2026-08-22). */
+function pcaCarryState(old, E, channels){
+  if(!old || !E) return;
+  for(let i=0;i<Math.min(old.st.length, E.st.length);i++){
+    const o = old.st[i], s = E.st[i];
+    if(!o || !s || !s.servo || !o.servo) continue;
+    s.active = o.active; s.pos256 = o.pos256; s.vel256 = o.vel256;
+    s.target = o.target; s.aim = o.aim; s.known = o.known;
+    s.free = o.free || null;
+    const c = channels ? channels[i] : E.channels[i]; if(!c) continue;
+    /* the endpoints may have just been narrowed — that is one of the edits
+       that brings us here — and a position, target or aim outside them is
+       the same drive-into-the-stop as a lost aim */
+    const b = pcaBounds(c, s);
+    const lo = b.lo<<8, hi = b.hi<<8;
+    if(s.active){
+      s.pos256 = Math.max(lo, Math.min(hi, s.pos256));
+      s.target = Math.max(b.lo, Math.min(b.hi, s.target));
+      s.aim    = Math.max(b.lo, Math.min(b.hi, s.aim));
+    }
+  }
+}
+
 function pcaSetTarget(E, ch, qus){
   const c = E.channels[ch], s = E.st[ch];
   if(!c || !s || !s.servo) return;
@@ -943,7 +1025,7 @@ function pcaSetTarget(E, ch, qus){
     pcaFire(E,ch,null);
     return;
   }
-  const lo=Math.min(c.min,c.max), hi=Math.max(c.min,c.max);
+  const b = pcaBounds(c, s), lo = b.lo, hi = b.hi;
   if(qus < lo) qus = lo;
   if(qus > hi) qus = hi;
 
@@ -1214,8 +1296,8 @@ function pcaStepChannel(E, ch){
   /* Clamp the POSITION, not just the target — reversing with residual
      velocity can otherwise carry a channel past its calibrated endpoint,
      and endpoints are what stop a panel binding against the shell. */
-  const c2 = E.channels[ch];
-  const clo = Math.min(c2.min,c2.max)<<8, chi = Math.max(c2.min,c2.max)<<8;
+  const b2 = pcaBounds(E.channels[ch], s);
+  const clo = b2.lo<<8, chi = b2.hi<<8;
   if(s.pos256 < clo){ s.pos256 = clo; s.vel256 = 0; }
   if(s.pos256 > chi){ s.pos256 = chi; s.vel256 = 0; }
   if(s.pos256===T) s.vel256 = 0;
@@ -2162,7 +2244,11 @@ const SER = { port:null, writer:null, reader:null, q:[], flushing:false,
                  'bridge'/'coproc'/'coproc-live' speak this file's own three-byte
                  frames; 'maestro' speaks Pololu's protocol (maestro-link.js) and
                  shares nothing with them but the port. */
-              kind:'' };
+              kind:'',
+              /* what the board was last TOLD — {port, freq, osc} — written by
+                 the two config-frame writers below and read by
+                 serialCfgSync(). null until a frame has gone out (v1.76.0) */
+              sent:null };
 
 /* SER.wide, and everything that follows from it, in one place so the
    encoder, the guard and the config frames can never disagree. */
@@ -2399,6 +2485,7 @@ function serialCanAdoptBoards(){
 function serialAdoptBoardCount(n){
   if(typeof kioskOn === 'function' && kioskOn()) return false;
   if(!serialCanAdoptBoards()) return false;
+  if(typeof buildSet !== 'function') return false;   /* sim-only; guarded by name (check-globals) */
   n = Math.max(1, Math.min(PCA_MAX_BOARDS_UI, n|0));
   const was = HW.count();
   if(n * 16 <= was){
@@ -2639,6 +2726,7 @@ async function serialDisconnect(){
   try{ if(port) await port.close(); }catch(e){}
   SER.writer=null; SER.reader=null; SER.blocked=false;
   SER.kind='';
+  SER.sent=null;                        /* the next board starts from nothing said */
   /* the mode banner goes with the link it describes. hwLinkRender() ends with
      monWarn(SER.modeWarn) and runs on every setupRender() — so a message left
      standing here comes back on the next keystroke on the Channels step,
@@ -2682,6 +2770,38 @@ function serialConfig(){
   if(SER.kind === 'maestro') return;
   serialFrame(SER.cfgOsc,   Math.round(HW.osc()/10000));
   serialFrame(SER.cfgServo, HW.freq());
+  SER.sent = {port:SER.port, freq:HW.freq(), osc:HW.osc()};
+}
+/* ============================ SEND THE CONFIG IF THE BOARD IS NOT RUNNING IT
+   v1.76.0. The one shared answer to "is the board running what the app is
+   about to stream at it?" — compared against SER.sent, the record the two
+   frame writers keep, rather than against a record a host keeps for itself.
+   The order is serialSetFreq()'s, for its reasons: everything OFF first (a
+   prescaler change under a moving servo is audible), then the config frame,
+   then forget every cached tick so the resync that follows re-sends real
+   numbers rather than sparing the wire against values computed at the old
+   rate. A Pololu Maestro is not in this: its period is its own, it never
+   sees these frames, and its targets are quarter-µs with no tick maths in
+   between.
+
+   Both hosts call it from HW.applied() — the wizard's Finish. Before it
+   existed the sim compared against its own `HWCFG`, which the link-row rate
+   box never updated (hw-host.js says what that cost), and PCA Studio's
+   Finish compared against nothing and sent nothing: a 200 Hz rate chosen on
+   its wizard streamed 200 Hz tick maths at a 50 Hz board for the rest of
+   the session. */
+function serialCfgSync(){
+  if(!SER.port || SER.blocked) return false;
+  if(SER.kind === 'maestro') return false;
+  const t = SER.sent;
+  if(t && t.port === SER.port && t.freq === HW.freq() && t.osc === HW.osc()) return false;
+  serialAllOff();
+  SER.lastTicks = {};
+  serialConfig();
+  HW.say('board reconfigured — '+HW.freq()+' Hz servo rate, '
+       + (HW.osc()/1000000)+' MHz oscillator. Everything was stopped first, '
+       + 'so drive a channel to wake it.');
+  return true;
 }
 /* Change the servo refresh rate on a running board. The bridge sketch calls
    setPWMFreq() the moment this arrives, which reprograms the prescaler — so
@@ -2711,6 +2831,10 @@ function serialSetFreq(hz){
   serialAllOff();
   SER.lastTicks = {};
   serialFrame(SER.cfgServo, hz);
+  /* this is a config-frame writer too, so it keeps the record — the hole that
+     let Finish re-stream at the old rate with no frame in front of it (v1.76.0) */
+  SER.sent = {port:SER.port, freq:hz,
+              osc:(SER.sent && SER.sent.port === SER.port) ? SER.sent.osc : HW.osc()};
   HW.say('servo rate → '+hz+' Hz · one PCA9685 count is now '
          + (1000000/hz/4096).toFixed(2) + ' µs. Everything was stopped first; drive a channel to wake it.');
 }
@@ -2907,15 +3031,14 @@ function projLoad(){
 function rebuildEngine(keepPositions){
   const old=E;
   E=pcaCreate(PROJ.channels, PROJ.sequences);
-  if(keepPositions && old){
-    for(let i=0;i<Math.min(old.st.length,E.st.length);i++){
-      const o=old.st[i], s=E.st[i];
-      if(!s.servo) continue;
-      s.active=o.active; s.pos256=o.pos256; s.vel256=o.vel256; s.target=o.target;
-      const c=PROJ.channels[i], lo=Math.min(c.min,c.max)<<8, hi=Math.max(c.min,c.max)<<8;
-      if(s.active){ s.pos256=clamp(s.pos256,lo,hi); s.target=clamp(s.target,lo>>8,hi>>8); }
-    }
-  }
+  /* v1.76.0 — the carry is the ENGINE's (pcaCarryState, pcaseq.js), shared
+     with the sim. This file had its own copy, and that copy carried
+     `target` but not `aim` — the v1.66.3 fix that reached hw-host.js and
+     never this one — so every keystroke in Studio's channel table rebuilt
+     an engine that steered every driven servo to its HOME, which on a
+     `homemode:'Off'` channel is 0 and pins the horn at c.min. Nor did it
+     carry `known`, nor skip a channel that was not a servo before. */
+  if(keepPositions && old) pcaCarryState(old, E, PROJ.channels);
   E.onWrite=(ch,qus)=>serialWrite(ch,qus);
   if(SER.port) serialSyncAll();
 }
@@ -2962,7 +3085,19 @@ const HW = {
   setup(){ return PROJ.setup; },
   setSetup(hw){ PROJ.setup = hw; },
   appVersion(){ return STUDIO_VERSION + ' (PCA Studio)'; },
-  applied(){ curSeq = 0; rebuildAll(); },
+  /* THE RATE HAS TO REACH THE BOARD BEFORE THE STREAM DOES (v1.76.0). The
+     wizard's Finish lands here after setSetup()/setOsc(), and rebuildAll()
+     ends in a resync whose tick maths divide by the NEW rate. The sim's host
+     learned this in v1.66.3 (hw-host.js); this one never did, so a 200 Hz
+     rate chosen on step 2 streamed 200 Hz tick counts at a board still
+     running 50 Hz — 1500 µs asked for, 6 ms emitted, for the rest of the
+     session. serialCfgSync() is the shared "send the config frame if the
+     board is not already running it", in serial-link.js so a host cannot
+     forget it again. */
+  applied(){
+    if(typeof serialCfgSync === 'function') serialCfgSync();
+    curSeq = 0; rebuildAll();
+  },
 
   engine(){ return E; },
   rebuild(keep){ rebuildEngine(keep); },
@@ -3099,10 +3234,12 @@ function hwTableRows(){
   return out;
 }
 
-/* a pulse-width cell: µs in, quarter-µs stored, banded amber/red */
+/* a pulse-width cell: µs in, quarter-µs stored, banded amber/red. The box's
+   own min/max are the policy's hard band (servo-units.js PW_ABS), not a
+   looser pair of its own (v1.76.0). */
 function hwPwCell(f, q){
   return '<td class="pw"><input type="number" data-f="'+f+'" value="'+(q?(q/4).toFixed(0):'')
-    + '" min="300" max="2700" step="1" class="'+pwClass(q)+'" title="'+(q?pwTitle(q):'')+'"></td>';
+    + '" min="'+(PW_ABS.lo/4)+'" max="'+(PW_ABS.hi/4)+'" step="1" class="'+pwClass(q)+'" title="'+(q?pwTitle(q):'')+'"></td>';
 }
 
 function hwTableHtml(){
@@ -3168,7 +3305,34 @@ function hwTableBuild(hostId){
     }
     if(f === 'ease'){ c.ease = e.target.value; HW.changed(); HW.save(); return; }
     if(f === 'min' || f === 'max' || f === 'home'){
-      c[f] = Math.round((+e.target.value||0)*4);          /* µs in, quarter-µs stored */
+      const q = Math.round((+e.target.value||0)*4);        /* µs in, quarter-µs stored */
+      /* ============================ REFUSED AT THE POINT OF ENTRY (v1.76.0)
+         The rule the bench's own Configure panel has had since v1.70.1, in
+         the one table that did not: outside 500–2500 µs the number is not
+         written, and a centre outside its own two ends is not written. The
+         box keeps the number so you can see what you meant and goes red.
+
+         This handler is `oninput`, and this row is wired to the engine
+         whose onWrite is the wire — so typing 1500 here used to write 1 µs,
+         then 15, then 150 to a real servo, one keystroke apart, before it
+         wrote 1500. A three-digit prefix of any four-digit width is under
+         500, which is exactly why the hard band is the guard. */
+      const now = {min:c.min, max:c.max, home:c.home};
+      const no = (typeof pwEndFault === 'function' && pwEndFault(q, f))
+        || (f === 'home' && typeof pwEndsRefusal === 'function'
+            ? pwEndsRefusal(Object.assign({}, now, {home:q})) : null);
+      if(no){
+        e.target.className = 'bad';
+        e.target.title = no.text;
+        return;
+      }
+      c[f] = q;
+      /* an end drags its centre inside the travel rather than stranding it
+         there — the same rule, and the same words, as the bench */
+      if(f !== 'home' && typeof pwCentreFollow === 'function'){
+        const follow = pwCentreFollow({min:c.min, max:c.max, home:c.home});
+        if(follow){ c.home = follow; HW.say('centre moved to '+(follow/4).toFixed(0)+' µs — it was outside the travel you just set', 'warn'); }
+      }
       /* band the cell as you type WITHOUT rebuilding the input under the
          caret — the calibration dial learned this one the hard way */
       e.target.className = pwClass(c[f]);
@@ -4031,7 +4195,11 @@ function blockRemove(seq, id){
 function blockFind(seq, id){ return blockList(seq).find(b=>b.id === id) || null; }
 function blockSeqDur(name){
   const s = BLKH.sequences().find(x=>x.name === name);
-  return s ? Math.max(200, seqTotal(s)) : 1000;
+  /* summed here rather than through seqTotal(): that helper lives in
+     playback.js, which PCA Studio does not load, so dropping a whole-sequence
+     brick in Studio threw ReferenceError and added nothing (v1.76.0) */
+  const total = s && s.frames ? s.frames.reduce((a,f)=>a+(f.duration|0), 0) : 0;
+  return s ? Math.max(200, total) : 1000;
 }
 
 /* --------------------------------------------------------- compilation */
@@ -5550,7 +5718,11 @@ function setupMcu(id){ return SETUP_MCUS.find(m=>m.id===(id||SETUP.hw.mcu)) || S
    reading the servo answers for PREFS.hw. */
 function setupDefaults(){
   let mcu = 'nano', boards = 2;
-  if(typeof buildUsesCoproc === 'function' && buildUsesCoproc()){
+  /* the two helpers this reads are sim-only, so they are guarded by NAME —
+     a guard on a different name is what tools/check-globals.js exists to
+     refuse (v1.76.0) */
+  if(typeof buildUsesCoproc === 'function' && buildUsesCoproc()
+     && typeof servoMcuOpt === 'function' && typeof buildCoprocBoards === 'function'){
     mcu = servoMcuOpt().id;
     boards = buildCoprocBoards('dome') || buildCoprocBoards('body') || boards;
   }
@@ -7225,7 +7397,10 @@ function setupLiveSync(){
    A host that cannot answer "which panels are there" is not a host with no
    panels; it is a host the question does not apply to. */
 function setupDomeReady(){
+  /* every dome-map helper this file reaches for is named here, not just two
+     of them — tools/check-globals.js reads this list (v1.76.0) */
   return typeof buildDomeMap === 'function' && typeof domeMapCovers === 'function'
+      && typeof domeMapKeys === 'function'
       && !!setupParts().length && !!(typeof HW !== 'undefined' && HW.setPart);
 }
 /* the next servo channel nothing is mapped to, wrapping — so placing a
@@ -7859,12 +8034,21 @@ function setupBindChannels(){
     else if(k === 'sleep'){
       const ms = document.querySelector('#chCfg [data-k=sleepMs]');
       c.releaseMs = e.target.checked ? ((ms ? +ms.value|0 : 0) || 1200) : 0;
-      HW.save(); setupRender(); return;
+      HW.save(); HW.rebuild(true); setupRender(); return;
     }
     else if(k === 'sleepMs') c.releaseMs = (+e.target.value|0);
-    else if(k === 'ease'){ c.ease = e.target.value; HW.rebuild(true); }
+    else if(k === 'ease'){ c.ease = e.target.value; }
     else c[k] = (+e.target.value|0);
     HW.save();
+    /* THE ENGINE READS THESE ONCE, AT pcaCreate (v1.76.0). Speed, acceleration
+       and sleep typed here reached the table and the save, and not the
+       engine: the "Move it now" slider — whose tooltip promises the engine's
+       speed applies — kept moving at the old speed until some unrelated edit
+       rebuilt it, and on a paced Maestro serialMove() reads c.speed live, so
+       the BOARD ramped at the new speed while the model ramped at the old.
+       Two views onto one number, disagreeing. `ease` already rebuilt; now
+       every one of them does. */
+    if(k !== 'name') HW.rebuild(true);
   };
   body.onclick = e=>{
     /* SELECTING IS CLICKING THE ROW (v1.50.0). It used to be clicking the
@@ -8117,6 +8301,7 @@ function setupCalLeave(){
   if(!SETUP.cal) return;
   /* no dial, nobody looking at a position — stop asking for one */
   if(typeof mstrUnwatch === 'function') mstrUnwatch();
+  calFree(SETUP.cal.ch, false);      /* the window past the ends shuts with the dial */
   /* v1.70.1 — leaving means keeping, but it does not mean keeping
      ANYTHING: a trio the gate refuses is dropped rather than written, and
      setupCalCommit has already said why. The only way to stage one is to
@@ -8129,6 +8314,7 @@ function setupCalLeave(){
 function setupCalCancel(){
   const cal = SETUP.cal; if(!cal) return;
   if(typeof mstrUnwatch === 'function') mstrUnwatch();
+  calFree(cal.ch, false);
   const c = HW.channels()[cal.ch];
   if(c){ c.min = cal.saveMin; c.max = cal.saveMax; c.home = cal.saveHome; c.homemode = cal.saveMode; }
   SETUP.cal = null;
@@ -8168,6 +8354,7 @@ function setupCalCommit(){
      (setupBindChannels) are the only things that change it now. */
   c.calibrated = true;      /* you set these against the real linkage */
   setupTouched();           /* ...so the export on the way out is now stale */
+  calFree(cal.ch, false);   /* the ends are the ends again — shut the window */
   SETUP.cal = null;
   HW.rebuild(true);
   HW.save();
@@ -8219,11 +8406,14 @@ function calRange(){ return SETUP.cal && SETUP.cal.wide ? CAL_FULL : CAL_SAFE; }
    builder's measured travel, and the Configure panel would have read the
    working range back out and shown it as the channel's ends.
 
-   So the widening lasts exactly one call instead. `pcaSetTarget` clamps at
-   SET time and the step never re-clamps (pcaseq.js), so opening the range,
-   commanding the target and closing it again lands the servo where the dial
-   asked and leaves the channel exactly as the builder measured it. Nothing
-   outside this function ever sees the working range.
+   So from v1.51.0 the widening lasted exactly one call — and this comment
+   claimed "the step never re-clamps (pcaseq.js)". IT DID: pcaStepChannel
+   clamps the position every tick (it has since the reversing-with-residual-
+   velocity fix), so the target was accepted and the servo walked straight
+   back to the stored end. v1.76.0 replaced the one-call widening with a
+   window the ENGINE holds per channel (`st.free`, pcaBounds in pcaseq.js)
+   for as long as the dial is on it; the table's numbers are never touched,
+   which keeps everything the paragraph above was afraid of impossible.
 
    `HW.drive` also normalises the target onto the 3D model through
    `chanNorm(c, …)`, which reads the real ends — so a dial past the travel
@@ -8247,11 +8437,35 @@ function calRange(){ return SETUP.cal && SETUP.cal.wide ? CAL_FULL : CAL_SAFE; }
    rather than a violation. */
 function calDrive(ch, qus){
   const c = HW.channels()[ch]; if(!c){ HW.drive(ch, qus); return; }
+  /* v1.76.0 — THE WINDOW IS THE ENGINE'S, NOT THE TABLE'S. Widening
+     c.min/c.max around one HW.drive() call let pcaSetTarget() accept the
+     target, and then pcaStepChannel() clamped the POSITION back to the
+     stored ends on the very next tick (the comment above said it never
+     re-clamped; it did, every tick). Only a never-driven channel snapped
+     through — so the first turn of the dial on a fresh channel worked and
+     the second did not, which read as flaky, and re-measuring a narrowed
+     channel over PCA_Bridge was impossible. `st.free` is read by every clamp
+     in pcaseq.js (pcaBounds) and survives a rebuild (pcaCarryState); it is
+     opened here and shut by calFree(ch, false) wherever the dial leaves the
+     channel. The table's own numbers are never touched. */
+  calFree(ch, true);
+  HW.drive(ch, qus);
+}
+/* open or shut the engine's window past the stored ends for one channel */
+function calFree(ch, on){
+  const E = (typeof HW !== 'undefined' && HW.engine) ? HW.engine() : null;
+  const s = E && E.st && E.st[ch]; if(!s) return;
   const r = calRange();
-  const sMin = c.min, sMax = c.max;
-  c.min = r.lo; c.max = r.hi;
-  try{ HW.drive(ch, qus); }
-  finally{ c.min = sMin; c.max = sMax; }
+  s.free = on ? {lo:r.lo, hi:r.hi} : null;
+  /* shutting the window on a servo parked past the ends: bring its aim
+     back inside so it RAMPS home at the channel's own speed — the position
+     clamp in pcaStepChannel only runs on a channel that is still moving */
+  if(!on && s.active){
+    const c = HW.channels()[ch]; if(!c) return;
+    const lo = Math.min(c.min,c.max), hi = Math.max(c.min,c.max);
+    s.target = Math.max(lo, Math.min(hi, s.target));
+    s.aim    = Math.max(lo, Math.min(hi, s.aim));
+  }
 }
 
 /* THE RULE FOR THIS PANEL: setupCalRender() builds the DOM, calPaint()

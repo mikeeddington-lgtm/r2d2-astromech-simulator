@@ -106,6 +106,7 @@ function setupCalLeave(){
   if(!SETUP.cal) return;
   /* no dial, nobody looking at a position — stop asking for one */
   if(typeof mstrUnwatch === 'function') mstrUnwatch();
+  calFree(SETUP.cal.ch, false);      /* the window past the ends shuts with the dial */
   /* v1.70.1 — leaving means keeping, but it does not mean keeping
      ANYTHING: a trio the gate refuses is dropped rather than written, and
      setupCalCommit has already said why. The only way to stage one is to
@@ -118,6 +119,7 @@ function setupCalLeave(){
 function setupCalCancel(){
   const cal = SETUP.cal; if(!cal) return;
   if(typeof mstrUnwatch === 'function') mstrUnwatch();
+  calFree(cal.ch, false);
   const c = HW.channels()[cal.ch];
   if(c){ c.min = cal.saveMin; c.max = cal.saveMax; c.home = cal.saveHome; c.homemode = cal.saveMode; }
   SETUP.cal = null;
@@ -157,6 +159,7 @@ function setupCalCommit(){
      (setupBindChannels) are the only things that change it now. */
   c.calibrated = true;      /* you set these against the real linkage */
   setupTouched();           /* ...so the export on the way out is now stale */
+  calFree(cal.ch, false);   /* the ends are the ends again — shut the window */
   SETUP.cal = null;
   HW.rebuild(true);
   HW.save();
@@ -208,11 +211,14 @@ function calRange(){ return SETUP.cal && SETUP.cal.wide ? CAL_FULL : CAL_SAFE; }
    builder's measured travel, and the Configure panel would have read the
    working range back out and shown it as the channel's ends.
 
-   So the widening lasts exactly one call instead. `pcaSetTarget` clamps at
-   SET time and the step never re-clamps (pcaseq.js), so opening the range,
-   commanding the target and closing it again lands the servo where the dial
-   asked and leaves the channel exactly as the builder measured it. Nothing
-   outside this function ever sees the working range.
+   So from v1.51.0 the widening lasted exactly one call — and this comment
+   claimed "the step never re-clamps (pcaseq.js)". IT DID: pcaStepChannel
+   clamps the position every tick (it has since the reversing-with-residual-
+   velocity fix), so the target was accepted and the servo walked straight
+   back to the stored end. v1.76.0 replaced the one-call widening with a
+   window the ENGINE holds per channel (`st.free`, pcaBounds in pcaseq.js)
+   for as long as the dial is on it; the table's numbers are never touched,
+   which keeps everything the paragraph above was afraid of impossible.
 
    `HW.drive` also normalises the target onto the 3D model through
    `chanNorm(c, …)`, which reads the real ends — so a dial past the travel
@@ -236,11 +242,35 @@ function calRange(){ return SETUP.cal && SETUP.cal.wide ? CAL_FULL : CAL_SAFE; }
    rather than a violation. */
 function calDrive(ch, qus){
   const c = HW.channels()[ch]; if(!c){ HW.drive(ch, qus); return; }
+  /* v1.76.0 — THE WINDOW IS THE ENGINE'S, NOT THE TABLE'S. Widening
+     c.min/c.max around one HW.drive() call let pcaSetTarget() accept the
+     target, and then pcaStepChannel() clamped the POSITION back to the
+     stored ends on the very next tick (the comment above said it never
+     re-clamped; it did, every tick). Only a never-driven channel snapped
+     through — so the first turn of the dial on a fresh channel worked and
+     the second did not, which read as flaky, and re-measuring a narrowed
+     channel over PCA_Bridge was impossible. `st.free` is read by every clamp
+     in pcaseq.js (pcaBounds) and survives a rebuild (pcaCarryState); it is
+     opened here and shut by calFree(ch, false) wherever the dial leaves the
+     channel. The table's own numbers are never touched. */
+  calFree(ch, true);
+  HW.drive(ch, qus);
+}
+/* open or shut the engine's window past the stored ends for one channel */
+function calFree(ch, on){
+  const E = (typeof HW !== 'undefined' && HW.engine) ? HW.engine() : null;
+  const s = E && E.st && E.st[ch]; if(!s) return;
   const r = calRange();
-  const sMin = c.min, sMax = c.max;
-  c.min = r.lo; c.max = r.hi;
-  try{ HW.drive(ch, qus); }
-  finally{ c.min = sMin; c.max = sMax; }
+  s.free = on ? {lo:r.lo, hi:r.hi} : null;
+  /* shutting the window on a servo parked past the ends: bring its aim
+     back inside so it RAMPS home at the channel's own speed — the position
+     clamp in pcaStepChannel only runs on a channel that is still moving */
+  if(!on && s.active){
+    const c = HW.channels()[ch]; if(!c) return;
+    const lo = Math.min(c.min,c.max), hi = Math.max(c.min,c.max);
+    s.target = Math.max(lo, Math.min(hi, s.target));
+    s.aim    = Math.max(lo, Math.min(hi, s.aim));
+  }
 }
 
 /* THE RULE FOR THIS PANEL: setupCalRender() builds the DOM, calPaint()

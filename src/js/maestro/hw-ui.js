@@ -132,7 +132,16 @@ function hwLinkRender(){
      (v1.39.5; see setup-hw.js's setupLinkSync / live-drive.js for the
      same pattern). */
   if(typeof serialUiRegister === 'function') serialUiRegister(hwLinkSyncCb);
-  $('hwFreq').onchange  = e=>{ serialSetFreq(+e.target.value|0); hwLinkRender(); };
+  $('hwFreq').onchange  = e=>{
+    serialSetFreq(+e.target.value|0);
+    /* the bench holds a COPY of the setup from the moment it opened
+       (setup-hw.js setupOpen) and writes that copy back on Finish — so a
+       rate chosen here and not there was silently undone by Finish, and the
+       resync that followed streamed the old rate's tick maths at a board
+       still running the new one (v1.76.0). One number, two boxes. */
+    if(typeof SETUP !== 'undefined' && SETUP.open && SETUP.hw) SETUP.hw.freq = HW.freq();
+    hwLinkRender();
+  };
   $('bMon').onclick     = ()=>monShow($('secMon').classList.contains('hide'));
   $('bMonHide').onclick = ()=>monShow(false);
   $('bMonClear').onclick= ()=>{ $('monOut').textContent=''; };

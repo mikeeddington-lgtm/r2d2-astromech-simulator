@@ -1356,6 +1356,172 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
   ok('a null row in the table does not cost the assignment its write',
      assignHole.act === 'oth8', JSON.stringify(assignHole));
 
+  /* ================================================================
+     v1.76.0 — the seam, review of 2026-09-01 (docs/REVIEW-2026-09-01.md)
+     ================================================================ */
+  console.log('\n════ the rate box, the wizard\'s copy and Finish are one number (H1) ════');
+  /* The link-row rate box wrote HW.freq() and the board's config frame, and
+     nothing else: not the bench's own copy of the setup (SETUP.hw, taken at
+     setupOpen and written back on Finish), and not the record hwCfgPush()
+     compared against. So Finish put the OLD rate back, the compare read
+     50 == 50, no frame went out, and the resync streamed 50 Hz tick maths
+     at a board still running 200 Hz — 1500 µs asked for, 375 µs emitted,
+     then the port closed with the horn on its stop. */
+  const rateBox = await ev(async ()=>{
+    const flush = ()=>new Promise(r=>setTimeout(r,0));
+    const bytes = [];
+    const frames = a=>{ const f=[]; for(let i=0;i+2<a.length;i+=3) f.push({ch:a[i]&0x7F, val:(a[i+1]<<7)|a[i+2]}); return f; };
+    const keptKind = SER.kind;
+    serialSetWidth(false);
+    SER.kind = 'bridge'; SER.port = {}; SER.blocked = false;
+    SER.writer = { write:b=>{ bytes.push(...Array.from(b)); return Promise.resolve(); } };
+    HW.setFreq(50); HW.setOsc(25000000);
+    serialConfig(); await flush();
+    HW.ensure(0); const c = MSTR.channels[0]; const save = Object.assign({}, c);
+    c.mode='Servo'; c.min=4000; c.max=8000; c.homemode='Goto'; c.home=6000;
+    HW.rebuild(true); await flush();
+    setupOpen(4);
+    const box = document.getElementById('hwFreq');
+    const out = {boxFound: !!box, wizardBefore: SETUP.hw.freq};
+    box.value = '200'; box.dispatchEvent(new Event('change', {bubbles:true}));
+    await flush(); await flush();
+    out.hwAfterBox = HW.freq(); out.wizardAfterBox = SETUP.hw.freq;
+    out.sentAfterBox = SER.sent && SER.sent.freq;
+    /* wake a channel at the new rate, as the box's own message tells you to */
+    HW.drive(0, 6000); for(let i=0;i<30;i++) HW.tick(10); await flush();
+    /* Finish — capture what is QUEUED, because this fake's disconnect is
+       synchronous and would drop the flush a real port would have written */
+    const queued = []; const orig = serialFrame;
+    serialFrame = (ch,val)=>{ queued.push({ch,val}); return orig(ch,val); };
+    try{ setupApply(); await flush(); await flush(); }
+    finally{ serialFrame = orig; }
+    out.hwAfterFinish = HW.freq();
+    out.queued = queued;
+    out.ch0Wrong = queued.some(f=>f.ch===0 && f.val !== 8191 && f.val !== 1229);
+    SER.port = null; SER.writer = null; SER.kind = keptKind; SER.sent = null;
+    Object.assign(c, save); HW.rebuild(false);
+    return out;
+  });
+  ok('the rate box writes the bench\'s copy of the setup as well as HW.freq()',
+     rateBox.boxFound && rateBox.hwAfterBox === 200 && rateBox.wizardAfterBox === 200,
+     JSON.stringify({hw:rateBox.hwAfterBox, wizard:rateBox.wizardAfterBox}));
+  ok('…and the wire\'s own record says what the board was told',
+     rateBox.sentAfterBox === 200, 'SER.sent.freq '+rateBox.sentAfterBox);
+  ok('Finish keeps the rate the box chose', rateBox.hwAfterFinish === 200, 'HW.freq() '+rateBox.hwAfterFinish);
+  ok('…and streams nothing at the old rate\'s tick maths', !rateBox.ch0Wrong, JSON.stringify(rateBox.queued.filter(f=>f.ch===0)));
+
+  console.log('\n════ the config frame is owned by whoever writes it (serialCfgSync) ════');
+  /* the same disagreement produced directly: a rate written by
+     serialSetFreq(), then HW changed under it — the shared sync has to
+     notice, stop everything, and send the frame BEFORE any position */
+  const cfgSync = await ev(async ()=>{
+    const flush = ()=>new Promise(r=>setTimeout(r,0));
+    const bytes = [];
+    const frames = a=>{ const f=[]; for(let i=0;i+2<a.length;i+=3) f.push({ch:a[i]&0x7F, val:(a[i+1]<<7)|a[i+2]}); return f; };
+    const keptKind = SER.kind;
+    serialSetWidth(false);
+    SER.kind = 'bridge'; SER.port = {}; SER.blocked = false;
+    SER.writer = { write:b=>{ bytes.push(...Array.from(b)); return Promise.resolve(); } };
+    HW.setFreq(50); HW.setOsc(25000000);
+    serialConfig(); await flush();
+    serialSetFreq(200); await flush();            /* board now at 200 */
+    HW.setFreq(50);                               /* the app thinks 50 again */
+    bytes.length = 0;
+    const did = serialCfgSync(); await flush();
+    const f = frames(bytes);
+    const cfg = f.findIndex(x=>x.ch===SER.cfgServo);
+    const out = {did, cfgVal: cfg>=0 ? f[cfg].val : null, cfgFirstAfterOffs: cfg>=0 && f.slice(0,cfg).every(x=>x.val===8191 || x.ch===SER.cfgOsc),
+                 sent: SER.sent && SER.sent.freq};
+    bytes.length = 0;
+    out.again = serialCfgSync(); await flush();
+    out.silentWhenLevel = bytes.length === 0;
+    SER.port = null; SER.writer = null; SER.kind = keptKind; SER.sent = null;
+    return out;
+  });
+  ok('a rate the wire wrote and HW then changed under it is re-sent, everything off first',
+     cfgSync.did && cfgSync.cfgVal === 50 && cfgSync.cfgFirstAfterOffs && cfgSync.sent === 50, JSON.stringify(cfgSync));
+  ok('…and once the board is running what HW says, the sync sends nothing',
+     cfgSync.again === false && cfgSync.silentWhenLevel, JSON.stringify(cfgSync));
+
+  console.log('\n════ a bench edit keeps a released servo\'s `known` (H12) ════');
+  /* releaseMs parks a servo as active:false, known:true so its next command
+     EASES from where it stopped. HW.rebuild(true) carried everything but
+     `known`, so after any bench edit the next command SNAPPED. */
+  const known = await ev(()=>{
+    const ch = 13; HW.ensure(ch);
+    const c = MSTR.channels[ch]; const save = Object.assign({}, c);
+    c.mode='Servo'; c.min=4000; c.max=8000; c.homemode='Off'; c.home=0; c.speed=40; c.acceleration=0; c.releaseMs=100;
+    HW.rebuild(false);
+    let E = HW.engine();
+    pcaSetTarget(E, ch, 6000); for(let i=0;i<400;i++) pcaTick(E,10);   /* arrive, then release */
+    const released = {active:E.st[ch].active, known:E.st[ch].known, pos:E.st[ch].pos256>>8};
+    HW.rebuild(true); E = HW.engine();                                   /* a bench edit */
+    const carried = {active:E.st[ch].active, known:E.st[ch].known, pos:E.st[ch].pos256>>8};
+    const writes = []; const keep = E.onWrite; E.onWrite = (i,q)=>{ if(i===ch) writes.push(q); };
+    pcaSetTarget(E, ch, 7000); pcaTick(E,10);
+    E.onWrite = keep;
+    Object.assign(c, save); c.releaseMs = save.releaseMs || 0; HW.rebuild(false);
+    return {released, carried, firstWrite: writes[0]};
+  });
+  ok('a released servo is still released, and still known, after a rebuild',
+     known.released.active === false && known.released.known === true
+     && known.carried.active === false && known.carried.known === true, JSON.stringify(known));
+  ok('…so its next command eases from where it stopped instead of snapping',
+     known.firstWrite !== undefined && known.firstWrite !== 7000 && Math.abs(known.firstWrite - 6000) <= 40,
+     'first write '+known.firstWrite);
+
+  console.log('\n════ the dial reaches past the stored ends on the ENGINE path too (H11) ════');
+  /* the paced-Maestro assertion above proved the TARGET; on PCA_Bridge the
+     engine steps the position, and pcaStepChannel clamped it back to the
+     stored ends every tick — the dial's first turn on a fresh channel worked
+     (it snapped) and the second did not */
+  const dialEngine = await ev(()=>{
+    const ch = 13; HW.ensure(ch);
+    const c = MSTR.channels[ch]; const save = Object.assign({}, c);
+    c.mode='Servo'; c.min=5000; c.max=7000; c.homemode='Goto'; c.home=6000; c.speed=40; c.acceleration=0; c.releaseMs=0;
+    HW.rebuild(false);
+    const E = HW.engine();
+    pcaSetTarget(E, ch, 6500); for(let i=0;i<200;i++) pcaTick(E,10);    /* driven once: active AND known */
+    setupCalOpen(ch, {quiet:true});
+    calDrive(ch, 4400);                                                   /* past min, on purpose */
+    for(let i=0;i<300;i++) pcaTick(E,10);
+    const out = {target:E.st[ch].target, pos:E.st[ch].pos256>>8, minKept:c.min, maxKept:c.max, free:!!E.st[ch].free};
+    /* a rebuild while the dial is open must not shut the window */
+    HW.rebuild(true); const E2 = HW.engine(); for(let i=0;i<20;i++) pcaTick(E2,10);
+    out.posAfterRebuild = E2.st[ch].pos256>>8; out.freeAfterRebuild = !!E2.st[ch].free;
+    /* leaving the dial shuts it, and the servo comes back inside the ends */
+    setupCalLeave(); for(let i=0;i<20;i++) pcaTick(HW.engine(),10);
+    out.freeAfterLeave = !!HW.engine().st[ch].free; out.posAfterLeave = HW.engine().st[ch].pos256>>8;
+    SETUP.cal = null;
+    Object.assign(c, save); HW.rebuild(false);
+    return out;
+  });
+  ok('the servo actually goes where the dial asked, past the stored min',
+     dialEngine.target === 4400 && dialEngine.pos === 4400 && dialEngine.free, JSON.stringify(dialEngine));
+  ok('…the table\'s own ends are untouched', dialEngine.minKept === 5000 && dialEngine.maxKept === 7000);
+  ok('…the window survives a rebuild while the dial is open',
+     dialEngine.freeAfterRebuild && dialEngine.posAfterRebuild === 4400, JSON.stringify(dialEngine));
+  ok('…and shuts when the dial leaves, with the servo back inside the ends',
+     !dialEngine.freeAfterLeave && dialEngine.posAfterLeave === 5000, JSON.stringify(dialEngine));
+
+  console.log('\n════ speed, acceleration and sleep typed in Configure reach the engine (M1) ════');
+  const cfgSpeed = await ev(()=>{
+    const ch = 0; HW.ensure(ch);
+    const c = MSTR.channels[ch]; const save = Object.assign({}, c);
+    c.mode='Servo'; c.speed = 120; c.acceleration = 5; c.releaseMs = 0; HW.rebuild(false);
+    setupOpen(4); SETUP.sel = ch; setupRender();
+    const set = (k,v)=>{ const inp = document.querySelector('#setBody [data-k="'+k+'"]'); if(!inp) return false;
+                         inp.value = String(v); inp.dispatchEvent(new Event('input', {bubbles:true})); return true; };
+    const out = {found: set('speed', 77) && set('acceleration', 9)};
+    const E = HW.engine();
+    out.table = {speed:c.speed, accel:c.acceleration}; out.engine = {speed:E.st[ch].speed, accel:E.st[ch].accel};
+    setupClose();
+    Object.assign(c, save); HW.rebuild(false);
+    return out;
+  });
+  ok('a typed speed and acceleration are the engine\'s the moment they are typed',
+     cfgSpeed.found && cfgSpeed.engine.speed === 77 && cfgSpeed.engine.accel === 9, JSON.stringify(cfgSpeed));
+
   console.log('\n════ no page errors ════');
   ok('nothing threw', errs.length===0, errs.join(' | '));
 

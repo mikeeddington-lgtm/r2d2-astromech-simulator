@@ -152,7 +152,11 @@ function setupMcu(id){ return SETUP_MCUS.find(m=>m.id===(id||SETUP.hw.mcu)) || S
    reading the servo answers for PREFS.hw. */
 function setupDefaults(){
   let mcu = 'nano', boards = 2;
-  if(typeof buildUsesCoproc === 'function' && buildUsesCoproc()){
+  /* the two helpers this reads are sim-only, so they are guarded by NAME —
+     a guard on a different name is what tools/check-globals.js exists to
+     refuse (v1.76.0) */
+  if(typeof buildUsesCoproc === 'function' && buildUsesCoproc()
+     && typeof servoMcuOpt === 'function' && typeof buildCoprocBoards === 'function'){
     mcu = servoMcuOpt().id;
     boards = buildCoprocBoards('dome') || buildCoprocBoards('body') || boards;
   }

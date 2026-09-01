@@ -82,7 +82,10 @@ function pcaCreate(channels, sequences){
       speed: c.speed|0, accel: c.acceleration|0,
       ease: pcaEaseNum(c.ease), releaseMs: c.releaseMs|0,
       settled:0, launch:0,
-      active:false, known:false, servo:/^servo/i.test(c.mode||'Servo')
+      active:false, known:false, servo:/^servo/i.test(c.mode||'Servo'),
+      /* the bench dial's window past the stored ends — null everywhere
+         else, see pcaBounds() */
+      free:null
     })),
     tracks: Array.from({length:PCA_MAX_TRACKS},()=>({seq:-1, frame:-1, frameT:0, mask:pcaMaskNew(), started:0})),
     bgWait: new Array(PCA_MAX_TRACKS).fill(-1),
@@ -176,6 +179,79 @@ function pcaGoHome(E){
   });
 }
 
+/* ========================================== THE BOUNDS A CHANNEL MOVES IN
+   Its calibrated min/max, either way round — the same Math.min/Math.max the
+   firmware takes — EXCEPT while the bench dial is measuring it (v1.76.0).
+   `s.free` is a {lo, hi} in quarter-µs that the dial opens around a channel
+   for exactly as long as the dial is on it (setup-hw-cal.js calDrive /
+   setupCalLeave); every clamp in this file reads it here, so the dial can
+   reach past the very ends it exists to find. Before this, pcaSetTarget()
+   honoured the widened range and pcaStepChannel() then clamped the position
+   back to the stored ends on the next tick — the first turn of the dial on a
+   fresh channel worked (nothing had driven it, so it snapped) and the second
+   did not, which read as flaky and made re-measuring a narrowed channel over
+   PCA_Bridge impossible.
+
+   PARITY NOTE: MaestroPCA.cpp has no dial and no `free`. With `free` null,
+   which it is on every path but the dial's, this is Math.min/Math.max of
+   the channel's own pair, integer-for-integer as before. */
+function pcaBounds(c, s){
+  if(s && s.free) return {lo:s.free.lo, hi:s.free.hi};
+  return {lo:Math.min(c.min,c.max), hi:Math.max(c.min,c.max)};
+}
+
+/* ================================ CARRYING STATE ACROSS A REBUILD (v1.76.0)
+   A host rebuilds the engine whenever the channel table changes — a renamed
+   channel, a typed endpoint, a ticked boot, a finished wizard — and a
+   rebuild is a fresh pcaCreate() + pcaGoHome(). What must survive it is
+   where every servo IS and where it is GOING, or the droid lurches on a
+   keystroke:
+
+     · `pos256`/`vel256`/`active`/`target` — v1.31.x
+     · `aim` — v1.66.3: `target` is where the channel was ASKED to go, `aim`
+       is where pcaStepChannel actually steers (they differ under
+       PCA_EASE_OVERSHOOT). Carrying four of the five left the new engine
+       holding pcaGoHome's aim, so every driven channel ramped to its HOME
+       on the next tick — and on a `homemode:'Off'` channel that home is 0,
+       which drives it hard into c.min and PINS it there.
+     · `known` — v1.76.0: a channel released by `releaseMs` is
+       `active:false, known:true`, which is what makes its next command
+       EASE from where it stopped instead of snapping. Dropping it turned
+       every bench edit into a snap on the next move.
+     · `free` — the dial's window, above, or a rebuild while the dial is
+       open would clamp the servo back to the stored ends mid-measurement.
+
+   It lives HERE, in the engine both hosts are built from, because it used
+   to live in the sim's hw-host.js — and PCA Studio's 30-project.js carried
+   its own copy that had never received the `aim` fix. In Studio a rename
+   keystroke therefore walked every driven servo to its stop, three
+   releases after the sim was fixed. One carry, two hosts.
+
+   Only channels that were servos on BOTH sides are carried: a channel that
+   has just been made a servo has never held a position, and the freshly
+   homed state IS where it now is (2026-08-22). */
+function pcaCarryState(old, E, channels){
+  if(!old || !E) return;
+  for(let i=0;i<Math.min(old.st.length, E.st.length);i++){
+    const o = old.st[i], s = E.st[i];
+    if(!o || !s || !s.servo || !o.servo) continue;
+    s.active = o.active; s.pos256 = o.pos256; s.vel256 = o.vel256;
+    s.target = o.target; s.aim = o.aim; s.known = o.known;
+    s.free = o.free || null;
+    const c = channels ? channels[i] : E.channels[i]; if(!c) continue;
+    /* the endpoints may have just been narrowed — that is one of the edits
+       that brings us here — and a position, target or aim outside them is
+       the same drive-into-the-stop as a lost aim */
+    const b = pcaBounds(c, s);
+    const lo = b.lo<<8, hi = b.hi<<8;
+    if(s.active){
+      s.pos256 = Math.max(lo, Math.min(hi, s.pos256));
+      s.target = Math.max(b.lo, Math.min(b.hi, s.target));
+      s.aim    = Math.max(b.lo, Math.min(b.hi, s.aim));
+    }
+  }
+}
+
 function pcaSetTarget(E, ch, qus){
   const c = E.channels[ch], s = E.st[ch];
   if(!c || !s || !s.servo) return;
@@ -185,7 +261,7 @@ function pcaSetTarget(E, ch, qus){
     pcaFire(E,ch,null);
     return;
   }
-  const lo=Math.min(c.min,c.max), hi=Math.max(c.min,c.max);
+  const b = pcaBounds(c, s), lo = b.lo, hi = b.hi;
   if(qus < lo) qus = lo;
   if(qus > hi) qus = hi;
 
@@ -456,8 +532,8 @@ function pcaStepChannel(E, ch){
   /* Clamp the POSITION, not just the target — reversing with residual
      velocity can otherwise carry a channel past its calibrated endpoint,
      and endpoints are what stop a panel binding against the shell. */
-  const c2 = E.channels[ch];
-  const clo = Math.min(c2.min,c2.max)<<8, chi = Math.max(c2.min,c2.max)<<8;
+  const b2 = pcaBounds(E.channels[ch], s);
+  const clo = b2.lo<<8, chi = b2.hi<<8;
   if(s.pos256 < clo){ s.pos256 = clo; s.vel256 = 0; }
   if(s.pos256 > chi){ s.pos256 = chi; s.vel256 = 0; }
   if(s.pos256===T) s.vel256 = 0;

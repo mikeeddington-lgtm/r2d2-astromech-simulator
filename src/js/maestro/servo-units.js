@@ -24,6 +24,12 @@
    Both are held in quarter-µs, the unit everything downstream speaks. */
 const PW_STD  = {lo:4000, hi:8000};    /* 1000–2000 µs */
 const PW_ABS  = {lo:2000, hi:10000};   /* 500–2500 µs  */
+/* How many PCA9685s the live-drive wire protocol can address — 8 boards, 128
+   channels, of which 126 and 127 carry the board configuration
+   (serial-link.js). It is HERE, in the file both manifests load first,
+   because the setup bench and the serial layer read it and PCA Studio loads
+   those without maestro/boards.js, where it used to live (v1.76.0). */
+const PCA_MAX_BOARDS_UI = 8;
 function pwClass(qus){
   if(!qus) return '';                                   /* 0 is "no pulse", not a width */
   if(qus < PW_ABS.lo || qus > PW_ABS.hi) return 'bad';

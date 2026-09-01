@@ -49,7 +49,12 @@ const MAESTRO_BOARDS = [
    the body - 4 pcas would future proof me"). The ids are the CHANNEL COUNT,
    which is why `pca16` and `pca32` keep their exact names and every saved
    build, workspace and exported file still reads. */
-const PCA_MAX_BOARDS_UI = 8;      /* the wire protocol's ceiling — see serial-link.js */
+/* PCA_MAX_BOARDS_UI — the wire protocol's ceiling — used to be declared here.
+   It lives in servo-units.js now (v1.76.0): setup-hw.js and serial-link.js
+   read it and both are in PCA Studio's manifest, which does not load this
+   file, so Studio's "PCA9685s" wizard step threw ReferenceError and rendered
+   blank from v1.69.0 to v1.75.1. A constant a SHARED module reads has to be
+   as shared as the module is — tools/check-globals.js now says so. */
 const PCA_SEQ_BOARDS = [];
 for(let n=1; n<=PCA_MAX_BOARDS_UI; n++){
   PCA_SEQ_BOARDS.push({

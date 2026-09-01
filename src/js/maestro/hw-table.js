@@ -41,10 +41,12 @@ function hwTableRows(){
   return out;
 }
 
-/* a pulse-width cell: µs in, quarter-µs stored, banded amber/red */
+/* a pulse-width cell: µs in, quarter-µs stored, banded amber/red. The box's
+   own min/max are the policy's hard band (servo-units.js PW_ABS), not a
+   looser pair of its own (v1.76.0). */
 function hwPwCell(f, q){
   return '<td class="pw"><input type="number" data-f="'+f+'" value="'+(q?(q/4).toFixed(0):'')
-    + '" min="300" max="2700" step="1" class="'+pwClass(q)+'" title="'+(q?pwTitle(q):'')+'"></td>';
+    + '" min="'+(PW_ABS.lo/4)+'" max="'+(PW_ABS.hi/4)+'" step="1" class="'+pwClass(q)+'" title="'+(q?pwTitle(q):'')+'"></td>';
 }
 
 function hwTableHtml(){
@@ -110,7 +112,34 @@ function hwTableBuild(hostId){
     }
     if(f === 'ease'){ c.ease = e.target.value; HW.changed(); HW.save(); return; }
     if(f === 'min' || f === 'max' || f === 'home'){
-      c[f] = Math.round((+e.target.value||0)*4);          /* µs in, quarter-µs stored */
+      const q = Math.round((+e.target.value||0)*4);        /* µs in, quarter-µs stored */
+      /* ============================ REFUSED AT THE POINT OF ENTRY (v1.76.0)
+         The rule the bench's own Configure panel has had since v1.70.1, in
+         the one table that did not: outside 500–2500 µs the number is not
+         written, and a centre outside its own two ends is not written. The
+         box keeps the number so you can see what you meant and goes red.
+
+         This handler is `oninput`, and this row is wired to the engine
+         whose onWrite is the wire — so typing 1500 here used to write 1 µs,
+         then 15, then 150 to a real servo, one keystroke apart, before it
+         wrote 1500. A three-digit prefix of any four-digit width is under
+         500, which is exactly why the hard band is the guard. */
+      const now = {min:c.min, max:c.max, home:c.home};
+      const no = (typeof pwEndFault === 'function' && pwEndFault(q, f))
+        || (f === 'home' && typeof pwEndsRefusal === 'function'
+            ? pwEndsRefusal(Object.assign({}, now, {home:q})) : null);
+      if(no){
+        e.target.className = 'bad';
+        e.target.title = no.text;
+        return;
+      }
+      c[f] = q;
+      /* an end drags its centre inside the travel rather than stranding it
+         there — the same rule, and the same words, as the bench */
+      if(f !== 'home' && typeof pwCentreFollow === 'function'){
+        const follow = pwCentreFollow({min:c.min, max:c.max, home:c.home});
+        if(follow){ c.home = follow; HW.say('centre moved to '+(follow/4).toFixed(0)+' µs — it was outside the travel you just set', 'warn'); }
+      }
       /* band the cell as you type WITHOUT rebuilding the input under the
          caret — the calibration dial learned this one the hard way */
       e.target.className = pwClass(c[f]);

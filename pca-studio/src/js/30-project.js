@@ -27,15 +27,14 @@ function projLoad(){
 function rebuildEngine(keepPositions){
   const old=E;
   E=pcaCreate(PROJ.channels, PROJ.sequences);
-  if(keepPositions && old){
-    for(let i=0;i<Math.min(old.st.length,E.st.length);i++){
-      const o=old.st[i], s=E.st[i];
-      if(!s.servo) continue;
-      s.active=o.active; s.pos256=o.pos256; s.vel256=o.vel256; s.target=o.target;
-      const c=PROJ.channels[i], lo=Math.min(c.min,c.max)<<8, hi=Math.max(c.min,c.max)<<8;
-      if(s.active){ s.pos256=clamp(s.pos256,lo,hi); s.target=clamp(s.target,lo>>8,hi>>8); }
-    }
-  }
+  /* v1.76.0 — the carry is the ENGINE's (pcaCarryState, pcaseq.js), shared
+     with the sim. This file had its own copy, and that copy carried
+     `target` but not `aim` — the v1.66.3 fix that reached hw-host.js and
+     never this one — so every keystroke in Studio's channel table rebuilt
+     an engine that steered every driven servo to its HOME, which on a
+     `homemode:'Off'` channel is 0 and pins the horn at c.min. Nor did it
+     carry `known`, nor skip a channel that was not a servo before. */
+  if(keepPositions && old) pcaCarryState(old, E, PROJ.channels);
   E.onWrite=(ch,qus)=>serialWrite(ch,qus);
   if(SER.port) serialSyncAll();
 }
