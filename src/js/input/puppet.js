@@ -227,7 +227,10 @@ function pupRecSample(){
   }
   /* change-only keyframe — untouched channels stay 0 = "leave it alone",
      stored as a FULL zero-filled array so a save/load round-trip cannot
-     turn sparse holes into nulls */
+     turn sparse holes into nulls. This is the RECORDER's shape only: the
+     take is densified before it reaches the library (pupRecStop →
+     pupDensify), because 0 means "leave it alone" to the sim and "stop
+     sending pulses" to the board (v1.77.0, review H7). */
   const t = new Array(MSTR.servoCount).fill(0);
   for(const c of mapped){
     const v = PUPPET.pose[c.i] || blockClosed(c);
@@ -267,15 +270,18 @@ function pupRecStop(){
                    was pressed, for as long as it was held, with the stick
                    work nested as a single brick on the spine. It opens in
                    the sequencer, where it can be dragged, retimed, undone.
-     Strings only → the original plain frame list, untouched: the same
-                   species as an imported sequence (pinned by tests). */
+     Strings only → a plain frame list, the same species as an imported
+                   sequence (pinned by tests) — DENSIFIED on the way in
+                   (v1.77.0, review H7; see pupDensify below). It used to go
+                   in exactly as recorded, change-only, and that shape is a
+                   different sequence on the board than on the model. */
   let seq = null;
   if(hadCues){
     const mapped = pupChannels().filter(c=>PUPPET.map[c.i] !== undefined);
     seq = cueRecFinish(name, frames, mapped);
   }
   if(!seq){
-    seq = {name, frames, cat:'Recorded'};
+    seq = {name, frames:pupDensify(frames), cat:'Recorded'};
     MSTR.sequences.push(seq);
   }
   if(typeof reindexSubs === 'function') reindexSubs();
@@ -290,6 +296,36 @@ function pupRecStop(){
   }
   lg('mae','■ saved to the library: '+seq.name+'  ('+seq.frames.length+' keyframes, '+(total/1000).toFixed(1)+' s) — find it under "Recorded" in the sequencer, or Put on the board to send it to the Maestro');
   pupBuildBar();
+}
+/* A STRINGS-ONLY TAKE IS DENSE (v1.77.0, review 2026-09-01 H7)
+   The recorder writes change-only keyframes: a channel that did not move
+   in a frame is 0, and the sim's player reads 0 as "leave it alone"
+   (applyFrameTargets, playback.js) — so on the model the sparse take was
+   exact. The BOARD does not read it that way. export.js's genSeqBody emits a
+   target whenever a channel's value differs from the frame before, and a
+   Maestro target of 0 is "stop sending pulses": a panel opened in one
+   keyframe went limp at the next one it was not named in, and every servo
+   the strings never touched was switched off at frame 0 — 22 of them on a
+   Mini 24 with two strings mapped. The cued path already densified its
+   nested string frames for the block compiler's sake (cueDensify, cues.js);
+   this path stored the raw list and pinned it as a contract.
+
+   So: every SERVO-MODE channel — mapped to a string or not — is carried
+   through every frame, seeded at the channel's closed end, which is where
+   blockCompile() starts every routine from (base[c.i] = blockClosed(c)) and
+   where the puppet itself parks a released string. cueDensify() does the
+   carry; the seed is the only thing it does not do, because its own caller
+   nests the result inside a routine that supplies the base pose. Frame
+   count and durations are untouched: keyframes still fall only where
+   something changed, they just say where everything else is. */
+function pupDensify(frames){
+  if(!frames || !frames.length || typeof cueDensify !== 'function') return frames;
+  const chans = (typeof BLKH !== 'undefined' && BLKH.servoChannels)
+    ? BLKH.servoChannels() : MSTR.channels.filter(c=>/^servo/i.test(c.mode));
+  const first = frames[0].targets.slice();
+  chans.forEach(c=>{ if(!first[c.i]) first[c.i] = blockClosed(c); });
+  const seeded = [{name:frames[0].name, duration:frames[0].duration, targets:first}].concat(frames.slice(1));
+  return cueDensify(seeded, chans);
 }
 /* Mike's choice: a cued take lands you straight in the sequencer looking at
    it. setStripMode takes the puppet off on the way in — the two cannot both

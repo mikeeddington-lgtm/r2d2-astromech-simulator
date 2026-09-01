@@ -630,6 +630,82 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
   ok('three "new sequence" doors in a row mint three names the board can tell apart',
      mint.unique && mint.names.length===3, JSON.stringify(mint.names));
 
+  console.log('\n════ the pane\'s Rename cannot take a name another sequence holds ════');
+  /* v1.77.0 (review 2026-09-01, M16). The library card's blkLibRename has
+     refused a taken name since v1.70.0; the Board pane's Rename beside it
+     accepted one, and loadoutSeqs() then resolved the slot to whichever
+     sequence came first in the library — the board shipped one routine and
+     the editor showed the other. Same refusal, same words, here too. The
+     handler awaits the prompt, so the wait is on the toast, not a timer. */
+  await ev(()=>{
+    MSTR.sequences = [
+      {name:'Alpha', frames:[{name:'F0',duration:500,targets:MSTR.channels.map(()=>6000)}]},
+      {name:'Beta',  frames:[{name:'F0',duration:500,targets:MSTR.channels.map(()=>6000)}]}
+    ];
+    loadoutReset(); EDIT.seq = 1; EDIT.frame = -1; reindexSubs(); rebuildMaestroUI();
+    document.querySelectorAll('#toasts .toastp').forEach(p=>p.remove());
+    window.__realPrompt = window.appPrompt;
+    window.appPrompt = ()=>Promise.resolve(' Alpha ');      // the OTHER sequence's name, untidily typed
+    const bRen = Array.from($('maeHost').querySelectorAll('button')).find(x=>x.textContent==='Rename');
+    bRen.click();
+  });
+  /* either answer is a state: the refusal toasts, an acceptance renames */
+  await page.waitForFunction(()=>!!document.querySelector('#toasts .toastp') || MSTR.sequences[1].name !== 'Beta', {timeout:10000});
+  const taken = await ev(()=>{
+    window.appPrompt = window.__realPrompt; delete window.__realPrompt;
+    const toasts = Array.from(document.querySelectorAll('#toasts .toastp')).map(p=>p.className+'|'+p.textContent);
+    return {names: MSTR.sequences.map(s=>s.name), loadout: loadoutNames(), toasts,
+            reachable: loadoutSeqs().length};
+  });
+  ok('renaming Beta to "Alpha" is refused — both sequences keep their names',
+     taken.names.join()==='Alpha,Beta', JSON.stringify(taken.names));
+  ok('…the loadout is unchanged and every slot still reaches its own sequence',
+     taken.loadout.join()==='Alpha,Beta' && taken.reachable===2, JSON.stringify(taken.loadout));
+  ok('…and the refusal is the library card\'s, word for word',
+     taken.toasts.some(t=>/warn/.test(t) && /Not renamed/.test(t) && /“Alpha” already belongs to another sequence/.test(t)
+                       && /two cannot share one/.test(t)),
+     taken.toasts.join(' ~ '));
+
+  console.log('\n════ lint: a channel sent 0 after being driven is "pulses off" ════');
+  /* v1.77.0 (review 2026-09-01, H7). A frame target of 0 is "leave it
+     alone" to the sim and "stop sending pulses" to the board, and the
+     script generator emits one whenever the value differs from the frame
+     before. Nothing said so: every lint rule skipped zeros. This one names
+     the sequence, the channel and the frame, says what the board will do,
+     and stays quiet about a channel the sequence never touches at all. */
+  const limp = await ev(()=>{
+    makeStarter('body','mini24');
+    const servo = MSTR.channels.filter(c=>/^servo/i.test(c.mode));
+    const a = servo[0], b = servo[1], never = servo[2];
+    const row = (va, vb)=>{ const t = new Array(MSTR.channels.length).fill(0); t[a.i] = va; t[b.i] = vb; return t; };
+    /* a: driven then dropped to 0 at frame 2 — the change-only shape a
+       puppet take used to have. b: driven throughout. never: 0 in every
+       frame — untouched, not switched off. */
+    const sparse = {name:'Sparse Take', frames:[
+      {name:'f0', duration:300, targets:row(8000, 6000)},
+      {name:'f1', duration:300, targets:row(8000, 7000)},
+      {name:'f2', duration:300, targets:row(0,    6000)},
+      {name:'f3', duration:300, targets:row(0,    6000)}]};
+    const dense = {name:'Dense Take', frames:[
+      {name:'f0', duration:300, targets:row(8000, 6000)},
+      {name:'f1', duration:300, targets:row(4000, 7000)}]};
+    MSTR.sequences = [sparse, dense];
+    loadoutReset(); reindexSubs();
+    const rep = lintMaestro();
+    const hits = rep.items.filter(i=>i.code==='pulses-off');
+    return {n: hits.length, level: hits[0] && hits[0].level, ch: hits[0] && hits[0].ch,
+            msg: hits[0] ? hits[0].msg : '', fix: hits[0] ? hits[0].fix : '',
+            a: a.i, b: b.i, never: never.i, err: rep.counts.err};
+  });
+  ok('one warning, for the one channel that is driven and then sent 0', limp.n===1 && limp.level==='warn',
+     JSON.stringify({n:limp.n, level:limp.level}));
+  ok('…it carries that channel as a field and names the sequence and the frame',
+     limp.ch===limp.a && /Sparse Take/.test(limp.msg) && /frame 2/.test(limp.msg) && new RegExp('channel '+limp.a+'\\b').test(limp.msg),
+     limp.msg);
+  ok('…and says what the board does with a 0', /stop sending pulses/.test(limp.fix) && /limp/.test(limp.fix), limp.fix);
+  ok('a channel that is 0 in every frame, and a dense sequence, raise nothing — and it is not an error',
+     limp.n===1 && limp.err===0, limp.err+' err');
+
   console.log('\n════ every file button says what its file is ════');
   const fileBtns = await ev(()=>{
     loadProfile('maestro25'); buildFwSelector();

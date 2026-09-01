@@ -131,7 +131,14 @@ function scriptSubNameFor(seq){
   return scriptSubNames(load.concat([seq]))[load.length];
 }
 
-/* matches Sequence.generateSubroutineList() in the SDK, plus the preamble */
+/* matches Sequence.generateSubroutineList() in the SDK, plus the preamble.
+   THE `# <name>` LINE ABOVE EACH SUB IS NOT DECORATION (v1.77.0, review
+   H9): it is the routine's exact library name, and import.js
+   parseScriptSubs() reads it back to bind the sub to its routine BEFORE
+   the symbol is consulted. The symbol cannot do that job alone — _2 is
+   handed out in loadout order here and in library order there, so two
+   names sharing one symbol swapped loadout slots on every round trip.
+   Keep it on the line immediately above `sub`, comment-only, one space. */
 function genScript(sequences, enabled){
   const needed=[]; let s=SCRIPT_PREAMBLE;
   const names = scriptSubNames(sequences);

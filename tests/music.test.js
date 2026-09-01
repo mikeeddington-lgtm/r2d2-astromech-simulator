@@ -106,6 +106,30 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
     const r = musicBuildSequence('pies','pulse',1,8);
     return !r.error && r.seq.frames.length === (8-1)*2+1;
   }));
+  /* v1.77.0 (review 2026-09-01, M16): a name is an address. Building the
+     same beat routine twice — a second go at everyN or maxBeats, neither of
+     which is in the name — used to push a second "click120 chase (pies)"
+     beside the first; the loadout held one entry and the board shipped the
+     stale routine while the editor showed the new one. The second build now
+     gets the name seqUniqueName() gives every other "new sequence" door. */
+  const twice = await ev(()=>{
+    const a = musicBuildSequence('pies','chase',1,6);
+    const b = musicBuildSequence('pies','chase',2,6);
+    const names = MSTR.sequences.map(s=>s.name);
+    const out = {
+      err: a.error || b.error || null,
+      a: a.seq && a.seq.name, b: b.seq && b.seq.name,
+      onceEach: !a.error && !b.error && names.filter(n=>n===a.seq.name).length === 1 && names.filter(n=>n===b.seq.name).length === 1,
+      bothOnBoard: !a.error && !b.error && loadoutIndex(a.seq.name) >= 0 && loadoutIndex(b.seq.name) >= 0,
+      secondReachable: !a.error && !b.error && loadoutSeqs().indexOf(b.seq) >= 0    // the SECOND build is what its slot plays
+    };
+    /* leave the library as this suite expects it — the pulse routine last */
+    [a, b].forEach(x=>{ if(!x.error){ loadoutDrop(x.seq.name); MSTR.sequences.splice(MSTR.sequences.indexOf(x.seq), 1); } });
+    return out;
+  });
+  ok('building the same beat routine twice mints two names the board can tell apart',
+     !twice.err && twice.a !== twice.b && twice.onceEach && twice.bothOnBoard && twice.secondReachable,
+     twice.err || (twice.a+' | '+twice.b));
   ok('an unmapped target explains itself', await ev(()=>{
     const g = groupCreate('Empty'); const r = musicBuildSequence('g'+g.id,'chase',1,8);
     groupDelete(g.id);

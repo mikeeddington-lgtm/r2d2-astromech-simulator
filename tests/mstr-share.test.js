@@ -561,6 +561,55 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
   ok('when the destination table has changed, the FRAMES win and the bricks are dropped',
      bk.slowed && !bk.slowed.bricks && bk.slowed.frames, JSON.stringify(bk.slowed));
 
+  console.log('\n════ two channels with one name must not cross-wire adoption (v1.77.0, review M7) ════');
+  /* byName was a last-wins map and the name rule ran first, so a file with
+     two "Pie" channels adopted onto a table with two "Pie" channels paired
+     0→1 and 1→1: my channel 0's panel never moved in the adopted routine
+     and channel 1 was commanded by both. The same hole from the other
+     direction: a src act is guessPart(name), so both source rows carry the
+     same guessed act and the act rule lands them on one channel too. A key
+     duplicated on either side now identifies nothing and those rows go by
+     NUMBER, the rule a blank-named Control Center file always used. */
+  const dup = await ev(()=>{
+    setBoard('mini24'); makeStarter('dome','mini24'); reindexSubs();
+    const mine = MSTR.channels.filter(c=>/^servo/i.test(c.mode)).slice(0,2);
+    mine.forEach(c=>{ c.name = 'Pie'; c.autoName = false; });
+    const ch = n=>'<Channel name="'+n+'" mode="Servo" min="4000" max="8000" homemode="Goto" home="4000"'
+      + ' speed="0" acceleration="0" neutral="6000" range="1905" />';
+    const xml = '<UscSettings version="1"><Channels MiniMaestroServoPeriod="80000" ServoMultiplier="1">'
+      + ch('Pie') + ch('Pie') + '</Channels>'
+      + '<Sequences><Sequence name="Dup probe"><Frame name="f0" duration="400">8000 0</Frame>'
+      + '<Frame name="f1" duration="400">4000 8000</Frame></Sequence></Sequences>'
+      + '<Script ScriptDone="true"></Script></UscSettings>';
+    const P = mstrParse(xml, 'dup.mstr');
+    const {pairs, how} = mstrMatchChannels(P);
+    const n0 = MSTR.sequences.length;
+    mstrAdoptSequences(P);
+    const twin = MSTR.sequences[n0];
+    const f0 = twin.frames[0].targets, f1 = twin.frames[1].targets;
+    const out = {
+      srcActs: P.channels.map(c=>c.act), dupReported: P.report.dupNames.slice(),
+      pairs: pairs.map(p=>p.src.i+'\u2192'+p.dst.i), how,
+      distinct: new Set(pairs.map(p=>p.dst.i)).size === pairs.length,
+      /* f0 opens THEIR channel 0 only; f1 shuts it and opens their channel 1 */
+      f0: [f0[mine[0].i], f0[mine[1].i]], f1: [f1[mine[0].i], f1[mine[1].i]],
+      open: [blockOpen(mine[0]), blockOpen(mine[1])], shut0: blockClosed(mine[0])
+    };
+    MSTR.sequences.length = n0; reindexSubs();
+    setBoard('mini24'); makeStarter('dome','mini24'); reindexSubs();
+    return out;
+  });
+  ok('the fixture really is the trap: both source rows carry the same guessed act, and the report names the dup',
+     dup.srcActs[0] === dup.srcActs[1] && dup.dupReported.length === 2, JSON.stringify([dup.srcActs, dup.dupReported]));
+  ok('two source channels with one name land on two DIFFERENT channels of mine',
+     dup.pairs.length === 2 && dup.distinct, dup.pairs.join(' '));
+  ok('…by number, because a shared name or a shared guess says which part, not which row',
+     dup.how.index === 2 && dup.how.name === 0 && dup.how.act === 0, JSON.stringify(dup.how));
+  ok('so my first channel\'s panel opens in the adopted routine and the second stays put',
+     dup.f0[0] === dup.open[0] && dup.f0[1] === 0, JSON.stringify(dup.f0)+' open '+dup.open[0]);
+  ok('…and the second frame shuts the first and opens the second — each row its own servo',
+     dup.f1[0] === dup.shut0 && dup.f1[1] === dup.open[1], JSON.stringify(dup.f1));
+
   console.log('\n════ no page errors ════');
   ok('nothing threw', errs.length===0, errs.join(' | '));
 

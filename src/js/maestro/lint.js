@@ -244,6 +244,48 @@ function lintMaestro(opts){
   if(emptyFrames)
     add('note','frame-empty',emptyFrames+' frame(s) drive no channel at all — those compile to a bare delay.','');
 
+  /* ============ A CHANNEL SWITCHED OFF MID-SEQUENCE (v1.77.0, review H7)
+     A frame target of 0 means two different things to the two droids. The
+     sim reads it as "leave this channel alone" (applyFrameTargets,
+     playback.js), and so did every rule above (`if(!t) return`). The board
+     reads it as a TARGET: 0 is the Maestro's own "stop sending pulses", and
+     export.js's genSeqBody emits a target whenever a channel's value differs
+     from the frame before — so a change-only frame list plays perfectly on
+     the model and goes limp on the bench at the first keyframe that does not
+     name the channel. A strings-only puppet take used to be exactly that
+     list (the recorder densifies it now, input/puppet.js); this rule is for
+     every other door a sparse list can still come in by — a hand-edited
+     .mstr, a take restored from an older saved setup — and it says what the
+     board will do, which nothing did before.
+
+     WARNING, not error: the file compiles and Control Center accepts it; the
+     sequence just does not do on the droid what it does on screen. One line
+     per (sequence, channel), at the first frame it happens. A channel that is
+     0 in EVERY frame is not touched by the sequence at all and is left alone
+     — that is how every non-servo column and every never-mapped channel
+     reads, and it is not this rule's business. */
+  (MSTR.sequences||[]).forEach(seq=>{
+    const frames = seq.frames || [];
+    const had = {}, offAt = {};
+    frames.forEach((fr, fi)=>{
+      const t = fr.targets || [];
+      servos.forEach(c=>{
+        if(t[c.i]){ had[c.i] = true; return; }
+        if(had[c.i] && offAt[c.i] === undefined) offAt[c.i] = fi;
+      });
+    });
+    Object.keys(offAt).forEach(k=>{
+      const c = byIndex[+k], fi = offAt[k];
+      add('warn','pulses-off',
+          '"'+seq.name+'" drives channel '+c.i+' ('+c.name+') and then sends it a target of 0 at frame '+fi
+          + (frames[fi].name ? ' ('+frames[fi].name+')' : '')+'.',
+          'On the board a target of 0 means "stop sending pulses": the servo goes limp at that frame and holds '
+          + 'nothing, so a panel it was holding open drops. The sim reads 0 as "leave it alone" and will not show '
+          + 'this. Give that frame the position the channel should hold, or take the channel out of the sequence.',
+          c.i);
+    });
+  });
+
   /* A SEQUENCE WITH NO FRAMES (v1.69.0). Control Center writes
      `<Sequence name="X"></Sequence>` for one you made and never filled in,
      it imports as a routine with zero frames, and loadoutReset() puts it

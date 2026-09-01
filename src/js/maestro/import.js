@@ -20,13 +20,38 @@ function framePushOrder(sub){
   }
   return pop.length ? pop.slice().reverse() : null;   // push order = reverse of pop order
 }
+/* THE LINE ABOVE THE SUB IS THE ROUTINE'S NAME (v1.77.0, review H9).
+   genScript() has always written `# <library name>` on the line before every
+   `sub`, and this parser threw every comment away before it looked at a
+   token. The symbol under it is niceName()'d and made unique with _2, _3 —
+   in LOADOUT order on the way out (export.js scriptSubNames) and in whole-
+   <Sequences> order on the way back (mstrParse below), which are not the
+   same order whenever two names collapse onto one symbol: "Dome Wave" and
+   "Dome_Wave", or "Pies" and the "Pies·" mstrAdoptSequences() mints so a
+   merge never overwrites. Then the _2 landed on a different routine after
+   the round trip and restartScript(1) fired what restartScript(2) used to.
+   The exact name was in the file the whole time, one line up; it is carried
+   here as `label` so mstrParse can match on it first. Read from the line
+   IMMEDIATELY above the `sub` token, comment-only, so a stray comment
+   somewhere else in a hand-written script is never mistaken for a name; a
+   Control Center file has no such line and `label` stays undefined. */
 function parseScriptSubs(src){
-  const stripped = src.split('\n').map(l=>{ const i=l.indexOf('#'); return i>=0 ? l.slice(0,i) : l; }).join('\n');
-  const toks = stripped.split(/\s+/).filter(Boolean);
+  const lines = String(src || '').split('\n');
+  const toks = [], tokLine = [];
+  lines.forEach((l, li)=>{
+    const i = l.indexOf('#');
+    (i >= 0 ? l.slice(0,i) : l).split(/\s+/).filter(Boolean).forEach(t=>{ toks.push(t); tokLine.push(li); });
+  });
+  const labelAbove = li => {
+    const l = (li > 0) ? lines[li-1].replace(/\r$/, '') : '';
+    const m = /^\s*#\s?(.*)$/.exec(l);
+    return (m && m[1]) ? m[1] : undefined;
+  };
   const subs=[];
   for(let i=0;i<toks.length;i++){
     if(toks[i].toLowerCase()!=='sub') continue;
     const name = toks[i+1] || ('sub_'+subs.length);
+    const label = labelAbove(tokLine[i]);
     const body=[]; let j=i+2;
     while(j<toks.length){
       const t=toks[j].toLowerCase();
@@ -34,7 +59,9 @@ function parseScriptSubs(src){
       if(t==='return'){ j++; break; }
       body.push(toks[j]); j++;
     }
-    subs.push({ index:subs.length, name, body });
+    const sub = { index:subs.length, name, body };
+    if(label !== undefined) sub.label = label;
+    subs.push(sub);
     i = j-1;
   }
   return subs;
@@ -166,6 +193,17 @@ function mstrParse(text, fileName){
   const chWrap = root.getElementsByTagName('Channels')[0];
   const chEls = chWrap ? chWrap.getElementsByTagName('Channel') : [];
   const channels=[];
+  /* A NUMBER OR THE DEFAULT, NEVER NaN (v1.77.0, review H10's .mstr half).
+     parseInt('abc') is NaN, and NaN passes every clamp in the app because
+     every clamp is a comparison — pcaSetTarget() let a 16000 straight
+     through on a channel whose min had been hand-edited to a word, and
+     hw-host handed it to the wire. A hand-edited .mstr is the ordinary
+     case, not the hostile one (people fix a number in a text editor all the
+     time), so an attribute that does not read as a whole number gets the
+     same default an ABSENT one has always had. Local to this reader on
+     purpose: the JSON doors are getting a shared chanNormalise() of their
+     own (servo-cfg.js) and this door must not depend on it being loaded. */
+  const num = (v, dflt) => { const n = parseInt(v, 10); return Number.isFinite(n) ? n : dflt; };
   for(let i=0;i<chEls.length;i++){
     const c=chEls[i];
     const rawName = c.getAttribute('name');
@@ -178,14 +216,14 @@ function mstrParse(text, fileName){
     channels.push({
       i, name, autoName: !named,
       mode: c.getAttribute('mode') || 'Servo',
-      min:  parseInt(c.getAttribute('min')||DEFAULT_MIN,10),
-      max:  parseInt(c.getAttribute('max')||DEFAULT_MAX,10),
-      home: parseInt(c.getAttribute('home')||DEFAULT_NEUTRAL,10),
+      min:  num(c.getAttribute('min'),  DEFAULT_MIN),
+      max:  num(c.getAttribute('max'),  DEFAULT_MAX),
+      home: num(c.getAttribute('home'), DEFAULT_NEUTRAL),
       homemode: c.getAttribute('homemode') || 'Goto',
-      neutral: parseInt(c.getAttribute('neutral')||DEFAULT_NEUTRAL,10),
-      range: parseInt(c.getAttribute('range')||1905,10),
-      speed: parseInt(c.getAttribute('speed')||0,10),
-      acceleration: parseInt(c.getAttribute('acceleration')||0,10),
+      neutral: num(c.getAttribute('neutral'), DEFAULT_NEUTRAL),
+      range: num(c.getAttribute('range'), 1905),
+      speed: num(c.getAttribute('speed'), 0),
+      acceleration: num(c.getAttribute('acceleration'), 0),
       /* v1.46.0 — `invert` is RETIRED as a setting (chanEnds/chanAdoptInvert,
          playback.js): min is the shut end and max the open one, directed
          rather than sorted. It stays here as a defined-falsy field only so a
@@ -223,7 +261,7 @@ function mstrParse(text, fileName){
         const p = parseFrameRow(frEls[f].textContent, servoCount);
         const fr = {
           name: frEls[f].getAttribute('name') || ('Frame '+f),
-          duration: parseInt(frEls[f].getAttribute('duration')||500,10),
+          duration: num(frEls[f].getAttribute('duration'), 500),   // v1.77.0 — the same NaN guard as <Channel>: a word for a duration is 500, not a frame that never ends
           targets: p.targets
         };
         /* only carry the speed/acceleration rows when they say something.
@@ -246,7 +284,7 @@ function mstrParse(text, fileName){
   const rawSubs = parseScriptSubs(scriptText);
   const byName={}; rawSubs.forEach(s=>byName[s.name.toLowerCase()]=s);
   const subs = rawSubs.map(s=>({
-    index:s.index, name:s.name, body:s.body,
+    index:s.index, name:s.name, body:s.body, label:s.label,
     kind: /^frame_/i.test(s.name) ? 'frame' : 'sequence',
     seqIndex:-1, frames:null
   }));
@@ -270,16 +308,33 @@ function mstrParse(text, fileName){
      place. The niceName() pass stays as a FALLBACK: every file this app
      wrote before v1.68.1 carries the old symbols, and they must not start
      fabricating duplicates now. Only a sub that answers to neither is
-     genuinely not in <Sequences> and is worth rebuilding. (v1.69.0) */
+     genuinely not in <Sequences> and is worth rebuilding. (v1.69.0)
+
+     THE EXACT NAME FIRST, THE SYMBOL SECOND (v1.77.0, review H9). The
+     symbol pass above is still order-dependent: scriptSubNames() hands out
+     _2 in the order it is given, and the exporter gives it the LOADOUT while
+     this reader gives it the whole library. Two names that share a symbol
+     ("Dome Wave" / "Dome_Wave"; "Pies" / the "Pies·" a merge mints) were
+     therefore numbered one way going out and the other way coming back, and
+     a curated loadout came home with those two slots swapped — the d-pad
+     fired the wrong routine after nothing but a save. genScript() writes the
+     library name itself on the line above each sub, parseScriptSubs() now
+     reads it back as `label`, and an exact hit on it settles the sub before
+     any symbol is consulted. A file without the line (Control Center's own,
+     or a hand-written script) has no label and takes the symbol path
+     unchanged, and a label that matches nothing falls through to it too, so
+     the v1.69.0 recovery still fires only for a sub that answers to none. */
   let recovered = 0;
   const subSyms = ((typeof scriptSubNames === 'function')
                     ? scriptSubNames(sequences)
                     : sequences.map(q=>niceName(q.name))).map(n=>n.toLowerCase());
   const oldSyms = sequences.map(q=>niceName(q.name).toLowerCase());
+  const exact   = sequences.map(q=>q.name);
   subs.forEach(s=>{
     if(s.kind!=='sequence') return;
     const sym = s.name.toLowerCase();
-    let match = subSyms.indexOf(sym);
+    let match = (s.label !== undefined) ? exact.indexOf(s.label) : -1;
+    if(match<0) match = subSyms.indexOf(sym);
     if(match<0) match = oldSyms.indexOf(sym);
     if(match>=0){ s.seqIndex=match; return; }
     const fr = subToFrames(s, byName, servoCount);
@@ -339,6 +394,28 @@ function mstrParse(text, fileName){
 }
 
 function mstrApply(P){
+  /* v1.77.0 (review H10) — every table that becomes THE table goes through
+     the one gate. mstrParse() already refuses a word where a number belongs,
+     but an out-of-band number (max="99999") or a mode nobody spells that way
+     still reached the engine from a hand-edited .mstr, and this function has
+     three callers (the pane, the drop door, the wizard) — so the gate is
+     HERE, not in one of them. chanNormalise() is servo-cfg.js's; guarded
+     because PCA Studio's mini parser does not load this file at all and a
+     host may load this without it. */
+  if(typeof chanNormalise === 'function' && Array.isArray(P.channels)){
+    let fixed = 0; const notes = [];
+    P.channels = P.channels.map((row, k)=>{
+      const nz = chanNormalise(row, {whole:true, i:k});
+      fixed += nz.fixed;
+      nz.notes.forEach(t=>{ if(notes.length < 12) notes.push('ch ' + k + ' ' + t); });
+      return nz.c;
+    });
+    if(fixed){
+      lg('warn', 'import: ' + fixed + ' channel field(s) in ' + (P.fileName || 'the file')
+         + ' could not be read as written and were repaired — see below');
+      notes.forEach(t=>lg('sys', '  ' + t));
+    }
+  }
   MSTR.loaded=true; MSTR.fileName=P.fileName; MSTR.xmlText=P.xmlText;
   MSTR.servoCount=P.servoCount; MSTR.channels=P.channels; MSTR.sequences=P.sequences;
   if(typeof chanPosReset === 'function') chanPosReset();   // the table is a new table — CHPOS with it
@@ -417,10 +494,13 @@ function mstrApply(P){
    right: if the author opens a pie by driving up and you open yours by
    driving down, the fraction is the same and the direction flips itself.
 
-   Channel matching, most meaningful first:
-     1. by ACT — both sides name the same droid part (pie3, gripper…)
-     2. by channel NAME (trimmed, case-folded, non-auto names only)
+   Channel matching, most meaningful first (mstrMatchChannels says why
+   the name outranks the act, and why a duplicated key is skipped):
+     1. by channel NAME (trimmed, case-folded, non-auto names only)
+     2. by ACT — both sides name the same droid part (pie3, gripper…)
      3. by channel NUMBER, servo-mode both sides
+   A name or act that two channels share on either side is not a match at
+   all — it cannot say WHICH of the two — so those rows go by number.
    Unmatched source channels are DROPPED from the frames and reported —
    a target with no home on your droid must not land on a random servo.
 
@@ -431,11 +511,36 @@ function mstrApply(P){
 function mstrMatchChannels(P){
   const mine = MSTR.channels, pairs = [], how = {act:0, name:0, index:0}, unmatched = [];
   const servo = c => /^servo/i.test(c.mode);
+  const nameKey = c => (c.name && !c.autoName) ? c.name.trim().toLowerCase() : '';
+  /* A KEY THAT APPEARS TWICE ON EITHER SIDE IDENTIFIES NOTHING (v1.77.0,
+     review M7). byName and byAct were last-wins maps, so two of my channels
+     both named "Pie" made byName.pie the second one, and a file with two
+     "Pie" channels paired 0→1 and 1→1: channel 0's panel never moved in the
+     adopted routine and channel 1 was commanded by both. A name the builder
+     gave to two servos says which PART they are, not which of the two this
+     row is — and the act rule has the same hole from the other direction,
+     because a src act is guessPart(name), so two same-named src channels
+     carry the same guessed act and would land on one channel of mine by
+     act instead. So a name or an act that is duplicated on either side is
+     simply not offered as a match, and those rows fall through to the
+     number rule, which is what a Control Center file with blank names has
+     always used and is the one rule that cannot pair two rows to one. The
+     mstrParse report's dupNames already says it happened; this is the
+     chooser finally listening. */
+  const dupOf = (list, key) => {
+    const seen = {}, dup = {};
+    list.forEach(c=>{ if(!servo(c)) return; const k = key(c); if(!k) return;
+                      if(seen[k]) dup[k] = true; else seen[k] = true; });
+    return dup;
+  };
+  const dupName = Object.assign(dupOf(mine, nameKey), dupOf(P.channels, nameKey));
+  const dupAct  = Object.assign(dupOf(mine, c=>c.act || ''), dupOf(P.channels, c=>c.act || ''));
   const byAct = {}, byName = {};
   mine.forEach(c=>{
     if(!servo(c)) return;
-    if(c.act) byAct[c.act] = c;
-    if(c.name && !c.autoName) byName[c.name.trim().toLowerCase()] = c;
+    if(c.act && !dupAct[c.act]) byAct[c.act] = c;
+    const k = nameKey(c);
+    if(k && !dupName[k]) byName[k] = c;
   });
   P.channels.forEach(a=>{
     if(!servo(a)) return;
@@ -447,9 +552,8 @@ function mstrMatchChannels(P){
        numbering is not the CAD's); the guess read "Panel7" as `panel6`
        and adoption cross-wired his own round-trip, swapping two panels'
        choreography. The name is the human's meaning; the guess is ours. */
-    if(a.name && !a.autoName && byName[a.name.trim().toLowerCase()]){
-      dst = byName[a.name.trim().toLowerCase()]; via = 'name';
-    }
+    const k = nameKey(a);
+    if(k && byName[k]){ dst = byName[k]; via = 'name'; }
     else if(a.act && byAct[a.act]){ dst = byAct[a.act]; via = 'act'; }
     else if(mine[a.i] && servo(mine[a.i])){
       /* same-number fallback is for raw Pololu files with blank names —
@@ -535,7 +639,20 @@ function mstrAdoptSequences(P){
        Re-attach them only when they honestly recompile to these frames on
        THIS table — otherwise the frames stay the truth and the loss is
        counted, not silent. */
-    const cand = sq.blocksCand || sq.blocks;
+    let cand = sq.blocksCand || sq.blocks;
+    /* THE STEP RIDES ON THE SEQUENCE IN A .json (v1.77.0, review M8). A
+       .mstr / sequences.h candidate comes out of blocksUnpack() with its
+       step as a property on the array; the choreography .json is the raw
+       sequence object, so its `blocks` is a bare array and its `stepMs` is
+       a sibling field. blocksTryAttach() reads only the array's own step,
+       tried 120 and 500 for one that had none, and every routine drawn at
+       250, 750 or 1000 ms came back as plain frames with its bricks counted
+       as "would compile differently". Nothing compiled differently — the
+       step was on the next line. Copied onto a fresh array rather than the
+       parsed one, so the file object stays as it was read. */
+    if(cand && cand.length && !(cand.stepMs > 0) && sq.stepMs > 0){
+      cand = cand.slice(); cand.stepMs = +sq.stepMs;
+    }
     if(cand && cand.length){
       if(typeof blocksTryAttach === 'function' && blocksTryAttach(adopted, cand)) bricksBack++;
       else bricksKeptAsFrames++;

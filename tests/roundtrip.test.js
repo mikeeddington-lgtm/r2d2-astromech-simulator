@@ -442,6 +442,114 @@ const clickAsk = async (page, id) => {
   ok('…so the file stops growing: after the first trip it is byte-stable',
      cyc[1].bytes === cyc[4].bytes, cyc.map(c=>c.bytes).join(' → '));
 
+  /* =====================================================================
+     TWO NAMES, ONE SYMBOL (v1.77.0, review H9)
+
+     The exporter numbers colliding symbols (_2, _3) in LOADOUT order and
+     the reader re-derived them in LIBRARY order, so a loadout that listed
+     "Dome_Wave" before "Dome Wave" came home the other way round and
+     restartScript(n) fired a different routine after nothing but a save.
+     The library name has been on the line above every sub all along
+     (`# <name>`); the reader now binds on it first. Two collisions in one
+     fixture: the hand-typed pair, and the `·` that mstrAdoptSequences()
+     mints on a merge. The loadout is the REVERSE of library order on
+     purpose — that is the order in which the symbol path gets it wrong.
+     ===================================================================== */
+  console.log('\n════════ two names that share a symbol keep their loadout slots (v1.77.0, H9) ════════');
+  await page.evaluate(()=>localStorage.clear());
+  await freshDroid(page, false);
+  const h9 = await page.evaluate(()=>{
+    const mk = (name, ch) => { const t = []; t[ch] = 7000; return {name, frames:[{name:'f0', duration:400, targets:t}]}; };
+    MSTR.sequences.push(mk('Dome Wave', 0), mk('Dome_Wave', 1), mk('Pies', 2), mk('Pies·', 3));
+    MSTR.loadout = ['Pies·', 'Dome_Wave', 'Dome Wave', 'Pies'];
+    reindexSubs();
+    const fires = () => MSTR.subs.filter(s=>s.kind === 'sequence').map(s=>(MSTR.sequences[s.seqIndex]||{}).name);
+    return {loadout: loadoutNames().slice(), fires: fires(), lib: MSTR.sequences.length,
+            syms: MSTR.subs.filter(s=>s.kind === 'sequence').map(s=>s.name),
+            text: mstrBytes(buildMstrText())};
+  });
+  ok('the fixture really collides: four routines, two symbols, _2 on each',
+     h9.syms.join() === 'Pies,Dome_Wave,Dome_Wave_2,Pies_2', h9.syms.join());
+  await page.evaluate(()=>localStorage.clear());
+  await freshDroid(page, false);
+  const h9b = await page.evaluate(t=>{
+    mstrApply(mstrParse(t, 'h9.mstr'));
+    return {loadout: loadoutNames().slice(),
+            fires: MSTR.subs.filter(s=>s.kind === 'sequence').map(s=>(MSTR.sequences[s.seqIndex]||{}).name),
+            lib: MSTR.sequences.length, recovered: MSTR.report.seqRecovered};
+  }, h9.text);
+  ok('the loadout comes home identical — every slot the routine it had',
+     JSON.stringify(h9b.loadout) === JSON.stringify(h9.loadout),
+     'was '+JSON.stringify(h9.loadout)+' now '+JSON.stringify(h9b.loadout));
+  ok('…so restartScript(n) fires what it fired before the save, including the · twin',
+     JSON.stringify(h9b.fires) === JSON.stringify(h9.fires), JSON.stringify(h9b.fires));
+  ok('and no sub was "recovered" as a phantom copy on the way',
+     h9b.recovered === 0 && h9b.lib === h9.lib, h9b.recovered+' recovered, library '+h9.lib+' → '+h9b.lib);
+
+  /* =====================================================================
+     THE STEP RIDES THE .json ON THE SEQUENCE (v1.77.0, review M8)
+
+     Every leg above draws at the 500 ms default, which is one of the two
+     steps blocksTryAttach() tries when a candidate carries none — so the
+     choreography door passed while dropping the bricks of every routine
+     drawn at 250, 750 or 1000 ms. The .json puts `stepMs` beside `blocks`,
+     not on it; the adopter now copies it across.
+     ===================================================================== */
+  console.log('\n════════ a routine drawn at 250 ms keeps its bricks through the .json (v1.77.0, M8) ════════');
+  await page.evaluate(()=>localStorage.clear());
+  await freshDroid(page, false);
+  const m8 = await page.evaluate(()=>{
+    const s = MSTR.sequences[blockNewRoutine('Step 250 probe')];
+    s.stepMs = 250;                                  // before the first brick — blockAdd only defaults an EMPTY routine
+    blockAdd(s,'act','pie0',0,{dur:2000, rise:800, fall:800});
+    blockAdd(s,'act','pie1',600,{dur:1200, rise:300, fall:300, mode:'o'});
+    blockSync(s);
+    HW.save();
+    return {step: s.stepMs, bricks: s.blocks.length, frames: s.frames.length,
+            choreo: JSON.stringify(seqLibExportObj(), null, 1)};
+  });
+  ok('the probe is drawn at 250 ms and is not a 500 ms staircase', m8.step === 250 && m8.frames > 8,
+     m8.frames+' frames at '+m8.step);
+  await page.evaluate(()=>localStorage.clear());
+  await freshDroid(page, false);
+  await page.evaluate(t=>impChooseOpen({kind:'choreography', text:t, name:'m8.json', from:'test'}), m8.choreo);
+  await page.waitForFunction('!!document.querySelector(\'button[data-ask="merge"]\')', {timeout:9000});
+  await clickAsk(page, 'merge');
+  await page.waitForFunction('MSTR.sequences.some(s=>s.name === "Step 250 probe")', {timeout:9000});
+  const m8b = await page.evaluate(()=>{
+    const s = MSTR.sequences.find(x=>x.name === 'Step 250 probe');
+    return {bricks: (s.blocks||[]).length, step: s.stepMs, routine: blockIsRoutine(s), frames: s.frames.length};
+  });
+  ok('its bricks come back through the choreography door, at its own step',
+     m8b.bricks === m8.bricks && m8b.routine && m8b.step === 250 && m8b.frames === m8.frames, JSON.stringify(m8b));
+
+  /* =====================================================================
+     A HAND-EDITED NUMBER IS A NUMBER OR THE DEFAULT (v1.77.0, review H10's
+     .mstr half). parseInt('abc') is NaN and NaN passes every clamp in the
+     app, because every clamp is a comparison. The reader now falls back to
+     the same default an absent attribute has always had.
+     ===================================================================== */
+  console.log('\n════════ a word where a number belongs (v1.77.0) ════════');
+  const nan = await page.evaluate(()=>{
+    const xml = '<UscSettings version="1"><Channels MiniMaestroServoPeriod="80000" ServoMultiplier="1">'
+      + '<Channel name="Pie 1" mode="Servo" min="abc" max="" home="four" homemode="Goto" speed="fast" acceleration="x" neutral="6000" range="1905" />'
+      + '<Channel name="Pie 2" mode="Servo" min="4500" max="7500" home="4500" homemode="Goto" speed="30" acceleration="4" neutral="6000" range="1905" />'
+      + '</Channels><Sequences><Sequence name="S"><Frame name="f0" duration="soon">7500 0</Frame></Sequence></Sequences>'
+      + '<Script ScriptDone="true"></Script></UscSettings>';
+    const P = mstrParse(xml, 'hand-edited.mstr');
+    const c = P.channels[0], d = P.channels[1];
+    const fin = o => ['min','max','home','neutral','range','speed','acceleration'].every(k=>Number.isFinite(o[k]) && o[k] === Math.round(o[k]));
+    return {finite: fin(c) && fin(d), min: c.min, max: c.max, home: c.home, speed: c.speed, accel: c.acceleration,
+            dur: P.sequences[0].frames[0].duration, good: [d.min, d.max, d.home, d.speed, d.acceleration],
+            defaults: [DEFAULT_MIN, DEFAULT_MAX, DEFAULT_NEUTRAL]};
+  });
+  ok('every numeric channel field is a finite whole number — never NaN', nan.finite, JSON.stringify(nan));
+  ok('…and a field that did not read as a number took the documented default',
+     nan.min === nan.defaults[0] && nan.max === nan.defaults[1] && nan.home === nan.defaults[2]
+     && nan.speed === 0 && nan.accel === 0 && nan.dur === 500, JSON.stringify(nan));
+  ok('while a well-formed channel beside it is read exactly as written',
+     nan.good.join() === '4500,7500,4500,30,4', nan.good.join());
+
   console.log('\n════ no page errors ════');
   ok('nothing threw', errs.length === 0, errs.join(' | '));
 

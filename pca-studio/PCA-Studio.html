@@ -672,7 +672,7 @@ body.light{
 <script>/* pca-studio/src/js/00-core.js */
 'use strict';
 /* =============================================================== CORE */
-const STUDIO_VERSION = '0.13.0';
+const STUDIO_VERSION = '0.13.1';
 const $ = id=>document.getElementById(id);
 const clamp=(v,a,b)=>v<a?a:v>b?b:v;
 function log(msg, cls){ const l=$('log'); l.textContent=msg; l.className=cls||''; }
@@ -1359,15 +1359,34 @@ function chanTravelMs(c, dist){
    the distance in the time asked. That is not an error to swallow: it is
    the accel-limited case, so we return the triangular peak — the fastest
    this channel can go — and blockMinTravelMs() is what stops a brick
-   asking for it in the first place. Returns 0 for "nothing to limit". */
+   asking for it in the first place. Returns 0 for "nothing to limit".
+
+   NEVER ABOVE THE CHANNEL'S OWN SPEED (v1.77.0, review H8). The table's
+   speed is the ceiling the builder set against real linkage — "those are
+   AUTHORITATIVE" (Mike, 2026-07-29; blockMinTravelMs says the same) — and
+   this function used to ignore it: the only cap was Pololu's 16000. The
+   act-brick path never noticed, because its ramps are floored at the
+   travel time and the answer stays under the table by construction. A
+   nested `seq` brick has no such floor: a library routine with a 100 ms
+   full-throw frame asked for 4000 quarter-µs in 100 ms and got speed 224
+   on a speed-120 channel (400 with acceleration 0) — written under
+   MPCA_SEQ_SPEEDS and sent as Set Speed, so the droid outran the limit its
+   own table had set while the preview (which ignores speeds) showed
+   nothing. A speed the board cannot honestly deliver is not an answer, so
+   the ceiling is min(16000, c.speed) whenever the table has one; 0 still
+   means unlimited and keeps the 16000. The DURATION is not stretched here
+   or anywhere: an authored 100 ms frame stays 100 ms, the horn simply
+   arrives when the table says it can — which is what it did anyway. */
 function chanSpeedForMs(c, dist, ms){
   const d = Math.abs(dist || 0);
   if(!d || !(ms > 0)) return 0;
   const a = ((c && c.acceleration) || 0) * 0.1 / 80;
-  if(!a) return Math.max(1, Math.min(16000, Math.round(10 * d / ms)));
+  const lim = (c && c.speed > 0) ? Math.min(16000, Math.round(c.speed)) : 16000;
+  const cap = sp => Math.max(1, Math.min(lim, sp));
+  if(!a) return cap(Math.round(10 * d / ms));
   const disc = a*a*ms*ms - 4*a*d;
   const v = (disc <= 0) ? Math.sqrt(a*d) : (a*ms - Math.sqrt(disc)) / 2;
-  return Math.max(1, Math.min(16000, Math.round(10 * v)));
+  return cap(Math.round(10 * v));
 }
 </script>
 <script>/* src/js/maestro/pca-gen.js */
@@ -3005,12 +3024,19 @@ async function serialTryMaestro(){
 'use strict';
 /* ============================================================== PROJECT */
 const LS_KEY='pcastudio.v1';
+/* where boot parks a saved blob it could not use, so nothing is lost
+   (v1.77.0, H13 — see projNormalise below and 99-boot.js) */
+const LS_BAD_KEY='pcastudio.bad';
 let PROJ=null, E=null, curSeq=0;
+/* the row a NEW channel is born with — and, since v1.77.0, what an unusable
+   field in a loaded row falls back to (projNormalise) */
+function projDefaultChannel(i){
+  return {name:'Servo '+(i|0),mode:'Servo',min:4544,max:7296,home:0,homemode:'Off',speed:80,acceleration:10};
+}
 function defaultProject(){
-  const mk=(nm,i)=>({name:nm,mode:'Servo',min:4544,max:7296,home:0,homemode:'Off',speed:80,acceleration:10});
   return {
     ver:1, osc:25000000,
-    channels:[mk('Servo 0'),mk('Servo 1'),mk('Servo 2'),mk('Servo 3')].map((c,i)=>(c.name='Servo '+i,c)),
+    channels:[0,1,2,3].map(projDefaultChannel),
     sequences:[
       {name:'Wave open', frames:[
         {name:'F0',duration:400,targets:[7296,4544,4544,4544]},
@@ -3027,6 +3053,189 @@ function projSave(){ try{ localStorage.setItem(LS_KEY, JSON.stringify(PROJ)); }c
 function projLoad(){
   try{ const t=localStorage.getItem(LS_KEY); if(t) return JSON.parse(t); }catch(e){}
   return null;
+}
+/* the saved text itself, unparsed — what boot parks when it cannot use it */
+function projRaw(){ try{ return localStorage.getItem(LS_KEY); }catch(e){ return null; } }
+function projPark(raw){ try{ if(raw != null) localStorage.setItem(LS_BAD_KEY, String(raw)); }catch(e){} }
+
+/* ============================ VALIDATE, THEN COMMIT (v1.77.0, review H13)
+
+   A project file used to be adopted, SAVED, and only then handed to
+   rebuildAll() — which is where `{channels:{}, sequences:[]}` finally threw
+   (`channels.map is not a function`). By then the blob was in localStorage,
+   and every reload after it threw the same TypeError from boot with nothing
+   to catch it: an empty page, no log line, and the only way back was the
+   browser's own storage inspector. One bad file, opened once, and Studio was
+   gone until somebody who knew where to look cleared it by hand.
+
+   The sim's Model Builder already follows the right order (mbImportModelText):
+   build the whole thing in scratch, adopt it only if it is usable, and let a
+   refusal leave what you had exactly as it was. projNormalise() is that
+   scratch build for Studio. It returns a NEW object holding only the fields
+   Studio reads, each already in the shape its readers assume — a channel's
+   ends are integers inside the Maestro's 14-bit range, a frame's targets are
+   a list of integers, a sequence has a name and a frame list — plus a list
+   of what it repaired or dropped, in words, so the log can say so instead of
+   tidying up in silence. It throws only when there is nothing usable left:
+   no channel list at all. Everything short of that is repaired to what a new
+   project is born with (projDefaultChannel), because a row with one bad
+   number is still a row somebody calibrated, and a frame with one bad target
+   is still choreography.
+
+   Absent and wrong are treated differently on purpose. A field that is not
+   in the file at all takes its default quietly — that is an older or leaner
+   file, and `releaseMs`/`ease` were added years after the first project was
+   saved. A field that IS there and cannot be used is repaired AND counted:
+   that is corruption or a hand edit gone wrong, and the person wants to hear
+   about it. Channel rows that are not rows become default rows rather than
+   vanishing, so every later channel keeps its index and every frame's
+   targets still line up; a sequence or frame that is not one is dropped. */
+const PROJ_MAX_CHANNELS  = 128;   /* PCA_MAX_MASK_CHANNELS — past this the engine cannot even collision-check */
+const PROJ_MAX_SEQUENCES = 64;
+const PROJ_MAX_QUS       = 16383; /* the Maestro's 14-bit target, in quarter-µs */
+/* Pololu's four, plus `Off` — the sim's padding marker, which /^servo/i
+   refuses everywhere it matters (export.js §pololuMode) */
+const PROJ_MODES     = ['Servo','ServoMultiplied','Output','Input','Off'];
+const PROJ_HOMEMODES = ['Off','Goto','Ignore'];
+const PROJ_EASES     = ['none','soft','overshoot'];
+
+function projNormalise(p){
+  const dropped = [];
+  /* how a value reads in the log — short, and never the whole blob */
+  const what = v => v === null ? 'null'
+    : Array.isArray(v) ? 'a list'
+    : typeof v === 'object' ? 'an object'
+    : typeof v === 'string' ? JSON.stringify(v.length > 24 ? v.slice(0,21)+'…' : v)
+    : String(v);
+  const isObj = v => !!v && typeof v === 'object' && !Array.isArray(v);
+  /* a finite number, or a string holding one, rounded; NaN for anything else */
+  const num = v => {
+    const n = typeof v === 'number' ? v : (typeof v === 'string' && v.trim() !== '') ? Number(v) : NaN;
+    return Number.isFinite(n) ? Math.round(n) : NaN;
+  };
+  const asInt  = (lo, hi) => v => { const n = num(v); return (n >= lo && n <= hi) ? n : undefined; };
+  const asStr  = v => typeof v === 'string' ? v : undefined;
+  const asEnum = list => v => typeof v === 'string' ? list.find(k => k.toLowerCase() === v.toLowerCase()) : undefined;
+  /* absent → the default, quietly; present and unusable → the default, counted */
+  const pick = (obj, k, test, dflt, who) => {
+    const v = obj[k];
+    if(v === undefined) return dflt;
+    const r = test(v);
+    if(r !== undefined) return r;
+    dropped.push(who+' '+k+' '+what(v)+' → '+(dflt === undefined ? 'dropped' : String(dflt)));
+    return dflt;
+  };
+  /* an object that came in through JSON has no cycles, so this is a deep copy */
+  const copy = v => JSON.parse(JSON.stringify(v));
+
+  if(!isObj(p)) throw new Error('not a PCA Studio project — expected an object with "channels" and "sequences", got '+what(p));
+  if(!Array.isArray(p.channels)) throw new Error('not a PCA Studio project — "channels" must be a list of channel rows, and here it is '+what(p.channels));
+  if(!p.channels.length) throw new Error('not a PCA Studio project — the channel list is empty');
+
+  const proj = {};
+  proj.ver = Number.isFinite(p.ver) ? p.ver : 1;
+  proj.osc = pick(p, 'osc', asInt(1, 1e9), 25000000, 'project');
+  if(p.setup !== undefined){
+    if(isObj(p.setup)) proj.setup = copy(p.setup);
+    else dropped.push('project setup '+what(p.setup)+' → dropped (not an object)');
+  }
+
+  /* ---- channels: one row per index, always ---- */
+  if(p.channels.length > PROJ_MAX_CHANNELS)
+    dropped.push((p.channels.length - PROJ_MAX_CHANNELS)+' channels past '+PROJ_MAX_CHANNELS+' → dropped');
+  proj.channels = p.channels.slice(0, PROJ_MAX_CHANNELS).map((c, i) => {
+    const d = projDefaultChannel(i), who = 'channel '+i;
+    if(!isObj(c)){ dropped.push(who+' was '+what(c)+', not a row → default row'); return d; }
+    const out = {
+      name:         pick(c, 'name',         asStr,                    d.name,         who),
+      mode:         pick(c, 'mode',         asEnum(PROJ_MODES),       d.mode,         who),
+      min:          pick(c, 'min',          asInt(0, PROJ_MAX_QUS),   d.min,          who),
+      max:          pick(c, 'max',          asInt(0, PROJ_MAX_QUS),   d.max,          who),
+      home:         pick(c, 'home',         asInt(0, PROJ_MAX_QUS),   d.home,         who),
+      homemode:     pick(c, 'homemode',     asEnum(PROJ_HOMEMODES),   d.homemode,     who),
+      speed:        pick(c, 'speed',        asInt(0, 65535),          d.speed,        who),
+      acceleration: pick(c, 'acceleration', asInt(0, 65535),          d.acceleration, who)
+    };
+    const rel  = pick(c, 'releaseMs', asInt(0, 1e7),         undefined, who);
+    const ease = pick(c, 'ease',      asEnum(PROJ_EASES),    undefined, who);
+    if(rel  !== undefined) out.releaseMs = rel;
+    if(ease !== undefined) out.ease = ease;
+    return out;
+  });
+
+  /* ---- sequences: what is not a sequence is dropped, what is one is kept
+     whole — frames, generator entries, bricks and their step ---- */
+  let seqs = p.sequences;
+  if(seqs === undefined){ dropped.push('no sequence list in the file → starting with none'); seqs = []; }
+  else if(!Array.isArray(seqs)){ dropped.push('sequences '+what(seqs)+' → dropped (not a list)'); seqs = []; }
+  if(seqs.length > PROJ_MAX_SEQUENCES)
+    dropped.push((seqs.length - PROJ_MAX_SEQUENCES)+' sequences past '+PROJ_MAX_SEQUENCES+' → dropped');
+  proj.sequences = [];
+  seqs.slice(0, PROJ_MAX_SEQUENCES).forEach((s, k) => {
+    const who = 'sequence '+k;
+    if(!isObj(s)){ dropped.push(who+' was '+what(s)+', not a sequence → dropped'); return; }
+    const out = { name: pick(s, 'name', asStr, 'Sequence '+k, who) };
+    if(s.loop !== undefined)       out.loop = !!s.loop;
+    if(s.background !== undefined) out.background = !!s.background;
+    const gen = pick(s, 'gen', asEnum(['osc','wander']), undefined, who);
+    if(gen !== undefined) out.gen = gen;
+    /* entries travel even on a frame-list sequence: switching a sequence
+       back to a generator reuses the rows it had (40-ui.js §selKind) */
+    if(s.entries !== undefined){
+      if(!Array.isArray(s.entries)){ dropped.push(who+' entries '+what(s.entries)+' → dropped (not a list)'); if(gen) out.entries = []; }
+      else out.entries = s.entries.map((g, gi) => {
+        const gw = who+' entry '+gi;
+        if(!isObj(g)){ dropped.push(gw+' was '+what(g)+' → dropped'); return null; }
+        return {
+          ch:     pick(g, 'ch',     asInt(0, PROJ_MAX_CHANNELS-1), 0,    gw),
+          lo:     pick(g, 'lo',     asInt(0, PROJ_MAX_QUS),        4544, gw),
+          hi:     pick(g, 'hi',     asInt(0, PROJ_MAX_QUS),        7296, gw),
+          period: pick(g, 'period', asInt(0, 1e7),                 3000, gw),
+          phase:  pick(g, 'phase',  asInt(-3600, 3600),            0,    gw)
+        };
+      }).filter(g => g);
+    }else if(gen) out.entries = [];
+    /* a generator has no frames to speak of; a frame-list sequence without
+       a frame list is worth a word, but it is still a sequence */
+    let frames = s.frames;
+    if(frames === undefined){ if(!gen) dropped.push(who+' has no frame list → empty'); frames = []; }
+    else if(!Array.isArray(frames)){ dropped.push(who+' frames '+what(frames)+' → dropped (not a list)'); frames = []; }
+    out.frames = frames.map((fr, f) => {
+      const fw = who+' frame '+f;
+      if(!isObj(fr)){ dropped.push(fw+' was '+what(fr)+' → dropped'); return null; }
+      const o = {
+        name:     pick(fr, 'name',     asStr,          'F'+f, fw),
+        duration: pick(fr, 'duration', asInt(0, 1e7),  500,   fw)
+      };
+      let t = fr.targets;
+      if(t === undefined){ dropped.push(fw+' has no targets → none'); t = []; }
+      else if(!Array.isArray(t)){ dropped.push(fw+' targets '+what(t)+' → dropped (not a list)'); t = []; }
+      o.targets = t.map((v, ci) => {
+        const n = asInt(0, PROJ_MAX_QUS)(v === null ? 0 : v);
+        if(n !== undefined) return n;
+        dropped.push(fw+' target '+ci+' '+what(v)+' → 0'); return 0;
+      });
+      return o;
+    }).filter(fr => fr);
+    /* bricks are blocks.js's business — carried whole when they are a list
+       of objects, and the step they were drawn at with them */
+    if(s.blocks !== undefined){
+      if(Array.isArray(s.blocks)) out.blocks = copy(s.blocks.filter(b => isObj(b)));
+      else dropped.push(who+' blocks '+what(s.blocks)+' → dropped (not a list)');
+    }
+    const step = pick(s, 'stepMs', asInt(1, 1e6), undefined, who);
+    if(step !== undefined) out.stepMs = step;
+    proj.sequences.push(out);
+  });
+  return {proj, dropped};
+}
+/* the drop list as one plain phrase for the log: the count, then the first
+   few reasons, so "2 values repaired" is never the whole story */
+function projDropSummary(dropped){
+  const n = dropped.length;
+  if(!n) return '';
+  return n+' value'+(n === 1 ? '' : 's')+' repaired or dropped: '
+    + dropped.slice(0,3).join('; ') + (n > 3 ? '; and '+(n-3)+' more' : '');
 }
 function rebuildEngine(keepPositions){
   const old=E;
@@ -3549,30 +3758,52 @@ $('bHdr').onclick=()=>{
 };
 $('bSave').onclick=()=>{ download('project.pcastudio.json', JSON.stringify(PROJ,null,1), 'application/json'); log('project saved'); };
 $('bLoad').onclick=()=>$('fProj').click();
-$('fProj').onchange=()=>{
-  const f=$('fProj').files[0]; if(!f) return;
-  const r=new FileReader();
-  r.onload=()=>{ try{
-    const p=JSON.parse(r.result);
+/* VALIDATE, THEN COMMIT (v1.77.0, review H13). This used to go
+   `PROJ=p; projSave(); rebuildAll();` — adopt, persist, and only then find
+   out — so a file whose channels were an object rather than a list was in
+   localStorage before rebuildAll() threw on it, and every boot after that
+   threw the same TypeError with nothing to catch it (99-boot.js had no
+   fallback). One bad file, opened once, bricked Studio until somebody
+   cleared the browser's storage by hand.
+
+   Now the file is built into a fresh project by projNormalise()
+   (30-project.js) and PROJ is not touched until that object exists: a
+   refusal leaves the project on screen and the saved copy exactly as they
+   were, and the log says why. What the normaliser had to repair is said in
+   plain words on the same line, so a min of "abc" that came back as the
+   default is not a silent tidy-up. The body of the file-input handler is
+   this one function so a test can walk the road a file walks. */
+function projLoadText(text){
+  try{
+    const p=JSON.parse(text);
     /* a servo-setup export is the same door: it carries the hardware answers
        and the channel table but no sequences, so it must not wipe the ones
        you already have — that file is a CALIBRATION, and calibration and
        choreography are exactly the two things this project keeps apart */
-    if(p.kind === 'pca-studio-setup'){
-      PROJ.setup = p.setup || PROJ.setup;
-      PROJ.osc = p.osc || PROJ.osc;
-      PROJ.channels = p.channels;
-      if(!PROJ.sequences || !PROJ.sequences.length) PROJ.sequences = defaultProject().sequences;
-      curSeq = 0; projSave(); rebuildAll();
-      log('servo setup loaded — '+p.channels.length+' channels, '+
-          (p.setup? (p.setup.boards+' board'+(p.setup.boards===1?'':'s')) : 'boards unknown')+
-          '. Your sequences are untouched.');
-      $('fProj').value=''; return;
+    if(p && p.kind === 'pca-studio-setup'){
+      const n=projNormalise({
+        ver:PROJ.ver, osc:p.osc || PROJ.osc, setup:p.setup || PROJ.setup,
+        channels:p.channels,
+        sequences:(PROJ.sequences && PROJ.sequences.length) ? PROJ.sequences : defaultProject().sequences
+      });
+      PROJ=n.proj; curSeq=0; projSave(); rebuildAll();
+      const st=PROJ.setup;
+      log('servo setup loaded — '+PROJ.channels.length+' channels, '+
+          ((st && st.boards) ? (st.boards+' board'+(st.boards===1?'':'s')) : 'boards unknown')+
+          '. Your sequences are untouched.'+
+          (n.dropped.length ? ' · '+projDropSummary(n.dropped) : ''), n.dropped.length ? 'warn' : '');
+      return;
     }
-    if(!p.channels || !p.sequences) throw new Error('not a PCA Studio project');
-    PROJ=p; PROJ.osc=PROJ.osc||25000000; curSeq=0; projSave(); rebuildAll();
-    log('project loaded — '+PROJ.channels.length+' channels, '+PROJ.sequences.length+' sequences');
-  }catch(e){ log('load failed: '+e.message,'err'); } };
+    const n=projNormalise(p);
+    PROJ=n.proj; curSeq=0; projSave(); rebuildAll();
+    log('project loaded — '+PROJ.channels.length+' channels, '+PROJ.sequences.length+' sequences'+
+        (n.dropped.length ? ' · '+projDropSummary(n.dropped) : ''), n.dropped.length ? 'warn' : '');
+  }catch(e){ log('load failed: '+e.message,'err'); }
+}
+$('fProj').onchange=()=>{
+  const f=$('fProj').files[0]; if(!f) return;
+  const r=new FileReader();
+  r.onload=()=>projLoadText(r.result);
   r.readAsText(f); $('fProj').value='';
 };
 $('bMstr').onclick=()=>$('fMstr').click();
@@ -4359,16 +4590,23 @@ function blockValueAt(b, t){
   if(fall > 0 && local > b.dur - fall) return lerp(open, closed, (local - (b.dur-fall))/fall);
   return open;
 }
-/* what a dropped-in sequence commands at time t: the frame it is inside */
-function blockSeqTargetsAt(b, t){
+/* what a dropped-in sequence commands at time t: the frame it is inside.
+   The whole FRAME, because the compiler needs its `speeds` row as well as
+   its targets (v1.77.0, review H8 — see the compile loop); blockSeqTargetsAt
+   below is the targets-only view the playhead has always read. */
+function blockSeqFrameAt(b, t){
   const ref = BLKH.sequences().find(x=>x.name === b.ref);
   if(!ref || t < b.t0 || t > b.t0 + b.dur) return null;
   let at = b.t0;
   for(const f of ref.frames){
-    if(t >= at && t <= at + f.duration) return f.targets;
+    if(t >= at && t <= at + f.duration) return f;
     at += f.duration;
   }
-  return ref.frames.length ? ref.frames[ref.frames.length-1].targets : null;
+  return ref.frames.length ? ref.frames[ref.frames.length-1] : null;
+}
+function blockSeqTargetsAt(b, t){
+  const f = blockSeqFrameAt(b, t);
+  return f ? f.targets : null;
 }
 
 /* ===================================================== BRICKS THAT TRAVEL
@@ -4520,11 +4758,22 @@ function blockCompile(seq, opts){
        names the sub-frame covering this interval without the ambiguity of
        landing exactly on one of its own boundaries. */
     const mid = t + (next - t)/2;
+    /* WHICH CHANNELS A NESTED SEQUENCE COMMANDED THIS INTERVAL (v1.77.0,
+       review H8) — keyed by channel, holding the nested frame's own `speeds`
+       row (or null when it has none). A channel here gets NO synthesised
+       speed below: the nested frame is somebody's authored timing, and
+       chanSpeedForMs() over a 100 ms full-throw frame answered 224 on a
+       speed-120 channel, which went to the board as Set Speed. An act brick
+       laid over the same channel later in blockList wins the interval and
+       takes the entry away again, exactly as it takes the target. */
+    const nested = {};
     /* later blocks win, so a deliberate overlap behaves like a layer */
     blockList(seq).forEach(b=>{
       if(b.kind === 'seq'){
-        const tg = blockSeqTargetsAt(b, mid);
-        if(tg) chans.forEach(c=>{ if(tg[c.i]) targets[c.i] = tg[c.i]; });
+        const nf = blockSeqFrameAt(b, mid);
+        if(nf) chans.forEach(c=>{
+          if(nf.targets[c.i]){ targets[c.i] = nf.targets[c.i]; nested[c.i] = nf.speeds || null; }
+        });
       }else{
         /* …but NOT on the instant a brick STARTS. A brick's window is
            inclusive at t0, so sampling it at `next === b.t0` answers with
@@ -4539,7 +4788,7 @@ function blockCompile(seq, opts){
            next > b.t0 and the layering rule above still decides it. */
         const v = (next > b.t0) ? blockValueAt(b, next) : null;
         const c = blockChan(b.ref);
-        if(v !== null && c) targets[c.i] = v;
+        if(v !== null && c){ targets[c.i] = v; delete nested[c.i]; }
       }
     });
     const duration = Math.max(0, Math.round(next - t));
@@ -4553,13 +4802,31 @@ function blockCompile(seq, opts){
 
        Targets and durations are UNCHANGED by this — the speeds ride alongside.
        That is what keeps a .mstr honest (Control Center ignores what it cannot
-       see and still plays the authored timing) and the round trip exact. */
+       see and still plays the authored timing) and the round trip exact.
+
+       ONLY FOR THE ACT BRICKS (v1.77.0, review H8). A ramp step is a move the
+       compiler DREW, floored at the channel's travel time, so a speed that
+       fills it is one the board can deliver. An interval a `seq` brick
+       commanded is a frame somebody else AUTHORED — a library routine's
+       110 ms wave step, an imported .mstr's pose — and sizing a speed to
+       that frame answered whatever number made the arithmetic true, 224 on a
+       speed-120 channel, 400 with acceleration 0. Those go to hardware
+       (pca-gen.js MPCA_SEQ_SPEEDS, serial-link Set Speed) while the 3D
+       preview ignores speeds and shows nothing wrong. So a nested channel
+       carries the nested frame's own speed when it has one — the file's
+       authored physics, verbatim — and 0 otherwise, which the board reads
+       as "the channel's own". The nested DURATION is still not stretched:
+       that is the file's timing and it stays exactly as written; on a slow
+       channel the horn simply arrives when the table says it can.
+       chanSpeedForMs() is capped at c.speed as well now, so the act-brick
+       speeds can never exceed the table either. */
     const speeds = [];
     let anySpeed = false;
     chans.forEach(c=>{
       const d = targets[c.i] - last[c.i];
       if(!d || !duration){ speeds[c.i] = 0; return; }
-      const sp = BLKH.speedForMs ? BLKH.speedForMs(c, d, duration) : 0;
+      const sp = (c.i in nested) ? ((nested[c.i] && nested[c.i][c.i]) | 0)
+               : (BLKH.speedForMs ? BLKH.speedForMs(c, d, duration) : 0);
       speeds[c.i] = sp; if(sp) anySpeed = true;
     });
     chans.forEach(c=>{ last[c.i] = targets[c.i]; });
@@ -8877,11 +9144,48 @@ function calSweep(){
 'use strict';
 /* ---------------------------------------------------------------- boot */
 $('ver').textContent='v'+STUDIO_VERSION;
-PROJ=projLoad()||defaultProject();
-PROJ.osc=PROJ.osc||25000000;
+/* BOOT CANNOT BE THE PLACE THAT DIES (v1.77.0, review H13). This was
+   `PROJ=projLoad()||defaultProject(); … rebuildAll();` with no net under
+   it, so a saved project that rebuildAll() could not build — one bad file,
+   adopted and saved before it was checked (40-ui.js §projLoadText) — threw
+   here on every load, and the page came up empty with no log line to say
+   so. The saved text now goes through projNormalise() first; a blob it
+   cannot use is PARKED under LS_BAD_KEY, byte for byte, and Studio starts
+   from the default project and says where the old one went. The blob stays
+   under LS_KEY too until the first edit saves over it — boot writes nothing
+   it did not have to, which is the whole lesson. And if rebuildAll() still
+   throws on what the normaliser passed, that is a bug in the normaliser,
+   not a reason to leave the person with a blank page: same park, same
+   fallback, same log line. */
+let bootNote='', bootCls='';
+{
+  const raw=projRaw();
+  PROJ=null;
+  if(raw){
+    try{
+      const n=projNormalise(JSON.parse(raw));
+      PROJ=n.proj;
+      if(n.dropped.length){ bootNote='saved project loaded with repairs — '+projDropSummary(n.dropped); bootCls='warn'; }
+    }catch(e){
+      projPark(raw);
+      bootNote='the saved project could not be read ('+e.message+'). It is parked untouched under localStorage "'+LS_BAD_KEY+'"; Studio started from the default project instead.';
+      bootCls='err';
+    }
+  }
+  if(!PROJ) PROJ=defaultProject();
+}
 if(typeof blkBindUI === "function") blkBindUI();
 $('bSetup').onclick=()=>setupOpen(0);
-rebuildAll();
+try{ rebuildAll(); }
+catch(e){
+  projPark(projRaw());
+  /* no carry from an engine that never ran */
+  E=null; PROJ=defaultProject(); curSeq=0;
+  rebuildAll();
+  bootNote='the saved project could not be built ('+e.message+'). It is parked untouched under localStorage "'+LS_BAD_KEY+'"; Studio started from the default project instead.';
+  bootCls='err';
+}
+if(bootNote) log(bootNote, bootCls);
 requestAnimationFrame(loop);
 hwClockStart();   /* the engine's own 10 ms heartbeat — see hw-clock.js */
 </script>

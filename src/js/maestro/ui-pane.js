@@ -224,12 +224,29 @@ function buildMaestroPane(){
   const bRen=el('button','b','Rename');
   bRen.addEventListener('click',async ()=>{
     const seq=MSTR.sequences[EDIT.seq]; if(!seq) return;
-    const v=await appPrompt('Sequence name (becomes the sub name):',
+    let v=await appPrompt('Sequence name (becomes the sub name):',
       {title:'Rename sequence', value:seq.name, yes:'Rename'});
     /* '' and cancel both keep the old name; spaces still become underscores
        in the generated sub name — that lives in niceName()/genScript, which
        read seq.name at build time, so the raw name passes through untouched */
     if(!v) return;
+    /* A NAME IS AN ADDRESS (v1.77.0, review M16) — the same refusal, in the
+       same words, as the library card's blkLibRename (blocks-ui.js). This
+       door accepted a name another sequence already held: loadoutSeqs()
+       then resolved the slot to whichever came first in the library, so the
+       board shipped one routine while the editor showed the other. Refused
+       rather than quietly uniquified, for the reason the card gives — the
+       person typing it meant that name, and should be told it is taken
+       rather than handed a "Wave 2" they did not ask for. Trimmed first,
+       as the card trims, so " Wave" cannot slip past as a different name. */
+    const n = String(v).trim();
+    if(!n || n === seq.name) return;
+    if(MSTR.sequences.some(x=>x !== seq && x.name === n)){
+      if(typeof toast === 'function')
+        toast('Not renamed — “'+n+'” already belongs to another sequence. A name is how the board finds it, so two cannot share one.','warn');
+      return;
+    }
+    v = n;
     /* A RENAME IS A RE-ADDRESSING (v1.69.1). loadoutRename() has always
        followed the name onto the board; nothing followed it into the other
        routines. A whole-sequence brick naming this one kept the old string,

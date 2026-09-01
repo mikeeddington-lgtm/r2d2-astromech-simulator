@@ -810,6 +810,92 @@ const LIVE = fs.readFileSync(path.resolve(__dirname,'..','examples','R2-dome-pad
   ok('a centre outside its own two ends is refused too', typed.homeRefused && typed.homeCls === 'bad', JSON.stringify(typed));
   ok('the boxes carry the policy\'s own band as their min/max', typed.attrs[0] === '500' && typed.attrs[1] === '2500', typed.attrs.join('–'));
 
+  /* ================================================================
+     v1.77.0 — review of 2026-09-01, H13. The project-file door adopted a
+     file, SAVED it, and only then handed it to rebuildAll() — so a file
+     that threw there was already in localStorage, and every boot after it
+     threw the same TypeError with no fallback: an empty page, no log line,
+     until somebody cleared the browser's storage by hand. Validate, then
+     commit (projNormalise, 30-project.js); and boot parks a blob it cannot
+     use under pcastudio.bad and starts from the default project.
+     ================================================================ */
+  console.log('\n════ a malformed project file cannot brick Studio (H13) ════');
+  /* the road a file takes: the hidden input, FileReader, the onload handler.
+     The log is cleared first so "it changed" is the signal to wait on. */
+  const openProject = async (obj)=>{
+    await page.evaluate(()=>log(''));
+    await page.setInputFiles('#fProj', {name:'t.pcastudio.json', mimeType:'application/json', buffer: Buffer.from(JSON.stringify(obj))});
+    await page.waitForFunction(()=>document.getElementById('log').textContent !== '', null, {timeout:5000}).catch(()=>{});
+  };
+  /* (a) the file the review measured */
+  const before = await page.evaluate(()=>({proj: JSON.stringify(PROJ), saved: localStorage.getItem('pcastudio.v1')}));
+  await openProject({channels:{}, sequences:[]});
+  const refused = await page.evaluate(b=>{
+    const l = document.getElementById('log');
+    return {log: l.textContent, cls: l.className,
+            projSame: JSON.stringify(PROJ) === b.proj,
+            savedSame: localStorage.getItem('pcastudio.v1') === b.saved,
+            hasEngine: !!E && Array.isArray(E.st) && E.st.length === PROJ.channels.length};
+  }, before);
+  ok('a file whose channels are not a list is refused, and PROJ is untouched',
+     refused.projSame && refused.hasEngine);
+  ok('  and the saved copy is untouched too — nothing is persisted before it is checked', refused.savedSame);
+  ok('  and the log says why, in words rather than a TypeError',
+     /load failed/.test(refused.log) && /"channels" must be a list/.test(refused.log) && refused.cls === 'err', refused.log);
+
+  /* (b) one bad number does not cost the row: it is repaired to the default
+     and SAID, not tidied up in silence */
+  await openProject({ver:1, osc:25000000,
+    channels:[{name:'Pie', mode:'Servo', min:'abc', max:99999, home:0, homemode:'Off', speed:80, acceleration:10}],
+    sequences:[{name:'S', frames:[{name:'F0', duration:400, targets:[6000]}]}]});
+  const repaired = await page.evaluate(()=>{
+    const c = PROJ.channels[0] || {};
+    let saved = null; try{ saved = JSON.parse(localStorage.getItem('pcastudio.v1')).channels[0]; }catch(e){}
+    const l = document.getElementById('log');
+    return {n: PROJ.channels.length, name: c.name, min: c.min, max: c.max,
+            savedMin: saved && saved.min, savedMax: saved && saved.max,
+            engineRows: E ? E.st.length : -1, tabs: document.querySelectorAll('#seqTabs .seqtab').length,
+            log: l.textContent, cls: l.className};
+  });
+  const inBand = v => Number.isInteger(v) && v >= 0 && v <= 16383;
+  ok('a channel with min "abc" and max 99999 loads with both repaired into the band',
+     repaired.n === 1 && repaired.name === 'Pie' && inBand(repaired.min) && inBand(repaired.max) && repaired.min < repaired.max
+     && repaired.engineRows === 1 && repaired.tabs === 1,
+     repaired.min+'..'+repaired.max+', '+repaired.engineRows+' engine rows, '+repaired.tabs+' tabs');
+  ok('  the saved copy holds the repaired numbers, not the file\'s',
+     inBand(repaired.savedMin) && repaired.savedMin === repaired.min && repaired.savedMax === repaired.max,
+     repaired.savedMin+'..'+repaired.savedMax);
+  ok('  and the log says 2 values were repaired, and which',
+     /project loaded/.test(repaired.log) && /2 values repaired/.test(repaired.log) && /min "abc"/.test(repaired.log) && /max 99999/.test(repaired.log) && repaired.cls === 'warn',
+     repaired.log);
+
+  /* (c) the blob is already in localStorage — the state the review left a
+     browser in. Boot must park it and come up, not die. */
+  const bootFrom = async (blob, label)=>{
+    const errsBefore = errs.length;
+    await page.evaluate(b=>{ localStorage.removeItem('pcastudio.bad'); localStorage.setItem('pcastudio.v1', b); }, blob);
+    await page.reload();
+    await page.waitForFunction(()=>typeof PROJ !== 'undefined' && PROJ !== null, null, {timeout:10000}).catch(()=>{});
+    const out = await page.evaluate(()=>{
+      const l = document.getElementById('log');
+      return {chans: PROJ && Array.isArray(PROJ.channels) ? PROJ.channels.length : -1,
+              seqs: PROJ && Array.isArray(PROJ.sequences) ? PROJ.sequences.length : -1,
+              hasEngine: typeof E !== 'undefined' && !!E && Array.isArray(E.st),
+              tabs: document.querySelectorAll('#seqTabs .seqtab').length,
+              rows: document.querySelectorAll('#chTable tr[data-ch]').length,
+              bad: localStorage.getItem('pcastudio.bad'),
+              log: l.textContent, cls: l.className};
+    });
+    out.newErrs = errs.slice(errsBefore);
+    ok('boot on '+label+' comes up on the default project, no page error',
+       out.chans === 4 && out.seqs === 2 && out.hasEngine && out.tabs === 2 && out.rows === 4 && out.newErrs.length === 0,
+       out.newErrs.join(' | ') || JSON.stringify({chans:out.chans, seqs:out.seqs, tabs:out.tabs, rows:out.rows}));
+    ok('  the blob is parked under pcastudio.bad, byte for byte', out.bad === blob, String(out.bad).slice(0,60));
+    ok('  and the log says so', /parked/.test(out.log) && /pcastudio\.bad/.test(out.log) && out.cls === 'err', out.log);
+  };
+  await bootFrom(JSON.stringify({channels:{}, sequences:[]}), 'the review\'s {channels:{}} blob');
+  await bootFrom('{"channels":[nope', 'text that is not even JSON');
+
   /* the ~80 blocks above used to print the count of page errors and never
      assert it — a throw in any handler after load was invisible (M21) */
   ok('no page errors anywhere in the run', errs.length===0, errs.join(' | '));

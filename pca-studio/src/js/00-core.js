@@ -1,6 +1,6 @@
 'use strict';
 /* =============================================================== CORE */
-const STUDIO_VERSION = '0.13.0';
+const STUDIO_VERSION = '0.13.1';
 const $ = id=>document.getElementById(id);
 const clamp=(v,a,b)=>v<a?a:v>b?b:v;
 function log(msg, cls){ const l=$('log'); l.textContent=msg; l.className=cls||''; }

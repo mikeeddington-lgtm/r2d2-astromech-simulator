@@ -375,7 +375,22 @@ window.addEventListener('load',()=>{
     lg('warn','the configured firmware "'+bootFw+'" is not available — falling back');
     bootFw = (typeof firmwareRecommend==='function') ? firmwareRecommend().id : 'mod2026';
   }
-  loadProfile(bootFw);
+  /* …and a firmware that IS registered can still throw in its setup()
+     (v1.77.0, review H6). An imported sketch calling one library method its
+     adapter lacks did exactly that, on every boot, from this line: the throw
+     left the load handler here, so nothing below ran — no header buttons, no
+     requestAnimationFrame(frame) — and the fallback above could not help
+     because the profile existed. The sketch profile's own wrappers catch it
+     first now (profiles/sketch-import.js); this try is the same recovery for
+     any profile at all. fwFallback() (core/firmware.js) loads the setup's
+     recommendation and, if the build named the crashed one, points the build
+     at the fallback too, so the NEXT boot is clean without anybody clearing
+     storage. Every line after this runs either way. */
+  try{ loadProfile(bootFw); }
+  catch(e){
+    if(typeof fwFallback === 'function') fwFallback(bootFw, e, 'setup() at boot');
+    else loadProfile('mod2026');
+  }
   buildFwSelector();
   syncFollowBtn();
 

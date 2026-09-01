@@ -314,7 +314,17 @@ function musicBuildSequence(targetKey, pattern, everyN, maxBeats){
   }
   cur = base.slice(); frames.push({name:'Frame '+frames.length, duration:400, targets:cur});
   const label = /^g\d+$/.test(targetKey) ? groupById(+targetKey.slice(1)).name : targetKey;
-  const seq = {name:(MUSIC.name.replace(/\.[a-z0-9]+$/i,'')||'Track')+' '+pattern+' ('+label+')', frames};
+  /* A NAME IS AN ADDRESS (v1.77.0, review M16). Everything downstream
+     resolves a board slot by name — loadoutSeqs(), genScript(), the
+     whole-sequence bricks — so building the same beat routine twice (a
+     second try at everyN, or a longer maxBeats, neither of which is in the
+     name) used to push a second "Track chase (pies)" beside the first: the
+     loadout held one entry, the board shipped the STALE one, and the editor
+     showed the new one. seqUniqueName() (blocks.js) is the one place a name
+     is made unique and every other "new sequence" door already calls it;
+     this was the last one minting its own. */
+  const mint = (MUSIC.name.replace(/\.[a-z0-9]+$/i,'')||'Track')+' '+pattern+' ('+label+')';
+  const seq = {name:(typeof seqUniqueName === 'function') ? seqUniqueName(mint) : mint, frames};
   MSTR.sequences.push(seq);
   if(typeof loadoutAdd==='function') loadoutAdd(seq.name);
   EDIT.seq = MSTR.sequences.length-1; EDIT.frame=-1;

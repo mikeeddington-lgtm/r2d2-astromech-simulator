@@ -157,8 +157,25 @@ function servoStoreLoad(){
   const o = servoStoreRead();
   if(!o) return false;
 
+  /* v1.77.0 (review H10) — THE STORED BLOB IS NOT TRUSTED EITHER. It is
+     localStorage, which anything on this origin can edit and which this app
+     wrote from a table that, until this release, took a hand-edited
+     `min:"abc"` straight from a file — so the store can already HOLD one,
+     and restoring it at boot switched off every clamp on that channel
+     before the first pane was drawn. chanNormalise() (servo-cfg.js) is the
+     one gate every row from outside goes through; a whole row, so a field
+     nobody can read becomes the padding-row default rather than staying
+     unreadable, and the count is said in the restore line below. */
+  let repaired = 0; const repairs = [];
+  const channels = o.channels.map((row, k)=>{
+    const nz = (typeof chanNormalise === 'function') ? chanNormalise(row, {whole:true, i:k}) : {c:row, fixed:0, notes:[]};
+    repaired += nz.fixed;
+    nz.notes.forEach(t=>{ if(repairs.length < 12) repairs.push('ch ' + k + ' ' + t); });
+    return nz.c;
+  });
+
   MSTR.board      = o.board || MSTR.board;
-  MSTR.channels   = o.channels;
+  MSTR.channels   = channels;
   chanDropRetiredActs(MSTR.channels);                      // v1.57.0's rkS ids — see above
   if(typeof chanPosReset === 'function') chanPosReset();   // the table is a new table — CHPOS with it
   MSTR.servoCount = o.servoCount || o.channels.length;
@@ -181,7 +198,16 @@ function servoStoreLoad(){
     lg('sys','servo config restored — '+used+' channel'+(used===1?'':'s')
        + ' on '+((typeof boardById === 'function' && boardById(MSTR.board).label) || MSTR.board)
        + '. It lives in this browser; export it to keep it.');
+    if(repaired){
+      lg('warn', 'servo config: ' + (typeof chanRepairNote === 'function'
+        ? chanRepairNote(repaired, [], 'the saved table') : repaired + ' field(s) repaired')
+        + '. Check those channels on the bench before you run a sequence.');
+      repairs.forEach(t=>lg('sys', '  ' + t));
+    }
   }
+  /* a repaired table is the table now — write it back so the next boot
+     restores clean rows rather than repairing the same ones again */
+  if(repaired) servoStoreSave();
   return true;
 }
 

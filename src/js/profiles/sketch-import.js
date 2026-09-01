@@ -728,8 +728,14 @@ function skTranspile(src, fileName){
     if(pinVal === 44 || pinVal === 45){ footPWM = true; break; }
   }
 
+  /* (v1.77.0, review H6) instance name → library type, so a run-time throw
+     can be explained in the sketch's own words — "calls mp3.playFolder,
+     which the simulator's MD_YX5300 adapter does not have" — rather than
+     as the bare TypeError the JS engine hands back. See sketchExplain(). */
+  const instanceTypes = {};
+  instances.forEach(x=>{ instanceTypes[x.name] = x.type; });
   const report = {
-    fileName, includes: pre.includes, enums,
+    fileName, includes: pre.includes, enums, instanceTypes,
     instances: instances.map(x=>x.name+(x.bound?' → sim shim':' → logging stub')),
     cfgConsts: cfgConsts.map(c=>c.name),
     functions: [...fns], caveats, hasServos, footPWM
@@ -843,10 +849,71 @@ function skInstantiate(t){
   return fac(...vals, ...fnames.map(k=>free[k]));
 }
 
+/* ============================================ a sketch that THROWS (v1.77.0)
+   Review 2026-09-01, H6. The identifier accounting above deliberately
+   ignores method names ("the adapter owns those"), so a sketch calling a
+   library method the adapter lacks — `mp3.playFolder(1, 2)` on the
+   MD_YX5300 shim, say — transpiles residue-free and only fails at RUN
+   time, as a TypeError from inside setup() or loop(). Until v1.77.0 that
+   sketch had already been stored and made the build's firmware by the
+   time it first ran, so the throw landed inside main.js's boot handler on
+   every reload afterwards: the loop never started, the header buttons
+   were never bound, and the only way out was clearing localStorage.
+
+   Three fences now, in the order a bad sketch meets them:
+     · sketchTrial()   — the drop door runs setup() and a few loop() passes
+                         BEFORE anything is stored or chosen; a throw there
+                         refuses the file and nothing changes;
+     · the profile's own setup()/loop() wrappers (sketchRegister) catch a
+                         throw from a REGISTERED sketch and hand it to
+                         fwFallback() (core/firmware.js), which unloads it,
+                         points the build back at the setup's own choice and
+                         says which method did it;
+     · main.js wraps the boot loadProfile() the same way, for any profile.
+   The wrappers are on the sketch profile, not on fwLoop(): the three hand
+   ports must keep throwing loudly — every suite counts page errors, and a
+   blanket catch in the dispatcher would turn a port regression into a
+   toast. Only the transpile of somebody else's file gets a safety net. */
+function sketchExplain(e, ref){
+  const report = (typeof ref === 'string') ? (SKETCH.byId[ref] && SKETCH.byId[ref].report) : ref;
+  const msg = String((e && e.message) || e).split('\n')[0];
+  /* Chromium: "mp3.playFolder is not a function" — the one shape a missing
+     adapter method takes. Anything else is quoted as the engine said it. */
+  const m = /^([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)+) is not a function/.exec(msg);
+  if(m){
+    const obj = m[1].split('.')[0];
+    const type = (report && report.instanceTypes) ? report.instanceTypes[obj] : null;
+    return 'calls '+m[1]+', which the simulator\'s '+(type || obj)+' adapter does not have';
+  }
+  return 'threw: '+msg;
+}
+const SK_TRIAL_LOOPS = 3;
+function sketchTrial(t, fileName){
+  const inst = skInstantiate(t);
+  /* a delay() in setup() arms the blocking model; the trial is not a run
+     and must not leave the CURRENT firmware blocked behind it */
+  const keepBlock = SIM.blockUntil;
+  let phase = 'setup()';
+  try{
+    inst.setup();
+    for(let k = 1; k <= SK_TRIAL_LOOPS; k++){ phase = 'loop() pass '+k; inst.loop(); }
+  }catch(e){
+    const err = new Error(fileName+' threw in '+phase+' — it '+sketchExplain(e, t.report));
+    err.trial = true; err.phase = phase; err.cause = e;
+    throw err;
+  }finally{
+    SIM.blockUntil = keepBlock;
+  }
+}
+
 /* =========================================== registration + persistence */
-function sketchRegister(src, fileName){
+/* opts.trial — run the sketch once before it is stored (the drop door does;
+   sketchRestore() and the tests do not: at boot the sim is half-built and a
+   restored sketch that throws is caught by the wrappers below instead). */
+function sketchRegister(src, fileName, opts){
   const t = skTranspile(src, fileName);
   let inst = skInstantiate(t);                       // throws on bad JS — before anything is stored
+  if(opts && opts.trial) sketchTrial(t, fileName);   // (v1.77.0, H6) throws on bad RUN — same rule
   const defaults = { loopHz:250, servoSpeed:900, maxSpeed:2.4, maxYaw:2.4, domeRate:3.6 };
   t.cfgConsts.forEach(c=>{ defaults[c.name] = c.val; });
   const usesMaestro = t.report.includes.some(x=>/Maestro/i.test(x)) || /__mkMaestro/.test(t.js);
@@ -884,8 +951,14 @@ function sketchRegister(src, fileName){
     /* loadProfile → setup(): rebuild the closure FIRST, so every load is a
        re-flash — the sketch's mutable globals start over, and a Config
        edit (loadProfile re-runs on apply) lands in __cfg() fresh */
-    setup(){ inst = skInstantiate(t); inst.setup(); },
-    loop(){ inst.loop(); }
+    /* (v1.77.0, review H6) …and a throw from either is caught HERE, on the
+       sketch profile alone, and handed to fwFallback(): the sketch is
+       unloaded, the setup's own recommendation runs instead, and the toast
+       names the method. Left uncaught, a throw in loop() came back on
+       every frame (frame()'s fixed-step while never decremented `acc`) and
+       a throw in setup() at boot took the rest of the load handler with it. */
+    setup(){ try{ inst = skInstantiate(t); inst.setup(); }catch(e){ fwFallback(id, e, 'setup()'); } },
+    loop(){ try{ inst.loop(); }catch(e){ fwFallback(id, e, 'loop()'); } }
   };
   PROFILES[id] = prof;
   if(PROFILE_ORDER.indexOf(id) < 0) PROFILE_ORDER.push(id);
@@ -902,7 +975,7 @@ function sketchRegister(src, fileName){
          + (t.report.caveats.length ? '. Caveats: '+t.report.caveats.join('; ') : '.')
     });
   }
-  SKETCH.byId[id] = {src, fileName};
+  SKETCH.byId[id] = {src, fileName, report:t.report};   // report: sketchExplain() reads instanceTypes from it
   if(SKETCH.list.indexOf(id) < 0) SKETCH.list.push(id);
   SKETCH.src = src; SKETCH.fileName = fileName; SKETCH.report = t.report;
   sketchStore();
@@ -965,15 +1038,34 @@ function readInoFile(file){
   const fr = new FileReader();
   fr.onload = ()=>{
     try{
-      const prof = sketchRegister(String(fr.result), file.name);
+      /* (v1.77.0, review H6) trial:true — setup() and three loop() passes
+         run BEFORE the source is stored and before the build is pointed at
+         it. A sketch that throws is refused here, by name and method, and
+         never becomes the thing the app boots into. */
+      const prof = sketchRegister(String(fr.result), file.name, {trial:true});
       /* it is a firmware now: make it the BUILD's answer, not a temporary
          mode, so it survives a reload the same way any other choice does */
       if(typeof buildSet === 'function') buildSet('firmware', prof.id);
-      loadProfile(prof.id);
+      if(SIM.profile !== prof.id) loadProfile(prof.id);
       if(typeof buildFwSelector === 'function') buildFwSelector();
       if(typeof rebuildProfileUI === 'function') rebuildProfileUI();
-      toast('Transpiled '+file.name+' — added as a firmware and now running. Its constants are on the Config tab.');
+      /* the wrappers may already have unloaded it (a throw the trial did
+         not reach) and toasted why — do not then announce it as running */
+      if(SIM.profile === prof.id)
+        toast('Transpiled '+file.name+' — added as a firmware and now running. Its constants are on the Config tab.');
     }catch(e){
+      if(e.trial){
+        /* the trial pass ran real shims against the running droid — a
+           setup() volume, a motor command, a servo write, a restartScript —
+           so the firmware that WAS running is re-flashed to put every one of
+           those back, and the report is written after it so the log reset
+           in loadProfile() cannot eat it. Nothing was stored, the build's
+           answer is untouched. */
+        if(SIM.profile && PROFILES[SIM.profile]) loadProfile(SIM.profile);
+        lg('warn','sketch import refused: '+e.message);
+        toast(e.message+' — nothing was changed.', 'err');
+        return;
+      }
       lg('warn','sketch import failed:\n'+e.message);
       toast('Could not transpile '+file.name+' — nothing was guessed. The console lists every line.', 'err');
     }

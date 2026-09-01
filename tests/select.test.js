@@ -253,6 +253,42 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
     const last = close.frames[close.frames.length-1].targets;
     return MSTR.channels.filter(c=>/^servo/i.test(c.mode)).every(c=>last[c.i]===c.home);
   }));
+  /* v1.77.0 (review 2026-09-01, M16): a name is an address. Pressing ⟶M a
+     second time — after re-mapping a door, say — used to push a SECOND
+     "Front doors Open"/"Close" pair beside the first: the loadout kept its one
+     entry per name, so the board shipped the stale pair while the editor
+     showed the new one. The pair is regenerated IN PLACE now: same library
+     index, same loadout slot, no second name — what "put this group on the
+     board" means the second time it is pressed. */
+  const again = await page.evaluate(id=>{
+    const before = {n: MSTR.sequences.length, slots: [loadoutIndex('Front doors Open'), loadoutIndex('Front doors Close')],
+                    open: MSTR.sequences.find(s=>s.name==='Front doors Open')};
+    /* re-map: the second door now drives a different channel (swapped with
+       a part outside the group — the body starter maps every servo), so the
+       regenerated pair must differ from the first */
+    const doorR = MSTR.channels.find(c=>c.act==='doorR');
+    const spare = MSTR.channels.find(c=>/^servo/i.test(c.mode) && c.act && c.act!=='doorL' && c.act!=='doorR');
+    if(doorR && spare){ const t = spare.act; spare.act = 'doorR'; doorR.act = t; }
+    const r = groupToSequences(id);
+    const names = MSTR.sequences.map(s=>s.name);
+    const nowOpen = MSTR.sequences.find(s=>s.name==='Front doors Open');
+    return {
+      err: r && r.error, replaced: r && r.replaced,
+      added: MSTR.sequences.length - before.n,
+      dup: names.filter(n=>/^Front doors (Open|Close)$/.test(n)).length,
+      slots: [loadoutIndex('Front doors Open'), loadoutIndex('Front doors Close')], slotsBefore: before.slots,
+      sameIndex: MSTR.sequences.indexOf(nowOpen) === MSTR.sequences.indexOf(before.open) || MSTR.sequences.indexOf(before.open) < 0,
+      fresh: nowOpen !== before.open,
+      boardPlaysNew: loadoutSeqs().indexOf(nowOpen) >= 0,
+      moved: spare ? nowOpen.frames.some(f=>f.targets[spare.i] === chanEnds(spare).open) : null
+    };
+  }, gid);
+  ok('⟶M a second time adds nothing and mints no duplicate name', !again.err && again.added===0 && again.dup===2,
+     JSON.stringify({added:again.added, dup:again.dup}));
+  ok('…the pair is regenerated in place — same loadout slots, and the board plays the NEW one',
+     again.slots.join()===again.slotsBefore.join() && again.fresh && again.boardPlaysNew && again.replaced===2,
+     JSON.stringify({slots:again.slots, before:again.slotsBefore, replaced:again.replaced}));
+  ok('…which carries the re-mapped door', again.moved===true, String(again.moved));
 
   console.log('\n════ stale state cannot come back ════');
   await ev(()=>{ groupDelete(PARTS.groups[0].id); });

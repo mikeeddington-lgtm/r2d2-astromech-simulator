@@ -87,9 +87,132 @@ function setupExport(){
   return a.download;
 }
 
+/* =====================================================================
+   READ THE WHOLE FILE BEFORE COMMITTING TO ANY OF IT (v1.77.0, review H14)
+
+   setupImportObj() used to be one long walk down the file, writing as it
+   went: assign PREFS.paint, PREFS.parts, PREFS.hw, PREFS.build …, call
+   modelSet() and applyTheme() — each of which SAVES — and only then reach
+   the Maestro block, which took `m.channels` on trust and handed it to
+   `.map()`. So `"maestro":{"channels":"x"}` threw a TypeError with the
+   file's build answers, paint, RC map and cues already on disk and the
+   previous ones gone, MSTR.board/header/channels half-written so every
+   per-tick reader threw after it, and a toast that said "Could not load"
+   as though nothing had happened. The format marker was the only check.
+
+   This is the reader. It looks at EVERYTHING the importer is about to
+   touch and throws, naming the field, before a single thing is written —
+   the pattern scene/builder.js's mbImportModelText() already follows ("read
+   the file before committing to it"). It returns a plan: the halves of the
+   file, checked, with the channel rows already through chanNormalise()
+   (servo-cfg.js, review H10 — a whole row, so a field nobody can read
+   becomes the padding-row default and is counted). setupImportObj() then
+   commits PREFS and MSTR at ONE point, and only after that calls anything
+   that applies or saves. `untouched` on the error is the promise the toast
+   makes: a refusal from here changed nothing, in memory or on disk.
+
+   The prefs checks are SHAPE, not content: an object where an object is
+   read, a word where a word is read, a number where a number is. The
+   consumers (partsLoad, initPaint, rcPrefsRestore, trackLibLoad …) already
+   cope with an unknown id or a missing key; what they cannot cope with is a
+   string where they index a record. The Maestro checks go deeper, because
+   nothing below them copes at all: genScript walks every frame of every
+   sequence in the loadout and the engine reads every target raw.
+   ===================================================================== */
+function setupImportRead(o){
+  const refuse = msg=>{ const e = new Error(msg); e.untouched = true; return e; };
+  const isObj = v => !!v && typeof v === 'object' && !Array.isArray(v);
+  const isNum = v => typeof v === 'number' && isFinite(v);
+  const isStr = v => typeof v === 'string';
+  const kind  = v => v === undefined ? 'missing' : v === null ? 'null' : Array.isArray(v) ? 'a list'
+                   : typeof v === 'object' ? 'an object' : 'a ' + typeof v;
+  /* absent and null both mean "keep current" everywhere below — only a
+     value that IS there has to be the right shape */
+  const want  = (path, v, test, what)=>{
+    if(v !== undefined && v !== null && !test(v)) throw refuse('"' + path + '" should be ' + what + ', not ' + kind(v));
+  };
+  if(!isObj(o) || o.format !== SETUP_FORMAT) throw refuse('not an R2 setup file (missing "'+SETUP_FORMAT+'" marker)');
+  if(o.version > SETUP_VERSION) throw refuse('this setup file is from a newer sim (v'+o.version+') — update the sim first');
+  const plan = {missingProfile:null, prefs:null, maestro:null, cad:null, repaired:0, repairs:[]};
+
+  want('profile', o.profile, isStr, 'a firmware profile id');
+  want('cfg',     o.cfg,     isObj, 'an object of constants');
+  plan.missingProfile = (o.profile && !PROFILES[o.profile]) ? o.profile : null;
+
+  if(o.prefs !== undefined && o.prefs !== null){
+    want('prefs', o.prefs, isObj, 'an object');
+    const pf = o.prefs;
+    ['paint','parts','hw','hwMap','build','builder','tracks','track','rc','blkColors','puppetCues']
+      .forEach(k=>want('prefs.'+k, pf[k], isObj, 'an object'));
+    ['theme','stageTheme','model','env','ws','view'].forEach(k=>want('prefs.'+k, pf[k], isStr, 'a word'));
+    want('prefs.uiScale',   pf.uiScale,   isNum, 'a number');
+    want('prefs.bestLap',   pf.bestLap,   isNum, 'a number of milliseconds');
+    want('prefs.favColors', pf.favColors, Array.isArray, 'a list of colours');
+    plan.prefs = pf;
+  }
+
+  if(o.maestro !== undefined && o.maestro !== null){
+    want('maestro', o.maestro, isObj, 'an object');
+    const m = o.maestro;
+    want('maestro.board',     m.board,     isStr, 'a board id');
+    want('maestro.fileName',  m.fileName,  isStr, 'a file name');
+    want('maestro.header',    m.header,    isObj, 'an object');
+    want('maestro.channels',  m.channels,  Array.isArray, 'a list of channels');
+    want('maestro.sequences', m.sequences, Array.isArray, 'a list of sequences');
+    want('maestro.loadout',   m.loadout,   v=>Array.isArray(v) && v.every(isStr), 'a list of sequence names');
+    const channels = (m.channels || []).map((row, k)=>{
+      const nz = chanNormalise(row, {whole:true, i:k});
+      plan.repaired += nz.fixed;
+      nz.notes.forEach(t=>{ if(plan.repairs.length < 12) plan.repairs.push('ch ' + k + ' ' + t); });
+      return nz.c;
+    });
+    /* a sequence is a frame list, or a generator (pcaseq.js: {gen, entries})
+       — either way a name, and a shape genScript() and the engine can walk */
+    (m.sequences || []).forEach((q, k)=>{
+      const at = 'maestro.sequences[' + k + ']';
+      if(!isObj(q)) throw refuse('"' + at + '" should be a sequence, not ' + kind(q));
+      if(!isStr(q.name)) throw refuse('"' + at + '" has no name');
+      const nm = at + ' (“' + q.name + '”)';
+      if(q.gen === 'osc' || q.gen === 'wander'){
+        if(!Array.isArray(q.entries)) throw refuse(nm + ': entries should be a list, not ' + kind(q.entries));
+        return;
+      }
+      if(!Array.isArray(q.frames)) throw refuse(nm + ': frames should be a list of frames, not ' + kind(q.frames));
+      q.frames.forEach((f, j)=>{
+        const fat = nm + ' frame ' + j;
+        if(!isObj(f)) throw refuse(fat + ' should be a frame, not ' + kind(f));
+        if(!isNum(f.duration)) throw refuse(fat + ': duration should be a number of milliseconds, not ' + kind(f.duration));
+        if(!Array.isArray(f.targets)) throw refuse(fat + ': targets should be a list, not ' + kind(f.targets));
+        /* a hole is 0 = untouched (genFrameRow); anything that is not a
+           number is the NaN that switches the clamps off (review H10) */
+        if(!f.targets.every(t=>t == null || isNum(t))) throw refuse(fat + ': every target should be a number');
+      });
+    });
+    plan.maestro = {
+      board: m.board || boardForCount(channels.length).id,
+      header: m.header || {},
+      channels: channels,
+      sequences: m.sequences || [],
+      loadout: m.loadout || null,
+      fileName: m.fileName || 'imported-setup.mstr'
+    };
+  }
+
+  if(o.cad !== undefined && o.cad !== null){
+    want('cad', o.cad, isObj, 'an object');
+    want('cad.yOffset', o.cad.yOffset, isNum, 'a number');
+    want('cad.moving',  o.cad.moving,  v=>Array.isArray(v) && v.every(isObj), 'a list of parts');
+    plan.cad = o.cad;
+  }
+  return plan;
+}
+
 function setupImportObj(o){
-  if(!o || o.format !== SETUP_FORMAT) throw new Error('not an R2 setup file (missing "'+SETUP_FORMAT+'" marker)');
-  if(o.version > SETUP_VERSION) throw new Error('this setup file is from a newer sim (v'+o.version+') — update the sim first');
+  /* everything below this line has been read and refused-or-not already;
+     from here the file is committed, then applied, then saved (v1.77.0,
+     review H14 — the note above setupImportRead) */
+  const plan = setupImportRead(o);
+  const missingProfile = plan.missingProfile;
 
   /* profile + constants.
 
@@ -111,17 +234,23 @@ function setupImportObj(o){
 
      So the constants and the build's firmware answer are held back together,
      the loaded profile is left exactly as it was, and `missingProfile` carries
-     the id out to the receipt — everything else in the file still imports. */
-  const missingProfile = (o.profile && !PROFILES[o.profile]) ? o.profile : null;
+     the id out to the receipt — everything else in the file still imports.
+     (None of this is a store: CFG and the loaded profile live in memory, and
+     the build's firmware answer is written with the rest of PREFS below.) */
   if(o.profile && !missingProfile) loadProfile(o.profile);
   if(o.cfg && !missingProfile) Object.assign(CFG, o.cfg);
   if(o.isLeftStickDrive !== undefined){ FW.isLeftStickDrive = o.isLeftStickDrive; applyStickMapping(); }
   if(CFG.DRIVESPEED1 !== undefined) FW.drivespeed = CFG.DRIVESPEED1;
   if(CFG.vol !== undefined) SND.vol = CFG.vol;
 
-  /* prefs: themes, scale, paint, parts, hardware */
-  if(o.prefs){
-    const pf = o.prefs;
+  /* ------------------------------------------------------------- COMMIT
+     PREFS and MSTR, together, and nothing in this stretch calls anything
+     that could throw on the file or write to a store — the applies and
+     the saves come after, once both halves are in. */
+  const pf = plan.prefs;
+  let wsTouched = false;
+  if(pf){
+    /* prefs: themes, scale, paint, parts, hardware */
     if(pf.paint) PREFS.paint = pf.paint;
     if(pf.parts) PREFS.parts = pf.parts;
     if(pf.hw) PREFS.hw = pf.hw;
@@ -138,8 +267,67 @@ function setupImportObj(o){
        mbRebuildFromPrefs). Landing the file's assembly afterwards meant a
        builder-model file rebuilt twice, the first time from whatever assembly
        this browser had BEFORE the import — replaying that one's restore
-       warnings, and (now that a rebuild writes its result back) saving it. */
+       warnings, and (now that a rebuild writes its result back) saving it.
+       (v1.77.0: every assignment now lands before every apply, so this holds
+       by construction — the note stays because it is the reason it must.) */
     if(pf.builder !== undefined) PREFS.builder = pf.builder;
+    /* v1.45.0 — the layout library is what trackShapeData() reads; `track`
+       is only its mirror. A file from v1.44.1 carries `track` and no
+       `tracks`, so clear the library and let trackLibLoad() upgrade that
+       single layout into it, exactly as a v1.44.1 browser's own prefs are. */
+    if(pf.tracks !== undefined) PREFS.tracks = pf.tracks;
+    else if(pf.track !== undefined) PREFS.tracks = null;
+    if(pf.track !== undefined) PREFS.track = pf.track;
+    /* workspaces (v1.17.0). Three shapes of file land here:
+       — a current file: ws + adv. ws==='seq' (saved mid-desk) lands on Drive.
+       — a pre-workspace file carrying the retired `view`: 'advanced' means
+         they had the console, so it becomes adv=true; any view lands on Drive.
+       — an adv-only file (hand-trimmed): the workspace stays put, but
+         applyWs() re-runs so the Serial tab is re-gated either way. */
+    if(pf.ws !== undefined || pf.adv !== undefined || pf.view !== undefined){
+      wsTouched = true;
+      if(pf.view === 'advanced') PREFS.adv = true;
+      if(pf.view !== undefined) PREFS.ws = 'drive';
+      if(pf.adv !== undefined) PREFS.adv = !!pf.adv;
+      if(pf.ws !== undefined) PREFS.ws = (pf.ws === 'seq') ? 'drive' : pf.ws;
+      PREFS.ws = ['drive','config','bench'].indexOf(PREFS.ws) >= 0 ? PREFS.ws : 'drive';
+    }
+    /* RC transmitter config: padId, advanced mode, channel calibration & mapping.
+       Absent key = keep current; old files stay loadable. */
+    if(pf.rc !== undefined) PREFS.rc = pf.rc;
+    /* sequencer brick colours: per-action custom hex overrides. */
+    if(pf.blkColors !== undefined) PREFS.blkColors = pf.blkColors;
+    /* favourite paint swatches: user's six most-used hex values. */
+    if(pf.favColors !== undefined) PREFS.favColors = pf.favColors;
+    /* controller puppet cue mappings: button/stick → part/group/routine. */
+    if(pf.puppetCues !== undefined) PREFS.puppetCues = pf.puppetCues;
+  }
+  /* the file's profile is authoritative — it is what its constants belong to,
+     so a hand-edited build block never silently reloads a different sketch.
+     Unless it is a profile this sim does not have: then it is not authoritative
+     over anything, and writing it here would persist a dangling id into the
+     build answers (see the note by the refusal above). */
+  if(o.profile && !missingProfile && PREFS.build) PREFS.build.firmware = o.profile;
+
+  /* Maestro settings, whole — the rows already through the gate */
+  const mp = plan.maestro;
+  if(mp){
+    MSTR.board = mp.board;
+    MSTR.header = mp.header;
+    MSTR.channels = mp.channels;
+    MSTR.sequences = mp.sequences;
+    MSTR.loadout = mp.loadout;
+    MSTR.servoCount = MSTR.channels.length;
+    MSTR.fileName = mp.fileName;
+    MSTR.xmlText = '';
+    MSTR.loaded = true;
+  }
+
+  /* -------------------------------------------------------------- APPLY
+     the same calls, in the same order they were always made — only now
+     every one of them runs against a table and a prefs block that are
+     both fully in */
+  if(pf){
     if(pf.model && typeof modelSet === 'function') modelSet(pf.model, {frame:false});
     if(pf.env && typeof envApply === 'function') envApply(pf.env);  // v1.39.5: the popover promises the backdrop travels — now it does
     /* v1.41.0 — same "absent key = keep current" rule as env above. The
@@ -152,84 +340,44 @@ function setupImportObj(o){
     if(pf.builder !== undefined){
       if(typeof modelGet === 'function' && modelGet() === 'builder' && typeof mbRebuildFromPrefs === 'function') mbRebuildFromPrefs();
     }
-    /* v1.45.0 — the layout library is what trackShapeData() reads; `track`
-       is only its mirror. A file from v1.44.1 carries `track` and no
-       `tracks`, so clear the library and let trackLibLoad() upgrade that
-       single layout into it, exactly as a v1.44.1 browser's own prefs are. */
-    if(pf.tracks !== undefined) PREFS.tracks = pf.tracks;
-    else if(pf.track !== undefined) PREFS.tracks = null;
-    if(pf.track !== undefined) PREFS.track = pf.track;
     if((pf.tracks !== undefined || pf.track !== undefined) && typeof trackRebuild === 'function') trackRebuild();
-    /* workspaces (v1.17.0). Three shapes of file land here:
-       — a current file: ws + adv. ws==='seq' (saved mid-desk) lands on Drive.
-       — a pre-workspace file carrying the retired `view`: 'advanced' means
-         they had the console, so it becomes adv=true; any view lands on Drive.
-       — an adv-only file (hand-trimmed): the workspace stays put, but
-         applyWs() re-runs so the Serial tab is re-gated either way. */
-    if(pf.ws !== undefined || pf.adv !== undefined || pf.view !== undefined){
-      if(pf.view === 'advanced') PREFS.adv = true;
-      if(pf.view !== undefined) PREFS.ws = 'drive';
-      if(pf.adv !== undefined) PREFS.adv = !!pf.adv;
-      if(pf.ws !== undefined) PREFS.ws = (pf.ws === 'seq') ? 'drive' : pf.ws;
-      if(typeof wsSet === 'function'){
-        const target = ['drive','config','bench'].indexOf(PREFS.ws) >= 0 ? PREFS.ws : 'drive';
-        PREFS.ws = target;
-        if(wsGet() !== target) wsSet(target);
-        else applyWs(target);               // adv may have changed — re-gate Serial
-      }
+    if(wsTouched && typeof wsSet === 'function'){
+      if(wsGet() !== PREFS.ws) wsSet(PREFS.ws);
+      else applyWs(PREFS.ws);               // adv may have changed — re-gate Serial
     }
     if(pf.uiScale) applyUiScale(pf.uiScale);
     applyTheme(pf.theme || PREFS.theme);
-    /* RC transmitter config: padId, advanced mode, channel calibration & mapping.
-       Absent key = keep current; old files stay loadable. */
-    if(pf.rc !== undefined) PREFS.rc = pf.rc;
     if(typeof rcPrefsRestore === 'function') rcPrefsRestore();
-    /* sequencer brick colours: per-action custom hex overrides. */
-    if(pf.blkColors !== undefined) PREFS.blkColors = pf.blkColors;
-    /* favourite paint swatches: user's six most-used hex values. */
-    if(pf.favColors !== undefined) PREFS.favColors = pf.favColors;
-    /* controller puppet cue mappings: button/stick → part/group/routine. */
-    if(pf.puppetCues !== undefined) PREFS.puppetCues = pf.puppetCues;
     if(typeof cuePrefsRestore === 'function') cuePrefsRestore();
   }
-
-  /* Maestro settings, whole */
-  if(o.maestro){
-    const m = o.maestro;
-    MSTR.board = m.board || boardForCount((m.channels||[]).length).id;
-    MSTR.header = m.header || {};
-    MSTR.channels = m.channels || [];
+  if(mp){
     if(typeof chanDropRetiredActs === 'function') chanDropRetiredActs(MSTR.channels);
     if(typeof chanPosReset === 'function') chanPosReset();   // the table is a new table — CHPOS with it
-    MSTR.sequences = m.sequences || [];
-    MSTR.loadout = m.loadout || null;
-    MSTR.servoCount = MSTR.channels.length;
-    MSTR.fileName = m.fileName || 'imported-setup.mstr';
-    MSTR.xmlText = '';
-    MSTR.loaded = true;
     EDIT.live = MSTR.channels.map(c=>chanRest(c));   // v1.45.0 — doors rest shut, gimbals rest centred
     EDIT.seq = 0; EDIT.frame = -1;
     if(!MSTR.loadout) loadoutReset();          // an older setup file predates the loadout
     if(typeof reindexSubs==='function') reindexSubs();
     /* an imported setup IS this browser's servo config from now on */
     if(typeof servoStoreSave === 'function') servoStoreSave();
+    /* AND THE ENGINE (v1.77.0). The bench engine is a COPY of the table,
+       built once from the array it was handed (pcaCreate), and this door
+       has just replaced that array wholesale — so a bench opened before the
+       import went on driving the OLD droid's channels, limits and all,
+       until some unrelated edit rebuilt it. servo-cfg.js fixed the same
+       thing for its own door in v1.69.1 and says why `true` (carry the
+       positions across) is the safe argument; the store's boot restore is
+       the only rebuild(false), because at boot there is nothing to carry. */
+    if(typeof HW !== 'undefined' && typeof HW.rebuild === 'function') HW.rebuild(true);
   }
 
   /* CAD mapping */
-  if(o.cad && typeof CAD!=='undefined' && CAD.loaded){
-    CAD.yOffset = o.cad.yOffset !== undefined ? o.cad.yOffset : CAD.yOffset;
-    (o.cad.moving||[]).forEach(sm=>{
+  if(plan.cad && typeof CAD!=='undefined' && CAD.loaded){
+    CAD.yOffset = plan.cad.yOffset !== undefined ? plan.cad.yOffset : CAD.yOffset;
+    (plan.cad.moving||[]).forEach(sm=>{
       const m = CAD.moving.find(x=>x.name===sm.name);
       if(m){ m.act = sm.act||''; m.flip = !!sm.flip; }
     });
   }
-
-  /* the file's profile is authoritative — it is what its constants belong to,
-     so a hand-edited build block never silently reloads a different sketch.
-     Unless it is a profile this sim does not have: then it is not authoritative
-     over anything, and writing it here would persist a dangling id into the
-     build answers (see the note by the refusal above). */
-  if(o.profile && !missingProfile && PREFS.build) PREFS.build.firmware = o.profile;
 
   /* labels, colours, groups — pruned against the loaded model as usual */
   if(typeof partsLoad==='function'){ partsLoad(); registerGroupAnims(); }
@@ -245,12 +393,20 @@ function setupImportObj(o){
       + 'sketch is registered from THIS browser, not carried inside a setup file, so its constants have no '
       + 'sketch to belong to here — they were left out, and so was the build\'s firmware answer. “'
       + PROFILE.short+'” is still loaded, exactly as it was. Drop the .ino in first, then import this setup again.');
+  /* v1.77.0 (review H10) — the repaired channel fields are part of the
+     receipt, by name in the log and as a count in the toast */
+  if(plan.repaired){
+    lg('warn','setup import: ' + (typeof chanRepairNote === 'function'
+      ? chanRepairNote(plan.repaired, [], 'the file\'s channel table') : plan.repaired + ' channel field(s) repaired')
+      + '. Check those channels on the bench before you run a sequence.');
+    plan.repairs.forEach(t=>lg('sys','  ' + t));
+  }
   lg('sys','setup imported — profile '+PROFILE.short
     + (missingProfile ? ' (unchanged; the file asked for “'+missingProfile+'”, which is not installed here, '
                         + 'so its constants were skipped — see the warning above)' : '')+', '
-    + (o.maestro ? MSTR.channels.length+' Maestro channels, '+MSTR.sequences.length+' sequences, ' : '')
-    + Object.keys((o.prefs&&o.prefs.parts&&o.prefs.parts.overrides)||{}).length+' part label/colour override(s)');
-  return {ok:true, missingProfile:missingProfile};
+    + (mp ? MSTR.channels.length+' Maestro channels, '+MSTR.sequences.length+' sequences, ' : '')
+    + Object.keys((pf&&pf.parts&&pf.parts.overrides)||{}).length+' part label/colour override(s)');
+  return {ok:true, missingProfile:missingProfile, repaired:plan.repaired};
 }
 function setupImportText(text, name){
   try{
@@ -258,16 +414,22 @@ function setupImportText(text, name){
     /* a drop imports with no pane open at all — the toast is the answer, and
        a part that did not land has to be part of that answer or it is not an
        answer at all (2026-08-22 — see the refusal note in setupImportObj) */
+    /* v1.77.0 (review H10) — a count of repaired channel fields rides on
+       whichever receipt is going out; the log names them */
+    const fixed = r.repaired ? ' — ' + r.repaired + ' channel field' + (r.repaired === 1 ? '' : 's')
+      + ' could not be read and ' + (r.repaired === 1 ? 'was' : 'were') + ' repaired, see the log' : '';
     if(r.missingProfile)
       toast('Setup loaded from '+(name||'file')+' — but its firmware “'+r.missingProfile+'” is not installed '
         + 'here, so its constants were left out and “'+PROFILE.short+'” is still loaded. Import the .ino '
-        + 'sketch first, then load this setup again.', 'warn');
-    else toast('Setup loaded from '+(name||'file'));
-    return {ok:true, missingProfile:r.missingProfile || null};
+        + 'sketch first, then load this setup again.' + fixed, 'warn');
+    else toast('Setup loaded from '+(name||'file') + fixed, fixed ? 'warn' : '');
+    return {ok:true, missingProfile:r.missingProfile || null, repaired:r.repaired || 0};
   }catch(e){
     lg('warn','setup import failed ('+(name||'file')+'): '+e.message);
-    toast('Could not load '+(name||'file')+': '+e.message, 'err');
-    return {ok:false, error:e.message};
+    /* v1.77.0 (review H14) — a refusal from the reader is a promise, and
+       the toast makes it: nothing in memory or on disk is different */
+    toast('Could not load '+(name||'file')+': '+e.message + (e.untouched ? ' — nothing was changed' : ''), 'err');
+    return {ok:false, error:e.message, untouched:!!e.untouched};
   }
 }
 function setupImportFile(file){

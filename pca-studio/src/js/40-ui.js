@@ -154,30 +154,52 @@ $('bHdr').onclick=()=>{
 };
 $('bSave').onclick=()=>{ download('project.pcastudio.json', JSON.stringify(PROJ,null,1), 'application/json'); log('project saved'); };
 $('bLoad').onclick=()=>$('fProj').click();
-$('fProj').onchange=()=>{
-  const f=$('fProj').files[0]; if(!f) return;
-  const r=new FileReader();
-  r.onload=()=>{ try{
-    const p=JSON.parse(r.result);
+/* VALIDATE, THEN COMMIT (v1.77.0, review H13). This used to go
+   `PROJ=p; projSave(); rebuildAll();` — adopt, persist, and only then find
+   out — so a file whose channels were an object rather than a list was in
+   localStorage before rebuildAll() threw on it, and every boot after that
+   threw the same TypeError with nothing to catch it (99-boot.js had no
+   fallback). One bad file, opened once, bricked Studio until somebody
+   cleared the browser's storage by hand.
+
+   Now the file is built into a fresh project by projNormalise()
+   (30-project.js) and PROJ is not touched until that object exists: a
+   refusal leaves the project on screen and the saved copy exactly as they
+   were, and the log says why. What the normaliser had to repair is said in
+   plain words on the same line, so a min of "abc" that came back as the
+   default is not a silent tidy-up. The body of the file-input handler is
+   this one function so a test can walk the road a file walks. */
+function projLoadText(text){
+  try{
+    const p=JSON.parse(text);
     /* a servo-setup export is the same door: it carries the hardware answers
        and the channel table but no sequences, so it must not wipe the ones
        you already have — that file is a CALIBRATION, and calibration and
        choreography are exactly the two things this project keeps apart */
-    if(p.kind === 'pca-studio-setup'){
-      PROJ.setup = p.setup || PROJ.setup;
-      PROJ.osc = p.osc || PROJ.osc;
-      PROJ.channels = p.channels;
-      if(!PROJ.sequences || !PROJ.sequences.length) PROJ.sequences = defaultProject().sequences;
-      curSeq = 0; projSave(); rebuildAll();
-      log('servo setup loaded — '+p.channels.length+' channels, '+
-          (p.setup? (p.setup.boards+' board'+(p.setup.boards===1?'':'s')) : 'boards unknown')+
-          '. Your sequences are untouched.');
-      $('fProj').value=''; return;
+    if(p && p.kind === 'pca-studio-setup'){
+      const n=projNormalise({
+        ver:PROJ.ver, osc:p.osc || PROJ.osc, setup:p.setup || PROJ.setup,
+        channels:p.channels,
+        sequences:(PROJ.sequences && PROJ.sequences.length) ? PROJ.sequences : defaultProject().sequences
+      });
+      PROJ=n.proj; curSeq=0; projSave(); rebuildAll();
+      const st=PROJ.setup;
+      log('servo setup loaded — '+PROJ.channels.length+' channels, '+
+          ((st && st.boards) ? (st.boards+' board'+(st.boards===1?'':'s')) : 'boards unknown')+
+          '. Your sequences are untouched.'+
+          (n.dropped.length ? ' · '+projDropSummary(n.dropped) : ''), n.dropped.length ? 'warn' : '');
+      return;
     }
-    if(!p.channels || !p.sequences) throw new Error('not a PCA Studio project');
-    PROJ=p; PROJ.osc=PROJ.osc||25000000; curSeq=0; projSave(); rebuildAll();
-    log('project loaded — '+PROJ.channels.length+' channels, '+PROJ.sequences.length+' sequences');
-  }catch(e){ log('load failed: '+e.message,'err'); } };
+    const n=projNormalise(p);
+    PROJ=n.proj; curSeq=0; projSave(); rebuildAll();
+    log('project loaded — '+PROJ.channels.length+' channels, '+PROJ.sequences.length+' sequences'+
+        (n.dropped.length ? ' · '+projDropSummary(n.dropped) : ''), n.dropped.length ? 'warn' : '');
+  }catch(e){ log('load failed: '+e.message,'err'); }
+}
+$('fProj').onchange=()=>{
+  const f=$('fProj').files[0]; if(!f) return;
+  const r=new FileReader();
+  r.onload=()=>projLoadText(r.result);
   r.readAsText(f); $('fProj').value='';
 };
 $('bMstr').onclick=()=>$('fMstr').click();

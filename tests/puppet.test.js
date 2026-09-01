@@ -137,6 +137,9 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
      timing below is exact. */
   const take = await ev(()=>{
     const out = {};
+    /* v1.77.0 (H7): the starter maps every servo to a string, so take two
+       off the pad — the take must still carry THEM, parked, in every frame */
+    MSTR.channels.filter(x=>/^servo/i.test(x.mode)).slice(-2).forEach(x=>{ delete PUPPET.map[x.i]; });
     pupRecArm();
     puppetTick(30);
     out.armed = PUPPET.rec.phase==='count' && $('pupcount').classList.contains('on');
@@ -161,11 +164,39 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
       const v=f.targets[c.i];
       if(v){ if(v<lo||v>hi) inRange=false; if(Math.abs(v-blockOpen(c))<40) sawOpen=true; }
     });
+    /* v1.77.0 (review 2026-09-01, H7): the take is DENSE. Every servo-mode
+       channel — string or not — has a real position in every frame, the
+       untouched ones parked at their closed end, and the Maestro script
+       built from it (genSeqBody, the same call Put on the board makes)
+       never hands a channel a 0 after it has been driven: 0 on the wire is
+       "stop sending pulses", which is a panel going limp. The script is
+       read back token by token the way the board would read it, because
+       the delta encoder is exactly where the sparse shape turned into a
+       switched-off servo. */
+    const servos = MSTR.channels.filter(x=>/^servo/i.test(x.mode));
+    const dense = seq.frames.every(f=>servos.every(x=>f.targets[x.i] > 0));
+    const untouched = servos.filter(x=>PUPPET.map[x.i]===undefined);
+    const parked = untouched.length > 0
+      && untouched.every(x=>seq.frames.every(f=>f.targets[x.i] === blockClosed(x)));
+    const body = genSeqBody(seq, enabledChannels(), []);
+    const toks = body.replace(/#[^\n]*/g, ' ').split(/\s+/).filter(Boolean);
+    const lastE = {}; const offs = []; let zeros = 0;
+    for(let i=0; i<toks.length;){
+      const dur = toks[i++]; const vals = [];
+      while(i<toks.length && !/^frame_|^delay$/.test(toks[i])) vals.push(+toks[i++]);
+      const sub = toks[i++];
+      if(sub === 'delay') continue;
+      frameChannelsFromName(sub).forEach((ch,k)=>{
+        if(vals[k] === 0){ zeros++; if(lastE[ch] > 0) offs.push('ch'+ch+'@'+dur+'ms'); }
+        lastE[ch] = vals[k];
+      });
+    }
     out.take = {
       cat: seq.cat, frames: seq.frames.length, total,
       firstFull: mapped.every(x=>first.targets[x.i]>0),
       sawOpen, inRange, noBlocks: !seq.blocks,
-      nextTake: PUPPET.rec.take, playBtn: !!$('pupPlay')
+      nextTake: PUPPET.rec.take, playBtn: !!$('pupPlay'),
+      dense, parked, untouched: untouched.length, offs, zeros, servos: servos.length
     };
     return out;
   }).then(o=>{ ok('arming starts the 3-2-1, overlay showing', o.armed);
@@ -173,9 +204,24 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
                return o.take; });
   ok('the take lands in the library under "Recorded"', !!take && take.cat==='Recorded', JSON.stringify(take));
   ok('it is a plain frame list — same species as an imported sequence', take && take.noBlocks);
+  /* "keyframes only where something changed" is still the contract for the
+     frame COUNT — the recorder only cuts a frame when a string moved. It
+     used to be the contract for the frame CONTENTS too (a keyframe carried
+     only the channels that changed, 0 elsewhere), and that shape was pinned
+     here as "the same species as an imported sequence". It is not: the
+     board reads a 0 as pulses-off, so a change-only list is a sequence that
+     switches servos off (v1.77.0, review H7). The count assertion stays; the
+     three below pin the dense contents. */
   ok('keyframes only where something changed', take && take.frames>=3 && take.frames<40, take && take.frames+' frames');
   ok('the length matches the performance', take && take.total>=1300 && take.total<=1700, take && take.total+' ms');
   ok('first frame carries the whole starting pose', take && take.firstFull);
+  ok('every frame carries a real position for EVERY servo-mode channel — nothing is 0 = "leave it alone"',
+     take && take.dense, take && (take.servos+' servo channels, '+take.frames+' frames'));
+  ok('…the channels no string plays sit at their closed end in every frame',
+     take && take.parked, take && (take.untouched+' untouched channel(s)'));
+  ok('…so the Maestro script never sends a channel 0 after driving it, or at all',
+     take && take.offs.length===0 && take.zeros===0,
+     take && (take.zeros+' zero target(s) emitted; pulses-off at: '+(take.offs.join(', ')||'none')));
   ok('the stick-up moment was captured at full throw, all values legal', take && take.sawOpen && take.inRange);
   ok('the next take numbers itself, ▶ Last take appears', take && take.nextTake===2 && take.playBtn);
 

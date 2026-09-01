@@ -57,6 +57,167 @@ const SERVO_CFG_READ_FIELDS = SERVO_CFG_FIELDS.concat(['invert']);
 const SERVO_CFG_KIND   = 'r2sim.servo-config';
 const SERVO_CFG_VER    = 1;
 
+/* =====================================================================
+   ONE GATE FOR EVERY ROW THAT ARRIVES FROM OUTSIDE (v1.77.0, review H10)
+
+   Every door a channel row can come through — this file's servo config,
+   the whole-setup .json (app/setup-io.js), the choreography backup, and
+   the browser's own store (servo-store.js) — copied the row's fields
+   straight into the live table, thirteen of them, with no look at what
+   they were. And nothing downstream looks either: every clamp between a
+   target and the wire is a comparison (pcaSetTarget, pcaStepChannel,
+   mstrRetargetFrame, the lint), and a comparison with NaN is false. So a
+   hand-edited `min:"abc"` switched off every clamp on that channel —
+   pcaSetTarget(E, ch, 16000) landed at 16000 and hw-host.js handed the
+   wire the same number — and a quoted `min:"4000"`, the commonest
+   hand-edit there is, made blockValueAt's `closed + n*(open-closed)`
+   concatenate into targets of 40004000. The typed boxes on the bench
+   enforce the 500–2500 µs band; the files never did. This is DATA-03's
+   sim-side twin.
+
+   So: ONE normaliser, applied at each of those doors and nowhere else —
+   the bench edits the live table in place through boxes that already
+   validate. Per field:
+     · a pulse-width field (min, max, home, neutral, range) is a finite
+       integer inside 0..16383, the quarter-µs width of the protocol
+       itself. NOT the 500–2500 µs servo band: that one is a note the
+       bench puts beside a number, and "it is your file" still holds.
+     · speed 0..16383, acceleration 0..255, releaseMs 0..65535 — the
+       widths MpcaChannelDef gives them (arduino/MaestroPCA), which is
+       the narrowest thing any of them is ever written into.
+     · mode from the table's own enum (export.js says why `Off` is in
+       it), homemode from Pololu's, ease from EASE_KINDS, name and act
+       strings, invert a boolean, i a channel number.
+     · a NUMERIC STRING is read as its number ("4000" → 4000): that is
+       the hand-edit this exists for, and its meaning is not in doubt.
+       Nothing else is read at all — Number("") is 0 and Number(true) is
+       1, which is exactly the kind of quiet coercion this gate refuses.
+
+   What becomes of a field that cannot be read depends on the door:
+     · a WHOLE row (`whole:true` — the store, the whole-setup file; the
+       row IS the channel from now on) gets the field's default: the one
+       HW.ensure() gives a padding row. For a mode that is Off and for a
+       home mode Off, so a row nobody can read drives nothing at
+       power-up; for speed and acceleration it is the starters' limit,
+       because 0 is "unlimited", which on a panel means it slams. A field
+       the engine reads raw (min, max, home…) is filled the same way when
+       it is simply missing. The channel number is the row's position —
+       hw-host.js: "index IS the channel number".
+     · a PARTIAL row (this file's "import the travel only") has the field
+       DROPPED, so the copier keeps what the table already holds — that
+       is what an absent field has always meant at that door, and a
+       number you calibrated should not lose to one nobody can read. A
+       channel number that cannot be read is dropped too: `'x'|0` is 0,
+       and the row used to land on channel 0.
+   Either way the field is COUNTED and the count goes out in the door's
+   own receipt, because a value changing under somebody is the thing this
+   project says out loud (HANDOVER v1.43.0). The input is never mutated:
+   the doors validate into scratch and commit afterwards (review H14).
+   ===================================================================== */
+const CHAN_QUS_MAX   = 16383;
+const CHAN_MODES     = ['Servo','ServoMultiplied','Output','Input','Off'];
+const CHAN_HOMEMODES = ['Off','Ignore','Goto'];
+function chanNormalise(row, opts){
+  const o = opts || {};
+  const whole = !!o.whole;
+  const src = (row && typeof row === 'object' && !Array.isArray(row)) ? row : {};
+  /* a whole row carries its extras (calibrated, autoName…) across untouched;
+     a partial row starts empty and only the fields below can reach the table */
+  const out = whole ? Object.assign({}, src) : {};
+  const notes = [];
+  let fixed = 0;
+  /* NaN says NaN — JSON.stringify would write null for it, and a .mstr's
+     parseInt is exactly where a NaN comes from */
+  const show = v => { if(typeof v === 'number') return String(v);
+                      try{ const s = JSON.stringify(v); return (s === undefined ? String(v) : s).slice(0, 24); }catch(e){ return String(v); } };
+  const bad  = (k, v, to)=>{ fixed++; notes.push(k + ' ' + show(v) + ' → ' + to); };
+  const num  = v => (typeof v === 'number') ? v
+                  : (typeof v === 'string' && /^\s*-?\d+(?:\.\d+)?\s*$/.test(v)) ? Number(v)
+                  : NaN;
+  /* the unreadable case, both doors: the default on a whole row, gone on a
+     partial one */
+  const drop = (k, v, def)=>{
+    if(whole && def !== undefined){ out[k] = def; bad(k, v, show(def)); }
+    else{ delete out[k]; bad(k, v, 'kept as it was'); }
+  };
+  /* `fill`: a whole row that lacks the field gets `def` — the engine reads
+     these raw. Without it an absent field stays absent, which every reader
+     already handles (`c.speed|0`, pcaEaseNum(undefined), `if(c.act)`). */
+  const int = (k, lo, hi, def, fill)=>{
+    const v = src[k];
+    if(v === undefined){ if(whole && fill && def !== undefined){ out[k] = def; bad(k, v, show(def)); } return; }
+    const n = num(v);
+    if(!Number.isFinite(n)){ drop(k, v, def); return; }
+    const r = Math.max(lo, Math.min(hi, Math.round(n)));
+    out[k] = r;
+    if(r !== v) bad(k, v, r);          // quoted, fractional, or outside the band
+  };
+  const str = (k, def, fill, coerce)=>{
+    const v = src[k];
+    if(v === undefined){ if(whole && fill && def !== undefined){ out[k] = def; bad(k, v, show(def)); } return; }
+    if(typeof v === 'string'){ out[k] = v; return; }
+    if(coerce && (typeof v === 'number' || typeof v === 'boolean')){ out[k] = String(v); bad(k, v, show(String(v))); return; }
+    drop(k, v, def);
+  };
+  const pick = (k, list, def, fill)=>{
+    const v = src[k];
+    if(v === undefined){ if(whole && fill && def !== undefined){ out[k] = def; bad(k, v, show(def)); } return; }
+    const hit = (typeof v === 'string') ? list.find(x=>x.toLowerCase() === v.trim().toLowerCase()) : undefined;
+    if(hit === undefined){ drop(k, v, def); return; }
+    out[k] = hit;
+    if(hit !== v) bad(k, v, hit);      // a case or a space the exporter would have refused
+  };
+  const bool = k=>{
+    const v = src[k];
+    if(v === undefined) return;
+    if(typeof v === 'boolean'){ out[k] = v; return; }
+    const s = String(v).trim().toLowerCase();
+    if(s === 'true'  || s === '1'){ out[k] = true;  bad(k, v, 'true');  return; }
+    if(s === 'false' || s === '0' || s === ''){ out[k] = false; bad(k, v, 'false'); return; }
+    drop(k, v, false);
+  };
+
+  /* the channel number first — the whole-row name default reads it */
+  if(whole && typeof o.i === 'number'){
+    if(src.i !== undefined && src.i !== o.i) bad('i', src.i, o.i);
+    out.i = o.i;
+  }else int('i', 0, 65535, undefined, false);
+  const easeIds = (typeof EASE_KINDS !== 'undefined') ? EASE_KINDS.map(x=>x.id) : ['none','soft','overshoot'];
+  const spd = (typeof STARTER_SPEED === 'number') ? STARTER_SPEED : 0;
+  const acc = (typeof STARTER_ACCEL === 'number') ? STARTER_ACCEL : 0;
+  str ('name', 'Channel ' + (out.i === undefined ? '?' : out.i), true, true);
+  pick('mode',     CHAN_MODES,     'Off', true);
+  int ('min',      0, CHAN_QUS_MAX, DEFAULT_MIN,     true);
+  int ('max',      0, CHAN_QUS_MAX, DEFAULT_MAX,     true);
+  int ('home',     0, CHAN_QUS_MAX, DEFAULT_NEUTRAL, true);
+  pick('homemode', CHAN_HOMEMODES, 'Off', true);
+  int ('neutral',  0, CHAN_QUS_MAX, DEFAULT_NEUTRAL, true);
+  int ('range',    0, CHAN_QUS_MAX, 1905,            true);
+  int ('speed',        0, 16383, spd, true);
+  int ('acceleration', 0, 255,   acc, true);
+  int ('releaseMs',    0, 65535, 0,   false);
+  pick('ease', easeIds, 'none', false);
+  str ('act', '', false, false);
+  bool('invert');
+  /* a hole where a row should be — JSON.stringify writes null for one, and
+     pcaCreate/chanPosReset throw on it — is ONE thing wrong, not eleven:
+     the whole row is the padding row now, and the receipt says so once */
+  if(!row || typeof row !== 'object' || Array.isArray(row)){
+    notes.length = 0; fixed = 1;
+    notes.push('row ' + show(row) + ' → ' + (whole ? 'a padding row' : 'nothing, kept as it was'));
+  }
+  return {c:out, fixed:fixed, notes:notes};
+}
+/* the receipt's one line for a count of repairs — every door says it the
+   same way, so a builder who has seen it once knows it again */
+function chanRepairNote(fixed, notes, where){
+  if(!fixed) return '';
+  const head = fixed + ' field' + (fixed === 1 ? '' : 's') + ' in ' + (where || 'that file')
+    + ' ' + (fixed === 1 ? 'was' : 'were') + ' not a usable value and ' + (fixed === 1 ? 'was' : 'were') + ' repaired';
+  const some = (notes || []).slice(0, 6);
+  return head + (some.length ? ' — ' + some.join(', ') + (notes.length > some.length ? ', …' : '') : '');
+}
+
 function servoCfgFrom(c){
   const out = {};
   SERVO_CFG_FIELDS.forEach(k=>{ if(c[k] !== undefined) out[k] = c[k]; });
@@ -183,9 +344,18 @@ function servoCfgApply(rows, opts){
     throw new Error('there are no channels in that file. It should be ' + ioFormatsIn() + '.');
   if(typeof MSTR === 'undefined' || !MSTR.channels) throw new Error('there is no channel table to import into yet');
   const o = opts || {};
-  let n = 0, skipped = 0;
-  rows.forEach((r, idx)=>{
-    const i = (r.i === undefined) ? idx : (r.i|0);
+  let n = 0, skipped = 0, repaired = 0;
+  const notes = [];
+  rows.forEach((raw, idx)=>{
+    /* v1.77.0 (review H10) — THROUGH THE GATE FIRST, and only the fields the
+       gate could read reach the table. A partial row, so a field that cannot
+       be read is dropped here and the channel keeps what it had — the rule
+       the v1.69.1 note below already states for an absent one. */
+    const nz = chanNormalise(raw, {whole:false});
+    const r = nz.c;
+    repaired += nz.fixed;
+    nz.notes.forEach(t=>{ if(notes.length < 12) notes.push('ch ' + (r.i === undefined ? idx : r.i) + ' ' + t); });
+    const i = (r.i === undefined) ? idx : r.i;
     /* past the end of the board you actually have: count it and say so,
        rather than growing a table the hardware cannot address */
     if(i < 0 || i >= (typeof HW !== 'undefined' && HW.count ? HW.count() : 24)){ skipped++; return; }
@@ -226,7 +396,15 @@ function servoCfgApply(rows, opts){
      to its home position. */
   if(typeof HW !== 'undefined' && typeof HW.changed === 'function') HW.changed();
   else if(typeof rebuildMaestroUI === 'function') rebuildMaestroUI();
-  return {n:n, skipped:skipped, board:o.board || ''};
+  /* v1.77.0 (review H10) — the repairs are part of the receipt, in the log
+     by field and in the toast by count, beside the fields a family change
+     could not carry (servoCfgImportText's `dropped`). Same door, same
+     user, same shape of news. */
+  if(repaired && typeof lg === 'function'){
+    lg('warn', 'servo config: ' + chanRepairNote(repaired, [], o.name || 'that file'));
+    notes.forEach(t=>lg('sys', '  ' + t));
+  }
+  return {n:n, skipped:skipped, board:o.board || '', repaired:repaired, repairs:notes};
 }
 
 /* ------------------------------------------------------- the way back in
@@ -326,10 +504,14 @@ function servoCfgImportFile(file, done){
          is told WHICH by name in the receipt, not only in the log */
       const lost = (r.dropped && r.dropped.length)
         ? ' · not carried across: ' + r.dropped.map(d=>d.field).join(', ') : '';
+      /* v1.77.0 (review H10) — and the fields the gate could not read, as a
+         count; the log has them by name */
+      const fixed = r.repaired ? ' · ' + r.repaired + ' field' + (r.repaired === 1 ? '' : 's')
+        + ' could not be read and ' + (r.repaired === 1 ? 'was' : 'were') + ' repaired — see the log' : '';
       if(typeof toast === 'function')
         toast('Imported travel for '+r.n+' channel'+(r.n===1?'':'s')
-          + (r.skipped ? ' — '+r.skipped+' did not fit this board' : '') + lost,
-          lost ? 'warn' : '');
+          + (r.skipped ? ' — '+r.skipped+' did not fit this board' : '') + lost + fixed,
+          (lost || fixed) ? 'warn' : '');
       if(typeof done === 'function') done(r);
     }catch(e){
       if(typeof lg === 'function') lg('warn','servo config import failed — '+e.message);

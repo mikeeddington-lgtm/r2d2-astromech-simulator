@@ -286,6 +286,102 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
   }));
 
   /* ================================================================
+     v1.77.0 — review H14: THE PREFS HALF WAS ON DISK BEFORE THE MAESTRO
+     HALF COULD FAIL.
+
+     setupImportObj() assigned PREFS.* and called applyTheme() (which
+     saves), modelSet(), envApply() — and only then touched MSTR with no
+     shape check. `"maestro":{"channels":"x"}` threw at
+     MSTR.channels.map() with the file's build answers, paint and cues
+     already persisted and the previous ones gone, MSTR half-written, and
+     a toast that said "Could not load" as though nothing had happened.
+     The whole file is read into scratch first now (setupImportRead); a
+     refusal changes nothing, in memory or on disk, and the toast says so.
+     Two files: one whose Maestro block is wrong in the first field read,
+     one whose prefs half is fine and whose fault is deep in a sequence.
+     ================================================================ */
+  console.log('\n════ v1.77.0 — H14: a refused setup file changes nothing ════');
+  const h14 = await ev(()=>{
+    /* something of your own to lose, in every store the import writes */
+    buildSet('domeServo','mini24'); buildSet('bodyServo','mini12');
+    if(!MSTR.loaded) buildEnsureMaestro();
+    MSTR.channels[0].name = 'MINE-H14';
+    PREFS.bestLap = 31337;
+    prefsSave(); servoStoreSave();
+    const snap = ()=>({
+      prefs: localStorage.getItem('r2sim.prefs.v1'),
+      servo: localStorage.getItem('r2sim.servo.v1'),
+      build: JSON.stringify(PREFS.build), chans: JSON.stringify(MSTR.channels),
+      seqs: MSTR.sequences.length, bestLap: PREFS.bestLap, theme: PREFS.theme});
+    const before = snap();
+    const host = $('toasts'); if(host) host.remove();
+    const toasts = ()=>Array.from(document.querySelectorAll('#toasts .toastp')).map(x=>x.textContent).join(' | ');
+    /* a prefs half that WOULD land — a different build, a different theme,
+       a different best lap — on top of a Maestro half that cannot */
+    const evil = m=>JSON.stringify({format:'r2sim-setup', version:1, profile:'maestro25',
+      prefs:{bestLap:1, theme:(PREFS.theme === 'light' ? 'dark' : 'light'),
+             build:Object.assign({}, PREFS.build, {domeServo:'micro6', bodyServo:'micro6'})},
+      maestro:m});
+    const r1 = setupImportText(evil({board:'mini24', channels:'x', sequences:[]}), 'channels-string.json');
+    const t1 = toasts();
+    const mid = snap();
+    const r2 = setupImportText(evil({board:MSTR.board, channels:JSON.parse(before.chans),
+      sequences:[{name:'Broken', frames:{}}]}), 'frames-object.json');
+    const t2 = toasts();
+    const after = snap();
+    return {before, mid, after, r1, r2, t1, t2};
+  });
+  ok('a file whose maestro.channels is a string is refused, and the reason names the field',
+     !h14.r1.ok && /maestro\.channels/.test(h14.r1.error), h14.r1.error);
+  ok('...and PREFS.build is exactly as it was', h14.mid.build === h14.before.build, h14.mid.build);
+  ok('...and MSTR.channels is exactly as it was — not half-written',
+     h14.mid.chans === h14.before.chans && /MINE-H14/.test(h14.mid.chans), h14.mid.chans.slice(0, 60));
+  ok('...and localStorage did not move — neither the prefs key nor the servo store',
+     h14.mid.prefs === h14.before.prefs && h14.mid.servo === h14.before.servo);
+  ok('...so the theme and best lap the file carried did not land either',
+     h14.mid.theme === h14.before.theme && h14.mid.bestLap === 31337, h14.mid.theme+' / '+h14.mid.bestLap);
+  ok('the toast names the reason and promises nothing was changed',
+     /maestro\.channels/.test(h14.t1) && /nothing was changed/.test(h14.t1), h14.t1);
+  ok('a file whose prefs half is fine but whose sequences[0].frames is not a list is refused too, by name',
+     !h14.r2.ok && /sequences\[0\]/.test(h14.r2.error) && /frames/.test(h14.r2.error), h14.r2.error);
+  ok('...with PREFS.build, MSTR.channels, the library and localStorage all unchanged',
+     h14.after.build === h14.before.build && h14.after.chans === h14.before.chans
+     && h14.after.seqs === h14.before.seqs && h14.after.bestLap === 31337
+     && h14.after.prefs === h14.before.prefs && h14.after.servo === h14.before.servo,
+     'bestLap '+h14.after.bestLap+', seqs '+h14.after.seqs+' of '+h14.before.seqs);
+  ok('...and that toast promises the same', /nothing was changed/.test(h14.t2), h14.t2);
+
+  /* review H10 — the same gate, through THIS door: a whole row, so a field
+     nobody can read is the padding-row default rather than NaN, and the
+     bench engine is rebuilt on the new table so the clamp is real */
+  console.log('\n════ v1.77.0 — H10 through the whole-setup door ════');
+  const h10s = await ev(()=>{
+    const host = $('toasts'); if(host) host.remove();
+    const at = LOG.length;
+    /* a table to start from — on a tree with H14 unfixed, the block above
+       leaves MSTR.channels as the string "x", and this door's own fault
+       should show as a FAIL here rather than as a crashed harness */
+    if(!Array.isArray(MSTR.channels) || MSTR.channels.length < 2){ MSTR.loaded = false; MSTR.channels = []; buildEnsureMaestro(); }
+    const chans = JSON.parse(JSON.stringify(MSTR.channels));
+    chans[0].min = 'abc'; chans[0].max = '4000'; chans[1].speed = 'fast';
+    const r = setupImportText(JSON.stringify({format:'r2sim-setup', version:1,
+      maestro:{board:MSTR.board, channels:chans, sequences:[], loadout:[]}}), 'quoted.json');
+    const c0 = MSTR.channels[0], c1 = MSTR.channels[1];
+    const E = HW.engine(); pcaSetTarget(E, 0, 16000);
+    return {ok:r.ok, repaired:r.repaired, min:c0.min, max:c0.max, speed:c1.speed, target:E.st[0].target,
+      toast: Array.from(document.querySelectorAll('#toasts .toastp')).map(x=>x.textContent).join(' | '),
+      log: LOG.slice(at).filter(l=>/repair/.test(l.s)).map(l=>l.k+': '+l.s).join(' ~ ')};
+  });
+  ok('a whole-setup file with a quoted max and an unreadable min still loads', h10s.ok === true);
+  ok('...the unreadable min is the default and the quoted max its number',
+     h10s.min === 4000 && h10s.max === 4000, JSON.stringify([h10s.min, h10s.max]));
+  ok('...a speed nobody can read is the starter limit, not "unlimited"', h10s.speed === 120, String(h10s.speed));
+  ok('...so the bench engine, rebuilt on the new table, clamps a 16000 target', h10s.target === 4000, String(h10s.target));
+  ok('...and the receipt counts the three repairs, toast and log',
+     h10s.repaired === 3 && /3 channel fields/.test(h10s.toast) && /repaired/.test(h10s.toast) && /3 fields/.test(h10s.log),
+     h10s.toast);
+
+  /* ================================================================
      v1.45.0 — Mike: "Make Reset clear hardware configuration too."
 
      Reset already removed both keys. What it did not do was empty the

@@ -1009,6 +1009,7 @@ async function impChooseRun(){
   const haveSeq  = (typeof MSTR !== 'undefined' && MSTR.sequences) ? MSTR.sequences.length : 0;
 
   IMPCH.busy = true;
+  let libKept = false;                 // v1.77.0 (H15) — the catch says so when it is true
   try{
     /* BOTH questions before ANYTHING is written. Cancel cannot mean cancel
        if half the import has already landed. */
@@ -1046,9 +1047,30 @@ async function impChooseRun(){
        merge with — so "servo config and choreography" is the wholesale first
        import v1.45.0 already did, board and serial settings included. */
     if(kind === 'both' && !MSTR.loaded && sh.full){
+      /* v1.77.0 (review H10) — THROUGH THE GATE FIRST, whole rows. mstrApply()
+         takes P.channels as THE table, and a .mstr reaches it through
+         parseInt (import.js), which admits NaN from a hand-edited attribute
+         as readily as the .json doors did a quoted number. chanNormalise()
+         is servo-cfg.js's, guarded because this host loads it and the
+         reader's own callers do not all. */
+      let fixed = 0;
+      if(typeof chanNormalise === 'function' && Array.isArray(sh.P.channels)){
+        const notes = [];
+        sh.P.channels = sh.P.channels.map((row, k)=>{
+          const nz = chanNormalise(row, {whole:true, i:k});
+          fixed += nz.fixed;
+          nz.notes.forEach(t=>{ if(notes.length < 12) notes.push('ch ' + k + ' ' + t); });
+          return nz.c;
+        });
+        if(fixed && typeof lg === 'function'){
+          lg('warn', 'import: ' + chanRepairNote(fixed, [], IMPCH.name));
+          notes.forEach(t=>lg('sys', '  ' + t));
+        }
+      }
       mstrApply(sh.P);
       if(typeof CFG !== 'undefined') CFG.maestroSource = 'imported';
-      said.push('travel for ' + MSTR.servoCount + ' channel(s) and ' + MSTR.sequences.length + ' sequence(s)');
+      said.push('travel for ' + MSTR.servoCount + ' channel(s) and ' + MSTR.sequences.length + ' sequence(s)'
+        + (fixed ? ', ' + fixed + ' field' + (fixed === 1 ? '' : 's') + ' repaired (see the log)' : ''));
     }else{
       if(doServo){
         /* the one reader — it works the family out from the content, and it
@@ -1056,17 +1078,45 @@ async function impChooseRun(){
         const r = servoCfgImportText(IMPCH.text, IMPCH.name);
         const lost = (r.dropped && r.dropped.length)
           ? ' (not carried across: ' + r.dropped.map(d=>d.field).join(', ') + ')' : '';
+        /* v1.77.0 (review H10) — and the count of fields the gate could not
+           read; the log has them by channel and name */
+        const fixed = r.repaired
+          ? ', ' + r.repaired + ' field' + (r.repaired === 1 ? '' : 's') + ' repaired (see the log)' : '';
         said.push('travel for ' + r.n + ' channel' + (r.n === 1 ? '' : 's')
-          + (r.skipped ? ', ' + r.skipped + ' past the end of this board' : '') + lost);
+          + (r.skipped ? ', ' + r.skipped + ' past the end of this board' : '') + lost + fixed);
         if(typeof CFG !== 'undefined') CFG.maestroSource = 'imported';
       }
       if(doChoreo){
-        if(choreoWay !== 'merge'){
-          /* replace: the library goes, and the loadout is rebuilt from what
-             arrived — by the same rule mstrApply() follows for a whole file */
-          MSTR.sequences = [];
+        /* THE LIBRARY IS NOT EMPTIED UNTIL THE ADOPTER HAS SAID YES
+           (v1.77.0, review H15). This used to be `MSTR.sequences = []` and
+           then the adopt — and mstrAdoptSequences() can still refuse AFTER
+           that line: "none of that file's channels match yours"
+           (import.js), or a TypeError from a malformed frame list. The catch
+           below toasted "Could not import" and said nothing about the
+           library now being `[]`, which the next flush persisted. A copy had
+           been offered first, but a download the browser blocked still
+           returns a filename, so the copy is not a guarantee either.
+
+           The adopter writes into MSTR.sequences directly — it pushes each
+           routine and checks the names it renames against the list — and it
+           is not this module's to change, so it is given a WORKING list to
+           write into: empty for a replace, a copy of yours for a merge (a
+           merge that fails on its third routine has already pushed two).
+           Your own list is held aside and put back the moment it throws,
+           before the catch says a word; on success the working list simply
+           IS the library, exactly as before. */
+        const keep = MSTR.sequences || [];
+        MSTR.sequences = (choreoWay === 'merge') ? keep.slice() : [];
+        let r;
+        try{ r = mstrAdoptSequences(sh.P); }
+        catch(e){
+          MSTR.sequences = keep;
+          if(typeof reindexSubs === 'function') reindexSubs();
+          libKept = true;
+          if(typeof lg === 'function')
+            lg('sys','choreography import refused — your ' + keep.length + ' sequence(s) are exactly as they were');
+          throw e;
         }
-        const r = mstrAdoptSequences(sh.P);
         if(choreoWay !== 'merge'){
           const fromFile = impChoreoLoadout(sh.P, r);
           if(fromFile) MSTR.loadout = fromFile; else loadoutReset();
@@ -1099,9 +1149,13 @@ async function impChooseRun(){
     return 'done';
   }catch(e){
     if(typeof lg === 'function') lg('warn','import failed: '+e.message);
-    IMPCH.err = e.message;
+    /* the reason, and — when the refusal came from the adopter — that the
+       library it was about to replace is still yours (v1.77.0, H15) */
+    IMPCH.err = e.message + (libKept ? ' Your sequence library is exactly as it was.' : '');
     jobwizRender();
-    if(typeof toast === 'function') toast('Could not import '+IMPCH.name+': '+e.message, 'err');
+    if(typeof toast === 'function')
+      toast('Could not import '+IMPCH.name+': '+e.message
+        + (libKept ? ' — your sequence library is exactly as it was' : ''), 'err');
     return 'error';
   }finally{
     IMPCH.busy = false;

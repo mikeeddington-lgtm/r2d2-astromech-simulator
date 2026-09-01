@@ -739,6 +739,185 @@ const LIVE = fs.readFileSync(path.resolve(__dirname,'fixtures-live-dome.mstr'),'
      !/greyed out/i.test(wide.text||'') && !/all files/i.test(wide.text||''),
      (wide.text||'').slice(-120));
 
+  /* =================================================================
+     v1.77.0 — review H15: "SAVE EXISTING, THEN REPLACE" EMPTIED THE
+     LIBRARY BEFORE THE ADOPTER COULD REFUSE.
+
+     impChooseRun() did `MSTR.sequences = []` and THEN called
+     mstrAdoptSequences(), which can still say no — "none of that
+     file's channels match yours" — after that line. The catch toasted
+     "Could not import" and said nothing about the library now being
+     empty, which the next flush wrote to the store. A file whose
+     channels are named like nobody's is the exact case: the chooser
+     lets it through (it carries sequences), the question is answered
+     "save existing, then replace", and the adopter refuses.
+     ================================================================= */
+  console.log('\n════ v1.77.0 — H15: a refused replace leaves the library exactly as it was ════');
+  const h15 = await ev(async ()=>{
+    MSTR.sequences = [];
+    setBoard('mini24'); makeStarter('dome','mini24'); loadoutReset(); reindexSubs();
+    const before = MSTR.sequences.map(s=>s.name);
+    /* a choreography backup whose channels are named like nobody's, so
+       mstrMatchChannels() pairs none of them and the adopter refuses */
+    const text = JSON.stringify({kind:'r2sim.choreography', version:1, board:'mini24',
+      channels: Array.from({length:6},(_,i)=>({i, name:'Alien '+i, mode:'Servo',
+        min:4000, max:8000, home:6000, homemode:'Off', speed:40, acceleration:10})),
+      sequences: [{name:'Theirs', frames:[{name:'f', duration:500, targets:[5000,5000,5000,5000,5000,5000]}]}]});
+    const host = $('toasts'); if(host) host.remove();
+    impChooseOpen({kind:'choreography', from:'test'});
+    impChooseLoad(text, 'alien.json');
+    const p = impChooseRun();
+    /* the "your choreography, or theirs?" question is on screen before the
+       first await yields — answer it the way the review did */
+    const btn = document.querySelector('.dlgwrap [data-ask="save"]');
+    if(btn) btn.click();
+    const res = await p;
+    servoStoreSave();
+    const stored = JSON.parse(localStorage.getItem('r2sim.servo.v1') || '{}');
+    const out = {res, asked: !!btn, before,
+      after: MSTR.sequences.map(s=>s.name),
+      storedN: (stored.sequences || []).length,
+      err: IMPCH.err,
+      toast: Array.from(document.querySelectorAll('#toasts .toastp')).map(x=>x.textContent).join(' | ')};
+    jobwizClose();
+    return out;
+  });
+  ok('the adopter refused the file (nothing of it matched)', h15.asked && h15.res === 'error', h15.res+' / '+h15.err);
+  ok('...and the library is exactly as it was — not emptied on the way in',
+     JSON.stringify(h15.after) === JSON.stringify(h15.before) && h15.before.length > 0,
+     h15.after.length+' of '+h15.before.length+' sequence(s) left');
+  ok('...so the next flush persists the library, not []', h15.storedN === h15.before.length, String(h15.storedN));
+  ok('the toast says WHY, and that the library is untouched',
+     /none of that file.s channels match/.test(h15.toast) && /exactly as it was/.test(h15.toast), h15.toast);
+
+  /* =================================================================
+     v1.77.0 — review H10: A ROW NOBODY CAN READ MUST NOT SWITCH THE
+     CLAMPS OFF.
+
+     servoCfgApply() copied thirteen fields off the row with no look at
+     them, and every clamp downstream is a comparison — false against
+     NaN. So `min:"abc"` let pcaSetTarget(E, ch, 16000) land at 16000
+     and the wire got it; the quoted `min:"4000"` concatenated. And
+     `i:"x"` was `'x'|0` = channel 0, so a stray row overwrote the first
+     channel. One gate now — chanNormalise() — at every door, with a
+     count in the receipt. Here: the servo-config .json, then the
+     browser's own store.
+     ================================================================= */
+  console.log('\n════ v1.77.0 — H10: unreadable channel fields are repaired, not copied ════');
+  const h10 = await ev(()=>{
+    MSTR.sequences = [];
+    setBoard('mini24'); makeStarter('dome','mini24'); reindexSubs();
+    const was = Object.assign({}, MSTR.channels[0]);
+    const at = LOG.length;
+    /* the stray row is the SECOND row: its own position is channel 1, and
+       before the fix `'x'|0` put it on channel 0, over the bad row */
+    const text = JSON.stringify({kind:'r2sim.servo-config', version:1, channels:[
+      {i:0, min:'abc', max:'4000', home:'x', speed:'fast', acceleration:'12', mode:'servo', ease:'bouncy', releaseMs:-5},
+      {i:'x', name:'stray'}
+    ]});
+    let r = null, err = '';
+    try{ r = servoCfgImportText(text, 'bad-servos.json'); }catch(e){ err = e.message; }
+    const c = MSTR.channels[0];
+    const fields = ['min','max','home','neutral','range','speed','acceleration','releaseMs'];
+    const inBand = fields.every(k=>Number.isInteger(c[k]) && c[k] >= 0 && c[k] <= 16383);
+    /* the engine is the proof: a 16000 target has to land inside the ends */
+    const E = HW.engine();
+    pcaSetTarget(E, 0, 16000);
+    return {err, repaired: r && r.repaired, n: r && r.n,
+      c: fields.reduce((o,k)=>{ o[k] = c[k]; return o; }, {mode:c.mode, ease:c.ease, name:c.name}),
+      was: {min:was.min, home:was.home, speed:was.speed},
+      inBand, target: E.st[0].target, hi: Math.max(c.min, c.max),
+      ch1: MSTR.channels[1].name,
+      log: LOG.slice(at).map(l=>l.k+': '+l.s)};
+  });
+  ok('the file imports rather than throwing', !h10.err && h10.n === 2, h10.err || (h10.n+' rows'));
+  ok('every numeric field on the channel is a finite integer inside 0..16383',
+     h10.inBand, JSON.stringify(h10.c));
+  ok('a quoted number is read as its number, and an unreadable one keeps what the table had',
+     h10.c.max === 4000 && h10.c.acceleration === 12
+     && h10.c.min === h10.was.min && h10.c.home === h10.was.home && h10.c.speed === h10.was.speed,
+     JSON.stringify(h10.c));
+  ok('mode and ease come from their enums — "servo" is Servo, "bouncy" is nothing',
+     h10.c.mode === 'Servo' && h10.c.ease === undefined, h10.c.mode+' / '+h10.c.ease);
+  ok('a negative sleep is clamped to 0', h10.c.releaseMs === 0, String(h10.c.releaseMs));
+  ok('...so the engine clamps a 16000 target to the channel\'s own end',
+     h10.target === h10.hi && h10.target <= 16383, 'target '+h10.target+', hi '+h10.hi);
+  ok('a row whose channel number cannot be read lands on its own position, not channel 0',
+     h10.ch1 === 'stray' && h10.c.name !== 'stray', 'ch1 = "'+h10.ch1+'", ch0 = "'+h10.c.name+'"');
+  /* nine: the stray row's channel number, and on the bad row min, max,
+     home, speed, acceleration, mode (a case the exporter would refuse),
+     ease and the negative sleep */
+  ok('the receipt COUNTS the repairs', h10.repaired === 9, String(h10.repaired));
+  ok('...and the log names them, field by field',
+     h10.log.some(l=>/^warn: /.test(l) && /9 fields/.test(l) && /repaired/.test(l))
+     && h10.log.some(l=>/min "abc"/.test(l)) && h10.log.some(l=>/ease "bouncy"/.test(l)),
+     h10.log.filter(l=>/repair|"abc"|bouncy/.test(l)).join(' ~ ').slice(0, 200));
+
+  /* the wizard's wholesale first import — "servo config and choreography"
+     with nothing of your own yet — hands a .mstr's rows to mstrApply() as
+     THE table. mstrParse() now turns a WORD into the default itself
+     (import.js, the same review), so the number it leaves alone is the
+     one to test: 99999 is finite, past the protocol's 16383, and nothing
+     between the parser and the engine clamps it but this gate */
+  const h10mstr = await ev(async ()=>{
+    MSTR.sequences = [];
+    setBoard('mini24'); makeStarter('dome','mini24'); loadoutReset(); reindexSubs();
+    const text = buildMstrText().replace(/min="\d+"/, 'min="99999"');
+    /* nothing of your own yet — no table, no library — so neither question
+       is asked and the wholesale path is the one taken */
+    MSTR.loaded = false; MSTR.channels = []; MSTR.sequences = [];
+    const at = LOG.length;
+    impChooseOpen({kind:'both', from:'test'});
+    impChooseLoad(text, 'edited.mstr');
+    const res = await impChooseRun();
+    const host = document.getElementById('jobWiz');
+    const out = {res, min: MSTR.channels[0].min, max: MSTR.channels[0].max, loaded: MSTR.loaded,
+      receipt: (host.querySelector('.iwbody .note.gn')||{textContent:''}).textContent,
+      log: LOG.slice(at).filter(l=>/repair|99999/.test(l.s)).map(l=>l.k+': '+l.s).join(' ~ ')};
+    jobwizClose();
+    return out;
+  });
+  ok('a hand-edited .mstr through the wizard\'s wholesale import lands with the out-of-band min clamped',
+     h10mstr.res === 'done' && h10mstr.loaded && h10mstr.min === 16383 && h10mstr.max === 8000,
+     h10mstr.res+' min='+h10mstr.min+' max='+h10mstr.max);
+  ok('...and the receipt in the pane counts it', /1 field repaired/.test(h10mstr.receipt), h10mstr.receipt.slice(0, 120));
+  ok('...and the log names it', /min 99999 → 16383/.test(h10mstr.log), h10mstr.log.slice(0, 160));
+
+  const h10store = await ev(()=>{
+    /* the blob this app could have written before v1.77.0: a quoted number,
+       a word where a width should be, and a hole where a row should be */
+    const at = LOG.length;
+    localStorage.setItem('r2sim.servo.v1', JSON.stringify({v:1, at:Date.now(), board:'mini24', servoCount:2,
+      fileName:'', header:{},
+      channels:[{i:0, name:'Pie', mode:'Servo', min:'abc', max:'8000', home:6000, homemode:'Goto',
+                 neutral:6000, range:1905, speed:40, acceleration:10}, null],
+      sequences:[], loadout:[]}));
+    MSTR.loaded = false; MSTR.channels = []; MSTR.sequences = [];
+    let loaded = false, err = '';
+    try{ loaded = servoStoreLoad(); }catch(e){ err = e.message; }
+    const c0 = MSTR.channels[0] || {}, c1 = MSTR.channels[1] || {};
+    const stored = JSON.parse(localStorage.getItem('r2sim.servo.v1'));
+    return {loaded, err, n: MSTR.channels.length,
+      min0: c0.min, max0: c0.max, name0: c0.name,
+      row1: c1 && typeof c1 === 'object' ? {i:c1.i, mode:c1.mode, min:c1.min} : c1,
+      storedMin: stored && stored.channels && stored.channels[0] && stored.channels[0].min,
+      log: LOG.slice(at).map(l=>l.k+': '+l.s)};
+  });
+  ok('the store restores without throwing', h10store.loaded && !h10store.err, h10store.err);
+  ok('a stored min nobody can read becomes the default, a quoted max its number',
+     h10store.min0 === 4000 && h10store.max0 === 8000 && h10store.name0 === 'Pie',
+     JSON.stringify([h10store.min0, h10store.max0]));
+  ok('a hole in the stored table is a padding row, not a crash at boot',
+     h10store.n === 2 && h10store.row1 && h10store.row1.i === 1 && h10store.row1.mode === 'Off' && h10store.row1.min === 4000,
+     JSON.stringify(h10store.row1));
+  ok('the repaired table is written back, so the next boot does not repair it again',
+     h10store.storedMin === 4000, String(h10store.storedMin));
+  /* three: the unreadable min, the quoted max, and the hole — a whole
+     missing row is ONE thing wrong, not one per field it lacked */
+  ok('...and the restore line says how many were repaired — a hole counts once',
+     h10store.log.some(l=>/^warn: /.test(l) && /3 fields/.test(l) && /repaired/.test(l) && /saved table/.test(l)),
+     h10store.log.join(' ~ ').slice(0, 200));
+
   ok('no uncaught page errors', errs.length===0, errs.join(' | '));
   await browser.close();
   console.log('\n'+pass+' passed, '+fail+' failed');

@@ -341,14 +341,37 @@ function groupToSequences(id){
   const closeFrames = frames.slice().reverse().map((f,i)=>({name:'Frame '+i, duration:f.duration, targets:f.targets.slice()}));
   closeFrames.push({name:'Frame '+closeFrames.length, duration:420, targets:base.slice()});
   const close = {name:g.name+' Close', frames:closeFrames};
-  MSTR.sequences.push(open, close);
+  /* PRESSED TWICE, THE SAME PAIR — REPLACED IN PLACE (v1.77.0, review M16).
+     This used to push a second "Doors Open"/"Doors Close" beside the first.
+     A name is an address (loadoutSeqs, genScript resolve a slot by name), so
+     the loadout kept its one entry, the board shipped the STALE pair and the
+     editor showed the new one. The choice was between seqUniqueName() — a
+     "Doors Open 2" pair added past the d-pad's eight slots while the wrong
+     one keeps its slot — and replacing what is there. This button means "put
+     this group on the board"; a builder who re-maps a door and presses it
+     again is asking for the board's copy to catch up, not for a second
+     routine beside the old one. So the same-named pair is regenerated where
+     it stands: same library index, same loadout slot, restartScript(n) keeps
+     firing what it fired — which is what blockSaveToLibrary already does for
+     a named save. A routine somebody hand-edited under the generated name is
+     overwritten by this, and the log says so by name. */
+  const replaced = [];
+  const place = (seq)=>{
+    const at = MSTR.sequences.findIndex(s=>s && s.name === seq.name);
+    if(at < 0){ MSTR.sequences.push(seq); return; }
+    const old = MSTR.sequences[at];
+    replaced.push(seq.name + ((old.blocks && old.blocks.length) ? ' (it had '+old.blocks.length+' hand-placed brick(s))' : ''));
+    MSTR.sequences[at] = seq;
+  };
+  place(open); place(close);
   /* this button means "put this group on the board", so unlike a routine
      saved in the sequencer the pair joins the loadout straight away */
   if(typeof loadoutAdd==='function'){ loadoutAdd(open.name); loadoutAdd(close.name); }
   if(typeof reindexSubs==='function') reindexSubs();
   if(typeof rebuildMaestroUI==='function') rebuildMaestroUI();
-  lg('mae', `group "${g.name}" → sequences "${open.name}" (sub ${loadoutIndex(open.name)}) and "${close.name}" (sub ${loadoutIndex(close.name)})`);
-  return {open, close, count:chans.length};
+  lg('mae', `group "${g.name}" → sequences "${open.name}" (sub ${loadoutIndex(open.name)}) and "${close.name}" (sub ${loadoutIndex(close.name)})`
+     + (replaced.length ? ' — regenerated in place over the earlier '+replaced.join(' and ') : ''));
+  return {open, close, count:chans.length, replaced:replaced.length};
 }
 
 /* --------------------------------------------- Groups panel (Model tab) */

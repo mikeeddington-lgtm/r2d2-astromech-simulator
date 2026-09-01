@@ -163,6 +163,64 @@ const ok = (n,c,x='') => { c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+' 
   ok('speeds ride ALONGSIDE targets and durations — neither is disturbed',
      same.anySpeeds && same.targetsAreNumbers && same.durationsPositive, JSON.stringify(same));
 
+  console.log('\n════ a speed never exceeds the channel\'s own (v1.77.0, review H8) ════');
+  /* The table's speed is the ceiling the builder set against real linkage
+     (Mike, 2026-07-29 — AUTHORITATIVE). An act brick's ramp is floored at
+     the travel time, so the speed that fills a step was always under it; a
+     nested `seq` brick has no floor, and a library routine with a 100 ms
+     full-throw frame compiled to speed 224 on a speed-120 channel (400 with
+     acceleration 0), which pca-gen wrote under MPCA_SEQ_SPEEDS and
+     serial-link sent as Set Speed. The 3D preview ignores speeds, so the
+     model showed nothing while the droid outran its own table. Two halves:
+     chanSpeedForMs() is capped at c.speed, and an interval a seq brick
+     commanded carries the nested frame's own speed (or 0) rather than one
+     synthesised for it. The nested DURATION is deliberately NOT stretched:
+     100 ms authored stays 100 ms in the file. */
+  const cap = await ev(()=>{
+    const c0 = blockChan('pie0'), c1 = blockChan('pie1');
+    const shut = blockClosed(c0), open = blockOpen(c0);
+    /* a library routine with a 100 ms full-throw frame, exactly the shape
+       that produced 224 — then closes in 100 ms too */
+    const t0 = []; t0[c0.i] = open;  const t1 = []; t1[c0.i] = shut;
+    MSTR.sequences.push({name:'Snap probe', frames:[
+      {name:'f0', duration:100, targets:t0}, {name:'f1', duration:100, targets:t1}]});
+    const s = MSTR.sequences[blockNewRoutine('Nest probe')];
+    blockAdd(s,'seq','Snap probe',0,{});
+    blockAdd(s,'act','pie1',0,{dur:2000, rise:800, fall:800});   // an ordinary brick alongside
+    blockSync(s);
+    const chans = MSTR.channels.filter(c=>/^servo/i.test(c.mode));
+    const over = [];
+    s.frames.forEach((f,k)=>chans.forEach(c=>{
+      if(f.speeds && f.speeds[c.i] && !(f.speeds[c.i] <= (c.speed || Infinity)))
+        over.push({frame:k, ch:c.i, speed:f.speeds[c.i], limit:c.speed});
+    }));
+    /* the interval that carries the nested 100 ms full throw on pie0 */
+    const snap = s.frames.find(f=>f.targets[c0.i] === open);
+    const actMoves = s.frames.filter(f=>f.speeds && f.speeds[c1.i]).length;
+    const actOver  = s.frames.some(f=>f.speeds && f.speeds[c1.i] > c1.speed);
+    return {
+      chanSpeed: c0.speed, accel: c0.acceleration, frames: s.frames.length, over,
+      snap: snap ? {duration: snap.duration, speed: (snap.speeds && snap.speeds[c0.i]) || 0} : null,
+      actMoves, actOver,
+      /* the maths on its own: a full throw asked in 100 ms */
+      direct: chanSpeedForMs(c0, open - shut, 100),
+      noAccel: chanSpeedForMs({speed:c0.speed, acceleration:0}, open - shut, 100),
+      unlimited: chanSpeedForMs({speed:0, acceleration:0}, open - shut, 100)
+    };
+  });
+  console.log('  '+JSON.stringify(cap));
+  ok('no compiled frame carries a speed above the channel\'s own — every channel, every frame',
+     cap.over.length === 0, JSON.stringify(cap.over.slice(0,3)));
+  ok('the nested 100 ms full-throw frame gets NO synthesised speed, and keeps its 100 ms',
+     !!cap.snap && cap.snap.speed === 0 && cap.snap.duration === 100, JSON.stringify(cap.snap));
+  ok('chanSpeedForMs() itself is capped at c.speed, with and without acceleration',
+     cap.direct <= cap.chanSpeed && cap.noAccel === cap.chanSpeed,
+     'direct '+cap.direct+', no-accel '+cap.noAccel+', limit '+cap.chanSpeed);
+  ok('…and an unlimited channel (speed 0) is still unlimited — 4000 in 100 ms is 400',
+     cap.unlimited === 400, String(cap.unlimited));
+  ok('the act brick beside it is unchanged: its ramp frames still carry frame-filling speeds',
+     cap.actMoves >= 2 && !cap.actOver, 'moving frames '+cap.actMoves);
+
   console.log('\n════ the Advanced control ════');
   const ui = await ev(()=>{
     EDIT.seq = blockNewRoutine('UI probe');

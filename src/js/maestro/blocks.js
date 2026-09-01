@@ -508,16 +508,23 @@ function blockValueAt(b, t){
   if(fall > 0 && local > b.dur - fall) return lerp(open, closed, (local - (b.dur-fall))/fall);
   return open;
 }
-/* what a dropped-in sequence commands at time t: the frame it is inside */
-function blockSeqTargetsAt(b, t){
+/* what a dropped-in sequence commands at time t: the frame it is inside.
+   The whole FRAME, because the compiler needs its `speeds` row as well as
+   its targets (v1.77.0, review H8 — see the compile loop); blockSeqTargetsAt
+   below is the targets-only view the playhead has always read. */
+function blockSeqFrameAt(b, t){
   const ref = BLKH.sequences().find(x=>x.name === b.ref);
   if(!ref || t < b.t0 || t > b.t0 + b.dur) return null;
   let at = b.t0;
   for(const f of ref.frames){
-    if(t >= at && t <= at + f.duration) return f.targets;
+    if(t >= at && t <= at + f.duration) return f;
     at += f.duration;
   }
-  return ref.frames.length ? ref.frames[ref.frames.length-1].targets : null;
+  return ref.frames.length ? ref.frames[ref.frames.length-1] : null;
+}
+function blockSeqTargetsAt(b, t){
+  const f = blockSeqFrameAt(b, t);
+  return f ? f.targets : null;
 }
 
 /* ===================================================== BRICKS THAT TRAVEL
@@ -669,11 +676,22 @@ function blockCompile(seq, opts){
        names the sub-frame covering this interval without the ambiguity of
        landing exactly on one of its own boundaries. */
     const mid = t + (next - t)/2;
+    /* WHICH CHANNELS A NESTED SEQUENCE COMMANDED THIS INTERVAL (v1.77.0,
+       review H8) — keyed by channel, holding the nested frame's own `speeds`
+       row (or null when it has none). A channel here gets NO synthesised
+       speed below: the nested frame is somebody's authored timing, and
+       chanSpeedForMs() over a 100 ms full-throw frame answered 224 on a
+       speed-120 channel, which went to the board as Set Speed. An act brick
+       laid over the same channel later in blockList wins the interval and
+       takes the entry away again, exactly as it takes the target. */
+    const nested = {};
     /* later blocks win, so a deliberate overlap behaves like a layer */
     blockList(seq).forEach(b=>{
       if(b.kind === 'seq'){
-        const tg = blockSeqTargetsAt(b, mid);
-        if(tg) chans.forEach(c=>{ if(tg[c.i]) targets[c.i] = tg[c.i]; });
+        const nf = blockSeqFrameAt(b, mid);
+        if(nf) chans.forEach(c=>{
+          if(nf.targets[c.i]){ targets[c.i] = nf.targets[c.i]; nested[c.i] = nf.speeds || null; }
+        });
       }else{
         /* …but NOT on the instant a brick STARTS. A brick's window is
            inclusive at t0, so sampling it at `next === b.t0` answers with
@@ -688,7 +706,7 @@ function blockCompile(seq, opts){
            next > b.t0 and the layering rule above still decides it. */
         const v = (next > b.t0) ? blockValueAt(b, next) : null;
         const c = blockChan(b.ref);
-        if(v !== null && c) targets[c.i] = v;
+        if(v !== null && c){ targets[c.i] = v; delete nested[c.i]; }
       }
     });
     const duration = Math.max(0, Math.round(next - t));
@@ -702,13 +720,31 @@ function blockCompile(seq, opts){
 
        Targets and durations are UNCHANGED by this — the speeds ride alongside.
        That is what keeps a .mstr honest (Control Center ignores what it cannot
-       see and still plays the authored timing) and the round trip exact. */
+       see and still plays the authored timing) and the round trip exact.
+
+       ONLY FOR THE ACT BRICKS (v1.77.0, review H8). A ramp step is a move the
+       compiler DREW, floored at the channel's travel time, so a speed that
+       fills it is one the board can deliver. An interval a `seq` brick
+       commanded is a frame somebody else AUTHORED — a library routine's
+       110 ms wave step, an imported .mstr's pose — and sizing a speed to
+       that frame answered whatever number made the arithmetic true, 224 on a
+       speed-120 channel, 400 with acceleration 0. Those go to hardware
+       (pca-gen.js MPCA_SEQ_SPEEDS, serial-link Set Speed) while the 3D
+       preview ignores speeds and shows nothing wrong. So a nested channel
+       carries the nested frame's own speed when it has one — the file's
+       authored physics, verbatim — and 0 otherwise, which the board reads
+       as "the channel's own". The nested DURATION is still not stretched:
+       that is the file's timing and it stays exactly as written; on a slow
+       channel the horn simply arrives when the table says it can.
+       chanSpeedForMs() is capped at c.speed as well now, so the act-brick
+       speeds can never exceed the table either. */
     const speeds = [];
     let anySpeed = false;
     chans.forEach(c=>{
       const d = targets[c.i] - last[c.i];
       if(!d || !duration){ speeds[c.i] = 0; return; }
-      const sp = BLKH.speedForMs ? BLKH.speedForMs(c, d, duration) : 0;
+      const sp = (c.i in nested) ? ((nested[c.i] && nested[c.i][c.i]) | 0)
+               : (BLKH.speedForMs ? BLKH.speedForMs(c, d, duration) : 0);
       speeds[c.i] = sp; if(sp) anySpeed = true;
     });
     chans.forEach(c=>{ last[c.i] = targets[c.i]; });

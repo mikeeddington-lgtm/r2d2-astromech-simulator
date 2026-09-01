@@ -258,6 +258,156 @@ const FIX = f => fs.readFileSync(path.join(__dirname, 'fixtures-sketches', f), '
         && !localStorage.getItem('r2sim.sketch.v1');
   }, sources.canonical));
 
+  /* =================================================================
+     v1.77.0 — A SKETCH THAT THROWS AT RUN TIME (review 2026-09-01, H6)
+
+     The identifier accounting ignores method names on purpose — the
+     adapter owns those — so a sketch calling `mp3.playFolder(1, 2)`
+     (a real MD_YX5300 library call the sim's adapter does not carry)
+     transpiles residue-free and throws a TypeError the first time it
+     runs. Before this it was stored and made the build's firmware BEFORE
+     it ran, so `loadProfile(bootFw)` threw inside the boot handler on
+     every reload and nothing after it ran: no loop, no header buttons,
+     until localStorage was cleared by hand.
+
+     Three fences, each pinned here through the real door: the drop door
+     trial-runs the sketch and refuses it by method; a registered sketch
+     that throws in loop() is unloaded by its own wrapper and the build
+     is pointed back at the setup's choice; and a boot into a stored bad
+     sketch survives, with everything after loadProfile() still bound.
+     Toasts are read by TEXT, never by order; every wait is on state. */
+  console.log('\n════ a sketch that throws is refused at the door, not booted into ════');
+  const BAD_SETUP = [
+    '#include <MD_YX5300.h>',
+    'MD_YX5300 mp3(Serial1);',
+    'void setup() { mp3.begin(); mp3.playFolder(1, 2); }',
+    'void loop() { }'
+  ].join('\n');
+  const toastsNow = () => ev(()=>Array.from(document.querySelectorAll('#toasts .toastp')).map(p=>p.className+'|'+p.textContent));
+  const before = await ev((src)=>{
+    const b = { stored: localStorage.getItem('r2sim.sketches.v2'),
+                fw: PREFS.build.firmware, pinned: !!PREFS.build.firmwarePinned,
+                ids: sketchIds().slice(), profile: SIM.profile };
+    document.querySelectorAll('#toasts .toastp').forEach(p=>p.remove());
+    readInoFile(new File([src], 'bad.ino', {type:'text/plain'}));   // FileReader: the door answers asynchronously
+    return b;
+  }, BAD_SETUP);
+  await page.waitForFunction(()=>!!document.querySelector('#toasts .toastp'), {timeout:15000});
+  const refused = await ev(()=>({
+    stored: localStorage.getItem('r2sim.sketches.v2'),
+    fw: PREFS.build.firmware, pinned: !!PREFS.build.firmwarePinned,
+    ids: sketchIds().slice(), profile: SIM.profile,
+    inProfiles: Object.keys(PROFILES).some(id=>/bad/.test(id)),
+    inSetup: BUILD_OPTIONS.firmware.some(o=>/bad/.test(o.id)),
+    running: !!PROFILES[SIM.profile]
+  }));
+  refused.toasts = await toastsNow();
+  ok('a setup() that calls a method the adapter lacks is refused — not stored under r2sim.sketches.v2',
+     refused.stored === before.stored && !/bad\.ino/.test(refused.stored||''),
+     String(refused.stored).slice(0,80));
+  ok('…not registered as a firmware, not offered in the setup',
+     !refused.inProfiles && !refused.inSetup && refused.ids.join()===before.ids.join());
+  ok('…the build\'s firmware answer is untouched',
+     refused.fw === before.fw && refused.pinned === before.pinned, before.fw+' → '+refused.fw);
+  ok('…the toast names the file, the phase and the method — and says nothing changed',
+     refused.toasts.some(t=>/err/.test(t) && /bad\.ino/.test(t) && /setup\(\)/.test(t)
+                          && /mp3\.playFolder/.test(t) && /MD_YX5300/.test(t) && /nothing was changed/.test(t)),
+     refused.toasts.join(' ~ '));
+  ok('…and the firmware that was running is still running', refused.running && refused.profile === before.profile,
+     before.profile+' → '+refused.profile);
+
+  console.log('\n════ a registered sketch that throws in loop() is unloaded, not run again every frame ════');
+  /* throws on the FIFTH pass — past the trial's three, so the door accepts
+     it and the fence has to earn its keep at run time */
+  const BAD_LOOP = [
+    '#include <MD_YX5300.h>',
+    'MD_YX5300 mp3(Serial1);',
+    'int passes = 0;',
+    'void setup() { mp3.begin(); }',
+    'void loop() { passes++; if(passes >= 5) mp3.playFolder(1, 2); }'
+  ].join('\n');
+  await ev((src)=>{
+    document.querySelectorAll('#toasts .toastp').forEach(p=>p.remove());
+    readInoFile(new File([src], 'badloop.ino', {type:'text/plain'}));
+  }, BAD_LOOP);
+  /* accepted by the trial: registered, chosen and running. "Chosen" is read
+     from the door's own receipt rather than from PREFS.build — the fifth
+     frame can throw between two evaluates, and by then the fence has already
+     pointed the build back (that is the next assertion's job) */
+  await page.waitForFunction(()=>sketchIds().some(x=>/badloop/.test(x)), {timeout:15000});
+  const accepted = await ev(()=>({
+    id: sketchIds().find(x=>/badloop/.test(x)),
+    chosen: Array.from(document.querySelectorAll('#toasts .toastp'))
+      .some(p=>/toastp ok/.test(p.className) && /Transpiled badloop\.ino/.test(p.textContent) && /now running/.test(p.textContent))
+  }));
+  /* …then the fifth frame throws and the wrapper unloads it */
+  await page.waitForFunction(()=>!/badloop/.test(SIM.profile), {timeout:30000});
+  const after = await ev(()=>({profile: SIM.profile, fw: PREFS.build.firmware, pinned: !!PREFS.build.firmwarePinned, ticks: SIM.ticks}));
+  /* …and the sim keeps ticking afterwards */
+  await page.waitForFunction((t)=>SIM.ticks > t + 3, after.ticks, {timeout:30000});
+  const fenced = await ev((id)=>({
+    ticks: SIM.ticks,
+    logged: LOG.filter(l=>/badloop/.test(l.s) && /mp3\.playFolder/.test(l.s)).map(l=>l.s),
+    stillRegistered: !!PROFILES[id]
+  }), accepted.id);
+  fenced.toasts = await toastsNow();
+  ok('a loop() that throws only on pass 5 gets past the trial: registered and chosen',
+     !!accepted.id && accepted.chosen, JSON.stringify(accepted));
+  ok('…the throw unloads it: SIM.profile is no longer the sketch, and is a real firmware',
+     after.profile !== accepted.id && !/^sketch:/.test(after.profile), after.profile);
+  ok('…the build\'s firmware is pointed back at the setup\'s choice, unpinned',
+     after.fw !== accepted.id && !/^sketch:/.test(after.fw) && !after.pinned, JSON.stringify(after));
+  ok('…SIM.ticks keeps advancing — the frame loop survived', fenced.ticks > after.ticks + 3,
+     after.ticks+' → '+fenced.ticks);
+  ok('…the toast and the log name the sketch and the method, once',
+     fenced.toasts.some(t=>/err/.test(t) && /badloop/.test(t) && /loop\(\)/.test(t) && /mp3\.playFolder/.test(t))
+     && fenced.logged.length === 1, fenced.toasts.join(' ~ ')+' // '+fenced.logged.length+' log line(s)');
+  ok('…and the sketch itself is still registered: unloaded, not forgotten', fenced.stillRegistered);
+  ok('…with no page error from any of it', errs.length === 0, errs.join(' | '));
+
+  console.log('\n════ boot survives a stored sketch that throws ════');
+  /* the exact shape the review reproduced: the bad sketch is already in
+     storage AND is the configured build's firmware. Stored by hand — the
+     door would refuse it now — then a real reload. */
+  const stored = await ev((src)=>{
+    const p = sketchRegister(src, 'boot-bad.ino');       // no trial: exactly what the old door left behind
+    const b = buildGet();
+    b.firmware = p.id; b.firmwarePinned = true; b.done = true;
+    prefsSave();
+    return {id:p.id, saved: JSON.parse(localStorage.getItem('r2sim.prefs.v1')).build.firmware,
+            inStore: /boot-bad\.ino/.test(localStorage.getItem('r2sim.sketches.v2')||'')};
+  }, BAD_SETUP);
+  ok('(setup) the bad sketch is in storage and is the build\'s firmware', stored.saved === stored.id && stored.inStore,
+     JSON.stringify(stored));
+  const errsBeforeReload = errs.length;
+  await page.reload();
+  /* boot is done when the frame loop is ticking — the one thing that never
+     happened before the fix */
+  let booted = true;
+  try{ await page.waitForFunction(()=>typeof SIM!=='undefined' && SIM.ticks > 5, {timeout:30000}); }
+  catch(e){ booted = false; }
+  ok('after a reload the sim ticks — boot got past loadProfile()', booted);
+  const boot = await ev((id)=>({
+    profile: SIM.profile, isPort: !!PROFILES[SIM.profile] && !/^sketch:/.test(SIM.profile),
+    fw: PREFS.build.firmware, pinned: !!PREFS.build.firmwarePinned,
+    saved: JSON.parse(localStorage.getItem('r2sim.prefs.v1')).build.firmware,
+    logged: LOG.filter(l=>/boot-bad/.test(l.s) && /mp3\.playFolder/.test(l.s)).length,
+    stillRegistered: !!PROFILES[id],
+    theme: PREFS.theme
+  }), stored.id);
+  ok('…into a real firmware, not the sketch', boot.isPort && boot.profile !== stored.id, boot.profile);
+  ok('…the build now names that fallback — the NEXT boot is clean without clearing storage',
+     boot.fw !== stored.id && boot.saved === boot.fw && !boot.pinned, JSON.stringify({fw:boot.fw, saved:boot.saved}));
+  ok('…the log says which sketch and which method', boot.logged === 1, boot.logged+' line(s)');
+  ok('…the sketch is still registered, so it can be looked at or forgotten', boot.stillRegistered);
+  /* the rest of the load handler ran: the header buttons are bound. The
+     button sits inside the folded app menu, so its click is dispatched
+     rather than aimed — what is under test is the listener, not the menu */
+  await ev(()=>$('btnTheme').click());
+  const themed = await ev(()=>PREFS.theme);
+  ok('…and the header is alive — #btnTheme toggles the theme', themed !== boot.theme, boot.theme+' → '+themed);
+  ok('…with no page error at boot', errs.length === errsBeforeReload, errs.slice(errsBeforeReload).join(' | '));
+
   console.log('\n════ no page errors ════');
   ok('nothing threw across every transpile and run', errs.length===0, errs.slice(0,3).join(' | '));
 
