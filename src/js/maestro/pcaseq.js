@@ -318,6 +318,16 @@ function pcaRestart(E, n){
     if(t.seq===n || pcaMaskOverlaps(t.mask, mask)){
       const old = E.sequences[t.seq];
       if(old && old.background && t.seq !== n) pcaBgRemember(E, t.seq);
+      /* ITS SPEEDS GO BACK WITH ITS CHANNELS (v1.78.0, review M5b) —
+         MaestroPCA.cpp restartScript() has had this line since per-frame
+         speeds existed; this twin released speeds when a track ENDED or was
+         STOPPED and not when it was DISPLACED, so a routine that lost its
+         channels to another left its frame speeds on them: the newcomer
+         ran at the old routine's pace, and a channel the newcomer never
+         touched kept a speed the table does not know about. The firmware
+         runs the newcomer at the table's speed, so Studio's preview of a
+         displacing routine was wrong about the droid. */
+      pcaReleaseSpeeds(E, t.mask);
       t.seq=-1;
       if(slot<0) slot=i;
     }
@@ -458,7 +468,22 @@ function pcaTick(E, dtms){
 
   pcaBgResume(E);                          /* an idle picks up once it can */
 
-  E.tickAcc += (elapsed > 200) ? 200 : elapsed;
+  /* THE SAME elapsed the frame timers above were given (v1.78.0, review
+     M5a) — clamped once, at the top, and not a second time here. This line
+     used to read `(elapsed > 200) ? 200 : elapsed`, a mirror of the C++'s
+     old uint8_t accumulator that could not hold 250 beside a remainder;
+     MaestroPCA.cpp:468 dropped its second clamp in v1.69.0 (bounds_test.cpp
+     pins 25 ticks for one 250 ms call) and this twin kept it, so one 250 ms
+     tick stepped the servos 200 ms while the frames moved 250 — an
+     animation that slips against itself lands in the wrong place rather
+     than merely stuttering. The only clamp an engine step gets is the
+     firmware's own 250 at the top; deciding what a stalled tab should be
+     HANDED at all — the 250 cap, dropping a backgrounded tab's backlog,
+     carrying fractional milliseconds — is the CLOCK's job (hw-clock.js),
+     because it is the clock that turns wall time into dtms. The engine's
+     job is to spend what it is given exactly once, and the same for the
+     frames as for the servos. */
+  E.tickAcc += elapsed;
   while(E.tickAcc >= 10){
     E.tickAcc -= 10; E.ticks++;
     /* `E.st[c] &&` is a guard, not kinematics — it has no counterpart in the

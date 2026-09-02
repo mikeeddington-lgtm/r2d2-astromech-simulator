@@ -65,12 +65,17 @@ function bindStick(id, ax, ay, cx, cy){
     if(!dragging) return;
     dragging=false; el.classList.remove('drag');
     INPUT.virtual[ax]=0; INPUT.virtual[ay]=0;
-    // a click (no drag) presses the stick = L3 / R3
-    if(!moved){
-      const n = id==='s_L'?'L3':'R3';
-      INPUT.virtual.btn[n]=1;
-      setTimeout(()=>{INPUT.virtual.btn[n]=0;},60);
-    }
+    /* a click (no drag) presses the stick = L3 / R3. This used to set
+       INPUT.virtual.btn and clear it 60 ms later on the WALL clock — but
+       pollInput() only runs from frame(), so on a machine drawing slower
+       than ~16 fps the press was set and cleared between two polls and
+       getButtonClick('L3') never saw it: the speed step and the HP light
+       (maestro-sketches: speedSelectButton = L3, hpLightToggleButton = R3)
+       simply did not answer a click. virtualPress() below is the right
+       shape — it latches the edge into XB.click itself, so the next poll
+       cannot come too late — and it is what the DRIVE chip already goes
+       through. (v1.78.0, review L14) */
+    if(!moved) virtualPress(id==='s_L'?'L3':'R3');
   };
   el.addEventListener('pointerup', rel);
   el.addEventListener('pointercancel', rel);
@@ -353,7 +358,9 @@ function pollInput(){
   INPUT.live = live;
 }
 
-/* re-sync after an Xbox+LB+RB disconnect */
+/* re-sync after an Xbox+LB+RB disconnect. In sim only the chord is ignored
+   at the source instead (xboxDisconnect, core/xbox.js), because this chip is
+   display:none there and would have been the only way back. */
 document.getElementById('chGamepad').addEventListener('click', ()=>{
   if(INPUT.forceDisconnect){
     INPUT.forceDisconnect=false;

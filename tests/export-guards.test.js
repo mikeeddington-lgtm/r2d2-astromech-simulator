@@ -460,6 +460,108 @@ const ok = (n,c,x='') => { c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+' 
   ok('so the sim runs both of them at once, exactly as the droid does',
      wide.running === 2 && wide.a && wide.b, wide.thrown || ('running=' + wide.running));
 
+  /* ================================================================= 11
+     v1.78.0, review M9 — TWO LINT RULES THAT CRIED WOLF
+
+     (a) `chan-range` made min >= max an ERROR while the bench RECORDS a
+         reversed linkage by swapping the pair (the REV tick), so every
+         export of a droid with one reversed panel said "Written with N
+         validation errors outstanding" and the button read "Export anyway".
+     (b) `timing` judged every re-target from rest against the step before
+         it, and a compiled ramp is a staircase that re-targets before each
+         step arrives BY DESIGN — one plain 'oc' brick at Mike's 80/10 drew
+         three warnings on a routine that lands on time, burying the real
+         ones. A run of same-direction re-targets is one move now.
+     Both assert on the REPORT — counts and codes — because counts.err is
+     what relabels the export button and writes the receipt. */
+  console.log('\n════ a reversed channel is not an export error ════');
+
+  const rev = await ev(()=>{
+    setBoard('mini24'); makeStarter('dome','mini24');
+    const c = MSTR.channels.find(x=>/^servo/i.test(x.mode));
+    const lo = Math.min(c.min, c.max), hi = Math.max(c.min, c.max);
+    c.min = hi; c.max = lo;                              /* the REV tick's own record */
+    const onMaestro = lintMaestro();
+    const revItems = onMaestro.items.filter(i=>i.ch === c.i && /chan-/.test(i.code));
+    setBoard('pca48'); makeStarter('dome','pca48');
+    const p = MSTR.channels.find(x=>/^servo/i.test(x.mode));
+    const plo = Math.min(p.min, p.max), phi = Math.max(p.min, p.max);
+    p.min = phi; p.max = plo;
+    const onPca = lintMaestro();
+    /* and a pair with NO travel is still an error on either board */
+    p.min = p.max;
+    const flat = lintMaestro();
+    return {
+      ch: c.i,
+      maestroErrs: onMaestro.counts.err,
+      maestroCodes: onMaestro.items.filter(i=>i.level === 'err').map(i=>i.code),
+      revItems: revItems.map(i=>({level:i.level, code:i.code, msg:i.msg, fix:i.fix})),
+      pcaItems: onPca.items.filter(i=>i.ch === p.i && /chan-/.test(i.code)).map(i=>i.level + ':' + i.code),
+      pcaErrs: onPca.counts.err,
+      flat: flat.items.filter(i=>i.ch === p.i && i.code === 'chan-range').map(i=>i.level)
+    };
+  });
+  ok('a reversed pair on a Maestro build is not among the errors',
+     rev.maestroErrs === 0, 'err=' + rev.maestroErrs + ' ' + JSON.stringify(rev.maestroCodes));
+  ok('…it is a WARNING that names Control Center and says the pair is written as stored',
+     rev.revItems.length === 1 && rev.revItems[0].level === 'warn'
+     && /Control Center/.test(rev.revItems[0].msg + ' ' + rev.revItems[0].fix)
+     && /as stored/i.test(rev.revItems[0].msg + ' ' + rev.revItems[0].fix),
+     JSON.stringify(rev.revItems));
+  ok('…and on a PCA9685 build, which has no Control Center, it is not mentioned at all',
+     rev.pcaErrs === 0 && rev.pcaItems.length === 0, 'err=' + rev.pcaErrs + ' ' + JSON.stringify(rev.pcaItems));
+  ok('a channel with min === max — no travel — is still an error',
+     JSON.stringify(rev.flat) === '["err"]', JSON.stringify(rev.flat));
+
+  console.log('\n════ a compiled ramp at Mike\'s 80/10 raises no timing warning; a real reversal still does ════');
+
+  const chain = await ev(()=>{
+    setBoard('mini24'); makeStarter('dome','mini24');
+    const act = blockActions()[0].act;
+    const c = blockChan(act);
+    c.speed = 80; c.acceleration = 10;                   /* the dome Maestro's own numbers, bench 2026-07-29 */
+    const s = MSTR.sequences[blockNewRoutine('One brick')];
+    /* 'oc'; the ramps are floored to the channel's own full throw — 4000
+       quarter-µs at 80/10 is accel-dominated, ~1131 ms — and drawn as a
+       staircase of 500 ms steps, so every step is a re-target the old rule
+       judged from rest and found 234 ms short */
+    blockAdd(s, 'act', act, 0, {dur:3000, rise:250, fall:250});
+    const issues = seqTimingIssues(s);
+    const rep = lintMaestro();
+    /* and a plain frame list that really does turn a panel round before it
+       can have got there: a full throw at speed 10 (1 quarter-µs per ms, so
+       4000 quarter-µs takes 4 s) given 50 ms */
+    const slow = MSTR.channels.find(x=>/^servo/i.test(x.mode) && x.i !== c.i);
+    slow.speed = 10; slow.acceleration = 0;
+    const row = v=>{ const t = new Array(MSTR.channels.length).fill(0); t[slow.i] = v; return t; };
+    const lo = Math.min(slow.min, slow.max), hi = Math.max(slow.min, slow.max);
+    const bad = {name:'Whipsaw', frames:[
+      {name:'out',  duration:50,  targets:row(hi)},
+      {name:'back', duration:50,  targets:row(lo)},
+      {name:'out2', duration:500, targets:row(hi)}
+    ]};
+    const badIssues = seqTimingIssues(bad);
+    MSTR.sequences.push(bad);
+    const rep2 = lintMaestro();
+    return {
+      steps: s.frames.length,
+      speeds: [c.speed, c.acceleration],
+      issues: issues.map(i=>({frame:i.frame, had:i.had, need:i.need})),
+      timingFor: rep.items.filter(i=>i.code === 'timing' && /One brick/.test(i.msg)).length,
+      bad: badIssues.map(i=>({frame:i.frame, had:i.had, need:i.need})),
+      badLine: (rep2.items.find(i=>i.code === 'timing' && /Whipsaw/.test(i.msg)) || {}).msg || ''
+    };
+  });
+  ok('the fixture is a real staircase on an accel-dominated channel — two steps up, a hold, two steps down, home',
+     chain.steps >= 5 && chain.speeds[0] === 80 && chain.speeds[1] === 10,
+     chain.steps + ' frames at ' + chain.speeds.join('/'));
+  ok("one plain 'oc' brick at speed 80 / accel 10 raises NO timing issue — the staircase is one move and it lands on time",
+     chain.issues.length === 0 && chain.timingFor === 0, JSON.stringify(chain.issues));
+  ok('a frame that reverses a full throw at speed 10 inside 50 ms still fires',
+     chain.bad.length >= 1 && chain.bad.every(i=>i.had === 50 && i.need >= 3900), JSON.stringify(chain.bad));
+  ok('…and the report line names the sequence, the time it had and the time it needed',
+     /Whipsaw/.test(chain.badLine) && /50 ms of a \d{4} ms travel/.test(chain.badLine), chain.badLine);
+
   ok('no page errors', errs.length === 0, errs.join(' | '));
 
   console.log('\n'+pass+' passed, '+fail+' failed');

@@ -2171,6 +2171,12 @@ function buildStartup(){
   if(rail){
     rail.innerHTML = '';
     const b = buildGet();
+    /* the chip tooltip counts the way the FOOTER counts (v1.78.0, review L9):
+       it still said "Step 7 of 15" — 1.5c's six-jobs-as-questions count,
+       retired from the footer and left here — while the footer under it said
+       "Question 7 of 9". One stretch, one number, from the same arithmetic
+       the footer's nJobs comes from (WIZ_EXTRA.length), never typed. */
+    const nJobsRail = WIZ_EXTRA.length, nQuestions = steps.length - nJobsRail;
     steps.forEach((s,i)=>{
       if(s.key === '_servoSet'){
         const div = el('div','raildiv');
@@ -2207,7 +2213,9 @@ function buildStartup(){
       if(opt)          d.appendChild(el('span','railans', opt.short || opt.label));
       else if(isModel) d.appendChild(el('span','railans', mLab));
       else             d.appendChild(el('span','railans', ''));
-      d.title = 'Step '+(i+1)+' of '+steps.length+' — '+s.title
+      d.title = (isQuestion ? 'Question '+(i+1)+' of '+nQuestions
+                            : 'Job '+(i - nQuestions + 1)+' of '+nJobsRail)
+              + ' — '+s.title
               + (opt ? ' · '+opt.label : (isModel ? ' · '+mLab : ''))
               + (isQuestion && !seen ? '\nNot visited yet — this is the default, not something you have confirmed.' : '')
               + (na ? '\nNot used by the '+modelById(modelGet()).label+' — your answer is kept for the droid.' : '');
@@ -2258,17 +2266,21 @@ function buildStartup(){
          a second row of identical chips with no way to tell how deep it goes.
 
      `nJobs` is derived from the step list rather than typed, so inserting a
-     job cannot make this line lie again. */
+     job cannot make this line lie again — and since v1.78.0 (review L9) so
+     is the nine: `nQ` is the step list less the jobs, the same arithmetic
+     the rail chips' tooltips count by, so the two can never say different
+     numbers for the same chip. */
   const back = $('btnStpBack'), next = $('btnStpNext'), go = $('btnStartupGo'), foot = $('stpFoot');
   const last = WIZ.i >= steps.length-1;
   const isQuestionStep = step.key === '_model' || step.key.charAt(0) !== '_';
   const nJobs = WIZ_EXTRA.length;
-  const jobNo = WIZ.i - (steps.length - nJobs) + 1;
+  const nQ = steps.length - nJobs;
+  const jobNo = WIZ.i - nQ + 1;
   if(back) back.disabled = WIZ.i === 0;
   if(next){ next.textContent = last ? 'Finish' : 'Next →'; next.className = 'b prim'; }
   if(go){ go.textContent = buildConfigured() ? 'Close' : 'Skip the rest'; go.className = 'b'; }
   if(foot) foot.textContent = (isQuestionStep
-      ? 'Question '+(WIZ.i+1)+' of 9, then '+nJobs+' jobs'
+      ? 'Question '+(WIZ.i+1)+' of '+nQ+', then '+nJobs+' jobs'
       : 'Job '+jobNo+' of '+nJobs+' · '+step.title+' — come back any time')
     + ' · every answer applies straight away, and nothing here is locked in.';
 }

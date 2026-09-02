@@ -151,7 +151,16 @@ function maestroLoopBody(P){
         }
       }
     }else{
-      /* 2022 BETA: plain ramping, no deadzone delay */
+      /* 2022 BETA: plain ramping, no deadzone delay — and NOT A RAMP (v1.78.0,
+         review M13; beta.ino:630-641 ported verbatim). The comparison is
+         backwards: `< (RAMPING + 1)` steps only a change of RAMPING or less
+         and JUMPS anything bigger to the target in one pass, so a full
+         stick lands at DRIVESPEED immediately, and a target 1..4 units away
+         overshoots and flips ±5 on the Sabertooth wire every pass for as
+         long as the stick sits there. mod2026 carries the same line
+         (profiles/mod2026.js); the 2025 sketch above fixed it (`> RAMPING`).
+         Reproduced as written — the sim's job is the sketch's behaviour,
+         bugs included — and said so in the profiles' notes. */
       if(FW.throttleStickValue > -CFG.DRIVEDEADZONERANGE && FW.throttleStickValue < CFG.DRIVEDEADZONERANGE){
         FW.driveThrottle = 0;
       }else{
@@ -214,8 +223,16 @@ function mixHubDrive(stickX, stickY, maxDriveSpeed){
     }
     FW.XDist = map_(stickX, -32768, 32767, -100, 100);
 
-    const RightSpeed = FW.YDist - (FW.XDist * (CFG.TURNSPEED/100));
-    const LeftSpeed  = FW.YDist + (FW.XDist * (CFG.TURNSPEED/100));
+    /* `float RightSpeed`, `float LeftSpeed` in the sketch (TURNSPEED is a
+       const float, so TURNSPEED/100 is 0.4 and the mix is fractional) —
+       but map() takes LONGs, so the float is converted first: truncated
+       toward zero, before any of map's own arithmetic (v1.78.0, review M12).
+       This used to hand map_() the float itself, which truncates the
+       quotient of the WHOLE fraction instead — the same answer most of the
+       time, one unit out on 16 % of stick positions (-138.8 → 61 here, 62
+       on the board). The Math.trunc is C's conversion, spelled out. */
+    const RightSpeed = Math.trunc(FW.YDist - (FW.XDist * (CFG.TURNSPEED/100)));
+    const LeftSpeed  = Math.trunc(FW.YDist + (FW.XDist * (CFG.TURNSPEED/100)));
 
     const maxServoForward = map_(maxDriveSpeed, 0, 127, 90, 180);
     const maxServoReverse = map_(maxDriveSpeed, 0, 127, 90, 0);

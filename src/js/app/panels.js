@@ -598,6 +598,22 @@ function cfgNumGrid(parent, list){
         buildOutputs();
       }
       if(k.indexOf('DRIVESPEED')===0 && [CFG.DRIVESPEED1,CFG.DRIVESPEED2,CFG.DRIVESPEED3].indexOf(FW.drivespeed)<0) FW.drivespeed=CFG.DRIVESPEED1;
+      /* (v1.78.0, review M11) ON A TRANSPILED SKETCH THIS EDIT IS A RE-FLASH.
+         The three hand ports read CFG live, so the line above is the whole
+         job for them. An imported sketch bakes its constants in when its
+         closure is built (`let X = __cfg("X", d)`, read once), the way a
+         #define is baked in at compile time — so writing CFG[k] changed
+         nothing the droid did until the profile was next loaded, while
+         "Copy .ino constants" already printed the new number. sketchReflash()
+         (profiles/sketch-import.js) re-loads the running sketch with the
+         edited CFG carried across: setup() runs again and the sketch's
+         mutable globals start over, exactly as on a board you had just
+         flashed — arm it again with START. loadProfile() empties the log,
+         so the line is written after it, and says what happened. */
+      if(typeof sketchReflash === 'function' && sketchReflash()){
+        lg('sys',`config: ${k} = ${CFG[k]}  — re-flashed ${PROFILE.file}: setup() ran again and its globals start over`);
+        return;
+      }
       lg('sys',`config: ${k} = ${CFG[k]}`);
     });
     r.appendChild(lb); r.appendChild(i); g.appendChild(r);

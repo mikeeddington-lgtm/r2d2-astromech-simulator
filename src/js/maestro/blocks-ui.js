@@ -1029,7 +1029,7 @@ function blkActionLib(seq){
     });
     host.appendChild(row2);
   }
-  blkLibMore(host, groups.length);
+  blkLibMore(host);
   return host;
 }
 
@@ -1057,20 +1057,30 @@ function blkActionLib(seq){
 
    It stays IN FLOW when it is not showing (opacity, never display) — a
    sticky footer that appears and disappears from layout changes scrollHeight,
-   which is the very number blkLibMoreSync() measures, and that oscillates. */
-function blkLibMore(host, hasReadyMade){
+   which is the very number blkLibMoreSync() measures, and that oscillates.
+
+   WHAT THE BAR SAYS IS MEASURED, NOT TYPED (v1.78.0, review L9). It used to
+   read "READY-MADE builds a whole figure in one click" as a fixed string
+   whenever groups existed — including with READY-MADE's heading already
+   scrolled into view and only its row of shape buttons still clipped, which
+   is the bar promising something that is on screen. The label is set by
+   blkLibMoreSync() from the first group heading whose top edge is actually
+   past the fold; when no heading is (the clipped remainder is the tail of
+   the section you are in) it says only that there is more. The click scrolls
+   to that same heading, or to the bottom when there is none, so the button
+   goes where it says. Writing the label costs no layout: .blkmore's bar is
+   absolutely positioned, so a longer sentence cannot change the scrollHeight
+   the sync is measuring. */
+function blkLibMore(host){
   const more = el('div','blkmore');
   more.id = 'sqLibMore';
-  const b = el('button','b', hasReadyMade
-    ? '▾ more below — READY-MADE builds a whole figure in one click'
-    : '▾ more below');
+  const b = el('button','b', blkLibMoreLabel(null));   // named once laid out — blkLibMoreSync()
   b.title = 'scroll the rest of this panel into view';
   b.addEventListener('click',()=>{
     const lib = document.querySelector('#seqblocks .blklib'); if(!lib) return;
-    const rm = Array.from(lib.querySelectorAll('.blklibhead'))
-                    .find(h=>/Ready-made/i.test(h.textContent));
-    lib.scrollTop = rm
-      ? lib.scrollTop + (rm.getBoundingClientRect().top - lib.getBoundingClientRect().top)
+    const next = blkLibHeadBelow(lib);
+    lib.scrollTop = next
+      ? lib.scrollTop + (next.getBoundingClientRect().top - lib.getBoundingClientRect().top)
       : lib.scrollHeight;
     blkLibMoreSync();
   });
@@ -1078,6 +1088,23 @@ function blkLibMore(host, hasReadyMade){
   skin.appendChild(b);
   more.appendChild(skin);
   host.appendChild(more);
+}
+/* the first group heading whose top edge is below the panel's visible
+   bottom — a heading with a hairline showing counts as below too, since a
+   hairline is exactly the "bottom of the panel" misreading this bar exists
+   to correct. null when everything left to scroll is the tail of a section
+   whose heading is already in view. */
+function blkLibHeadBelow(lib){
+  const foldY = lib.getBoundingClientRect().bottom;
+  return Array.from(lib.querySelectorAll('.blklibhead'))
+              .find(h=>h.getBoundingClientRect().top > foldY - 4) || null;
+}
+function blkLibMoreLabel(head){
+  if(!head) return '▾ more below';
+  const b = head.querySelector('b');
+  const name = ((b ? b.textContent : head.textContent) || '').trim().toUpperCase();
+  return '▾ more below — ' + name
+       + (name === 'READY-MADE' ? ' builds a whole figure in one click' : '');
 }
 /* is there anything still below the fold? Cheap enough to run on every
    rebuild and on every scroll — three layout reads and a class toggle. */
@@ -1090,6 +1117,12 @@ function blkLibMoreSync(){
     lib.addEventListener('scroll', blkLibMoreSync, {passive:true});
   }
   more.classList.toggle('on', lib.scrollHeight - lib.clientHeight - lib.scrollTop > 4);
+  /* the label follows the scroll position, so it names what is below NOW */
+  const b = more.querySelector('button');
+  if(b){
+    const lab = blkLibMoreLabel(blkLibHeadBelow(lib));
+    if(b.textContent !== lab) b.textContent = lab;
+  }
 }
 
 /* ------------------------------------------------- the unwired warning
@@ -1918,16 +1951,28 @@ if($('sqUndo') && $('sqRedo')){
    clicks ↶); the app dialog (its Enter/Esc capture handler must keep the
    room — it ignores Ctrl+Z, so it has to be checked for, not raced); and
    the full-screen overlays (setup wizard, import wizard, Build your
-   Maestro) that sit over the sequencer. */
+   Maestro) that sit over the sequencer — and, v1.78.0, EVERY overlay
+   uiModalOpen() (core/util.js) knows about. The list here was written by
+   hand and missed the servo bench (#setupWrap, class `hide`, not `iwrap`),
+   which "map one…" opens straight over a live sequencer: brick selected,
+   bench open, focus on one of its buttons, Delete — and the brick was gone
+   under the overlay with nothing on screen to show it (review M15). The
+   hand-written checks stay for the surfaces uiModalOpen() does not list
+   (the app dialog, the dome map's .iwrap); the shared predicate covers the
+   rest, so the next overlay added to it is guarded here for free. */
+function blkOverlayUp(){
+  if(document.querySelector('.dlgwrap')) return true;
+  if(document.querySelector('.iwrap:not([hidden])')) return true;
+  const st = $('startup'); if(st && st.classList.contains('on')) return true;
+  return typeof uiModalOpen === 'function' && uiModalOpen();
+}
 window.addEventListener('keydown', e=>{
   if(!(e.ctrlKey || e.metaKey) || e.altKey) return;
   const k = (e.key || '').toLowerCase();
   if(k !== 'z' && k !== 'y') return;
   if(typeof EDIT === 'undefined' || !EDIT.active) return;
   if(e.target && /INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) return;
-  if(document.querySelector('.dlgwrap')) return;
-  if(document.querySelector('.iwrap:not([hidden])')) return;
-  const st = $('startup'); if(st && st.classList.contains('on')) return;
+  if(blkOverlayUp()) return;
   e.preventDefault();
   if(k === 'y' || e.shiftKey) blkRedo(); else blkUndo();
 });
@@ -1938,14 +1983,13 @@ window.addEventListener('keydown', e=>{
    removes whatever is selected, one or many — same "sequencer has focus,
    no input/textarea/select is focused" containment as gamepad.js:39, plus
    the dialog/wizard guards Ctrl+Z above already needed for the same
-   reason. */
+   reason — blkOverlayUp(), so the two can never disagree about which
+   overlays count (v1.78.0, review M15: they did, and the bench was the
+   one both had missed). */
 function blkKeyGuarded(e){
   if(typeof EDIT === 'undefined' || !EDIT.active) return true;
   if(e.target && /INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) return true;
-  if(document.querySelector('.dlgwrap')) return true;
-  if(document.querySelector('.iwrap:not([hidden])')) return true;
-  const st = $('startup'); if(st && st.classList.contains('on')) return true;
-  return false;
+  return blkOverlayUp();
 }
 window.addEventListener('keydown', e=>{
   if(e.key === 'Escape'){

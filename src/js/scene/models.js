@@ -77,6 +77,19 @@ function modelApply(opts){
   const o = opts || {};
   MODEL_ON_STAGE = id;
 
+  /* THE PART CARD GOES WITH THE MODEL IT DESCRIBES (v1.78.0, review L16).
+     #selcard is the DROID's: its Port select rewrites MSTR.channels[n].act
+     and its Test slider drives ACT, and selectPart() opens it on any screen
+     (cad/select.js, 2026-08-22). Nothing closed it on a model switch, so a
+     pie clicked on the droid left an R2 card with live controls floating
+     over the servo gauges or the Anzellan head — a part you could no longer
+     see, still editable. deselectPart() is the plain close (it is what Esc
+     and the card's ✕ call) and returns at once when nothing is selected, so
+     boot's re-apply and a same-model re-pick cost nothing. It runs before
+     the visibility switches so the highlight it removes is still on a part
+     that is drawn. */
+  if(typeof deselectPart === 'function') deselectPart();
+
   /* the droid: one switch covers the procedural body, the legs and the CAD,
      because CAD.root hangs off R2.root */
   if(typeof R2 !== 'undefined' && R2.root) R2.root.visible = (id === 'droid');

@@ -331,12 +331,22 @@ function rcRestValue(ch, idx){
    not always its axis value: a trigger target is unipolar and is mapped
    from the channel's own rest point (see rcTriggerUnit), so a `span`
    throttle reading -1 at rest delivers a perfectly quiet 0. Warn on the
-   number that reaches the firmware, never on the one before the map. */
+   number that reaches the firmware, never on the one before the map.
+
+   The direct `act:` binding is the same unipolar map since v1.78.0 (review
+   L13, and see rcDirectApply), so it is asked the same question: a `span`
+   throttle bound to a door reads -1 at rest and DELIVERS 0 = closed, which
+   used to be listed here as a channel commanding something with hands off
+   — a false alarm on exactly the binding that is safe. The three motor
+   outputs stay on the signed axis value, which is what they receive. */
 function rcRestDelivered(ch, idx){
   const v = rcRestValue(ch, idx);
   if(ch.mode === 'pad' && RC_ANALOG_BTNS.indexOf(ch.pad) >= 0) return rcTriggerUnit(ch, v, idx);
+  if(ch.mode === 'out' && rcOutIsAct(ch.out)) return rcTriggerUnit(ch, v, idx);
   return v;
 }
+/* is this direct-output target a servo (`act:<actuator>`) rather than a motor? */
+function rcOutIsAct(out){ return typeof out === 'string' && out.indexOf('act:') === 0; }
 /* channels that would command something with your hands off the set */
 function rcRestWarnings(){
   const out = [];
@@ -461,8 +471,22 @@ function rcDirectApply(){
     if(ch.out === 'drive')      { drive = v; did = true; }
     else if(ch.out === 'turn')  { turn  = v; did = true; }
     else if(ch.out === 'dome')  { dome  = v; did = true; }
-    else if(ch.out.indexOf('act:') === 0 && typeof actSet === 'function'){
-      actSet(ch.out.slice(4), clamp((v + 1) / 2, 0, 1));
+    else if(rcOutIsAct(ch.out) && typeof actSet === 'function'){
+      /* A SERVO IS UNIPOLAR, LIKE A TRIGGER. This was `(v + 1) / 2`, the
+         same fixed -1 origin rcTriggerUnit() was written to replace: right
+         for a `span` throttle resting at its stop, and wrong for every
+         `ctr:'rest'` channel — the self-centring gimbal that is what a
+         transmitter's sticks ARE, and what rcAutoAssign() forces on
+         anything it touches. A gimbal reads 0 with hands off, so the door
+         it was bound to sat at 0.5 — half open — the moment it was
+         assigned, and rcRestWarnings() saw a rest value of 0 and said
+         nothing. HANDOVER §7: "mid-travel is a safe default for a gimbal
+         and a wrong one for a door." So the map runs from the channel's
+         own rest point, the way the triggers do: hands off is 0 = closed,
+         the stop furthest from rest is 1 = open, the near side of rest
+         stays closed. A throttle still sweeps its whole travel. (v1.78.0,
+         review L13) */
+      actSet(ch.out.slice(4), rcTriggerUnit(ch, v, idx));
       did = true;
     }
   });

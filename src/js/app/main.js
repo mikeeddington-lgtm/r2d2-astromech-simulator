@@ -59,8 +59,12 @@ function frame(now){
      foot commands to nothing and puts the reason on screen with a door back
      to the question; see buildFootGate() in config/hardware.js for why it
      belongs here and not inside the profiles. On any build that HAS chosen a
-     foot controller — which is every build by default — it is one string
-     compare and returns. */
+     foot controller — which is every build by default — it returns after
+     one string compare, but the compare is `buildFootUndecided()`, which
+     goes through buildGet(): a fresh buildDefault() object and a for-in over
+     its twenty-odd keys filling gaps in PREFS.build, every frame (v1.78.0,
+     review L9 — the comment used to call this "one string compare"). Cheap
+     enough at 60 Hz that it has not been hoisted, but not free. */
   if(typeof buildFootGate === 'function') buildFootGate();
   /* the bench engine — the sim's model of what the PCA9685s are doing.
      Only steps when the Bench is open or a board is connected, so a

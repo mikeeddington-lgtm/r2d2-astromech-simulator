@@ -314,15 +314,26 @@ function registerGroupAnims(){
 }
 
 /* ---- groups as Maestro sequences: the real programming path ---- */
+/* THE PANE, BY ITS REAL NAME (v1.78.0, review L9). Three messages here and
+   one on the part card sent people to "the Maestro tab", which has not been
+   a tab since v1.73.0: the channel table is generated and imported on #pMae,
+   labelled Servo / Sequence config, in the Board workspace. Quoted from the
+   tab button through mbServoTabLabel() (scene/builder.js) so a rename in
+   html/body.html reaches every sentence at once — the same door cad/ui.js
+   already uses, with the same fallback for a page that has no tab bar. */
+function partsServoPane(){
+  const tab = (typeof mbServoTabLabel === 'function') ? mbServoTabLabel() : 'Servo / Sequence config';
+  return 'Board ▸ ' + tab;
+}
 function groupToSequences(id){
   const g = groupById(id); if(!g) return null;
-  if(!MSTR.loaded) return {error:'no Maestro settings loaded — generate or import one on the Maestro tab first'};
+  if(!MSTR.loaded) return {error:'no Maestro settings loaded — generate or import one on '+partsServoPane()+' first'};
   const chans = [];
   groupActs(g).forEach(a=>{
     const c = MSTR.channels.find(x=>x.act===a);
     if(c) chans.push(c);
   });
-  if(!chans.length) return {error:'no Maestro channel drives any part of this group — map channels on the Maestro tab first'};
+  if(!chans.length) return {error:'no Maestro channel drives any part of this group — map channels on '+partsServoPane()+' first'};
   const base = new Array(MSTR.servoCount).fill(0);
   /* 2026-08-18 — chanRest(), not c.home: the base frame parks a door SHUT
      and a gimbal centred; a home µs carrying a real-world offset must not
@@ -405,7 +416,7 @@ function buildGroupsSect(host){
     row.appendChild(mk('▼', ()=>groupSet(g.id,0), 'close every driven member'));
     row.appendChild(mk('⟶M', ()=>{
       const r = groupToSequences(g.id);
-      const m=$('cadMsg'); if(m) m.textContent = r ? (r.error || `"${g.name}" exported as two Maestro sequences (${r.count} channel(s)) — see the Maestro tab.`) : '';
+      const m=$('cadMsg'); if(m) m.textContent = r ? (r.error || `"${g.name}" exported as two Maestro sequences (${r.count} channel(s)) — see ${partsServoPane()}.`) : '';
     }, 'append this group to the Maestro settings as an Open + Close sequence pair'));
     row.appendChild(mk('✕', async ()=>{
       if(await appConfirm('Delete group "'+g.name+'"? Parts and their colours stay; only the grouping goes.',

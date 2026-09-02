@@ -252,8 +252,19 @@ $('bMonSend').onclick=()=>{ serialSendText($('monIn').value); $('monIn').value='
 $('monIn').addEventListener('keydown',e=>{
   if(e.key==='Enter'){ serialSendText($('monIn').value); $('monIn').value=''; }
 });
+/* THE CEILING IS THE WIRE'S, NOT TWO BOARDS' (v1.78.0, review L9). This
+   refused a 33rd channel with "32 channels = two full PCA9685 boards — the
+   bridge stops there", which stopped being true in v1.54.0: the 7-bit
+   protocol addresses eight boards, and the wizard's own step 2 already grows
+   the table to as many. What the bridge actually stops at is channel 125 —
+   126 and 127 carry the board configuration (serial-link.js) — so that is
+   the number, derived from PCA_MAX_BOARDS_UI rather than typed. */
+const STUDIO_CH_MAX = PCA_MAX_BOARDS_UI*16 - 2;
 $('bAddCh').onclick=()=>{
-  if(PROJ.channels.length>=32){ log('32 channels = two full PCA9685 boards — the bridge stops there','warn'); return; }
+  if(PROJ.channels.length>=STUDIO_CH_MAX){
+    log(STUDIO_CH_MAX+' channels = '+PCA_MAX_BOARDS_UI+' PCA9685 boards, less the two channels the wire keeps for board configuration — the bridge stops there','warn');
+    return;
+  }
   PROJ.channels.push({name:'Servo '+PROJ.channels.length,mode:'Servo',min:4000,max:8000,home:0,homemode:'Off',speed:80,acceleration:10});
   PROJ.sequences.forEach(s=>s.frames.forEach(fr=>fr.targets.push(0)));
   projSave(); rebuildAll();

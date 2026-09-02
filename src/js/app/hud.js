@@ -64,6 +64,37 @@ lg = function(kind, text){
   }
 };
 
+/* HOW LONG IS THE delay() THE CHIP IS NAMING? (v1.78.0, review L11)
+   The chip printed "LOOP BLOCKED · delay(750)" for EVERY block, because 750
+   was the only delay() the app had when it was written — the Maestro
+   sketches' automation turn. An imported .ino arms the same SIM.blockUntil
+   from its own __delay(ms) (profiles/sketch-import.js) with whatever number
+   it likes, and the chip kept saying 750.
+
+   Nothing records the length: the writers set SIM.blockUntil = SIM.millis +
+   ms and move on, and by the time this UI tick paints the chip SIM.millis
+   has advanced, so `blockUntil - millis` here is the REMAINDER, not the
+   length. Neither writer is this file's, so the same move as the lg() wrap
+   above: SIM.blockUntil becomes an accessor that notes `value - SIM.millis`
+   at the instant it is written — which is exactly `ms`, because that is the
+   sum the writer just did. Only a CHANGE is a new block: sketch-import's
+   `Math.max(old, now+ms)` can write the old value back, and firmware.js's
+   reset writes -1, which is no block and is never shown. Reads cost a getter
+   on the tick loop, which is nothing. If util.js ever records the length
+   itself, BLOCK.ms should read that field instead. */
+const BLOCK = { ms:0 };
+(function(){
+  let until = SIM.blockUntil;
+  Object.defineProperty(SIM, 'blockUntil', {
+    enumerable:true, configurable:true,
+    get(){ return until; },
+    set(v){
+      if(v !== until && isFinite(v) && v > SIM.millis) BLOCK.ms = Math.round(v - SIM.millis);
+      until = v;
+    }
+  });
+})();
+
 /* Anchored popover, built on demand and REMOVED on close — same
    containment as the stage pickers and the app dialog (HANDOVER §7 /
    AGENTS lessons): dismiss listeners on the DOCUMENT (setPointerCapture
@@ -169,12 +200,17 @@ function updateHUD(){
 
   // fault chip: watchdog timeout or a blocking delay()
   const blocked = SIM.millis < SIM.blockUntil;
-  const starved = !PROFILE.footPWM() && MOT.driveTO && MOT.drive!==0;
+  /* the one Sabertooth packet clock carries BOTH drive and turn, so a held
+     stick that only turns starves it exactly as a held throttle does — the
+     Turn bar below already went red for it, but this chip, the one the
+     mod2026 note tells the user to watch, read only MOT.drive and stayed
+     dark for a pure turn (v1.78.0, review L11) */
+  const starved = !PROFILE.footPWM() && MOT.driveTO && (MOT.drive!==0 || MOT.turn!==0);
   const f=$('chFault');
   if(blocked || starved){
     f.style.display='';
     f.className='chip bad';
-    f.lastElementChild.textContent = blocked ? 'LOOP BLOCKED · delay(750)' : 'S/T TIMEOUT · watchdog';
+    f.lastElementChild.textContent = blocked ? 'LOOP BLOCKED · delay('+BLOCK.ms+')' : 'S/T TIMEOUT · watchdog';
   } else f.style.display='none';
 
   const setBar=(bid,vid,val,max,cls)=>{

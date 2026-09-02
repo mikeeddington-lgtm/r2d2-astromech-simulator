@@ -73,6 +73,38 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
     return n===PAINT_ROLES.length;
   }));
 
+  /* v1.78.0 (review 2026-09-01, L17) — a toast fired from INSIDE the wizard
+     used to land in #stage (z 7) behind #startup (z 120, opaque): the
+     servo-import receipt and its dropped-field list (config/wizard.js) were
+     never seen. While an overlay is up the host hangs off <body>, fixed and
+     above the overlay stack; with none up it stays in the stage, where the
+     chrome suite measures it. elementFromPoint is the assertion — the
+     question is whether the plate is what a pointer would find there. */
+  console.log('\n════ a toast fired inside the wizard is seen ════');
+  const wizToast = await ev(()=>{
+    const h0 = $('toasts'); if(h0) h0.remove();
+    wizOpen(wizStepIndex('_servoSet'));
+    const p = toast('receipt from inside the wizard');
+    const r = p.getBoundingClientRect();
+    const hit = document.elementFromPoint(r.left + r.width/2, r.top + r.height/2);
+    const out = {open: $('startup').classList.contains('on'), w: Math.round(r.width), h: Math.round(r.height),
+                 onPlate: !!hit && (hit === p || p.contains(hit)),
+                 hit: hit ? (hit.id || hit.className || hit.tagName) : null,
+                 under: !!hit && !!hit.closest && !!hit.closest('#startup')};
+    closeStartup();
+    const h = $('toasts'); if(h) h.remove();
+    return out;
+  });
+  ok('the plate is what sits under the pointer at its own centre — not the wizard',
+     wizToast.open && wizToast.w > 0 && wizToast.onPlate && !wizToast.under, JSON.stringify(wizToast));
+  ok('…and with the wizard closed a toast goes back over the stage, where it always was', await ev(()=>{
+    toast('back on the stage');
+    const h = $('toasts');
+    const inStage = !!h && h.parentNode === $('stage') && getComputedStyle(h).position === 'absolute';
+    h.remove();
+    return inStage;
+  }));
+
   console.log('\n════ paint ════');
   const nSlots = await ev(()=>CAD.slots.length);
   ok('materials are split into paintable part groups', nSlots > CAD_MATS_MIN, nSlots+' slots from '+await ev(()=>CAD.mats.length)+' Fusion materials');

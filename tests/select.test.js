@@ -232,8 +232,29 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
     const r = groupToSequences(id);
     return r && /no Maestro settings/.test(r.error||'');
   }, gid));
+  /* v1.78.0 (review 2026-09-01, L9) — and it sends you to the pane by the
+     name on its tab button. "The Maestro tab" has not existed since v1.73.0:
+     the table is generated and imported on Board ▸ Servo / Sequence config,
+     and the wording is quoted from the button so a rename cannot strand it. */
+  ok('…and names the pane the file comes from as its tab does — not "the Maestro tab"', await page.evaluate(id=>{
+    const r = groupToSequences(id);
+    const tab = document.querySelector('#tabs button[data-p="pMae"]').textContent.trim();
+    return r && r.error.indexOf('Board ▸ '+tab) >= 0 && !/Maestro tab/.test(r.error);
+  }, gid), await page.evaluate(id=>groupToSequences(id).error, gid));
   await ev(()=>{ loadProfile('maestro25'); });
   await page.waitForTimeout(400);
+  /* the "no settings" Port row is drawn only on a Maestro profile with no
+     table loaded — this profile, one line before the starter is made */
+  const portRow = await page.evaluate(n=>{
+    const was = MSTR.loaded; MSTR.loaded = false;
+    selectPart(n);
+    const d = $('selcard').querySelector('.selport.dim');
+    const tab = document.querySelector('#tabs button[data-p="pMae"]').textContent.trim();
+    const said = d ? d.title : '(no dim Port row: hasServos='+PROFILE.hasServos+')';
+    deselectPart(); MSTR.loaded = was;
+    return {ok: !!d && said.indexOf('Board ▸ '+tab) >= 0 && !/Maestro tab/.test(said), said};
+  }, doorName);
+  ok('the part card\'s "no settings" Port row says the same', portRow.ok, portRow.said);
   await ev(()=>{ setBoard('mini24'); makeStarter('body','mini24'); });
   const seqR = await page.evaluate(id=>{
     const before = MSTR.sequences.length;
@@ -316,6 +337,36 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
   }, pie3Ch);
   ok('the note names the part driven by the taken channel', !!portNote && /Pie/.test(portNote), portNote);
   ok('and never the raw actuator id', !!portNote && !/\bpie3\b/.test(portNote), portNote);
+
+  /* v1.78.0 (review 2026-09-01, L16) — the part card is the DROID's: its
+     Port select rewrites MSTR.channels[n].act and its Test slider drives
+     ACT. It used to survive a model switch, so a pie clicked on the droid
+     left an R2 card with live controls floating over the servo gauges or
+     the Anzellan head — a part you could no longer see, still editable.
+     modelApply() drops the selection now; a same-model re-pick is a no-op
+     in modelSet() and never reaches it, so that path keeps the card. */
+  console.log('\n════ the part card does not outlive the model it belongs to ════');
+  const swapCard = await ev(()=>{
+    const pie = CAD.moving.find(m=>/^pie\d/.test(m.act)) || CAD.moving[0];
+    modelSet('droid', {frame:false});
+    selectPart(pie.name);
+    const before = SEL.name===pie.name && $('selcard').classList.contains('on');
+    modelSet('servos', {frame:false});
+    const gauges = {sel: SEL.name, on: $('selcard').classList.contains('on')};
+    modelSet('droid', {frame:false});
+    selectPart(pie.name);
+    modelSet('droid', {frame:false});               /* the model already on the stage: a no-op */
+    const samePick = {sel: SEL.name, on: $('selcard').classList.contains('on')};
+    modelSet('frik', {frame:false});
+    const head = {sel: SEL.name, on: $('selcard').classList.contains('on')};
+    modelSet('droid', {frame:false});
+    return {part: pie.name, before, gauges, samePick, head};
+  });
+  ok('a pie selected on the droid: switching the stage to the servo gauges closes its card',
+     swapCard.before && swapCard.gauges.sel===null && !swapCard.gauges.on, JSON.stringify(swapCard));
+  ok('…and to the Anzellan head', swapCard.head.sel===null && !swapCard.head.on, JSON.stringify(swapCard.head));
+  ok('…while re-picking the model already on the stage keeps it',
+     swapCard.samePick.sel===swapCard.part && swapCard.samePick.on, JSON.stringify(swapCard.samePick));
 
   ok('no page errors', errs.length===0, errs.join(' | '));
 

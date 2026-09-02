@@ -160,6 +160,73 @@ const LIVE = fs.readFileSync(path.resolve(__dirname,'fixtures-live-dome.mstr'),'
   ok('restartScript replaces the running sequence (one script at a time)',
      oneAtATime.switched && !oneAtATime.stillOld && oneAtATime.done);
 
+  /* ================================================================
+     PARITY WITH THE FIRMWARE'S OWN TESTS (v1.78.0, review M5)
+
+     arduino/MaestroPCA/test/*.cpp is the oracle this engine claims to
+     mirror integer-for-integer, and two places had drifted. The expected
+     numbers below are the C++ suites' numbers, not ours:
+
+       bounds_test.cpp:97-118   one 250 ms update() at speed 40 from 6000
+                                toward 8000 lands on 7000 — 25 ticks, not
+                                the 20 a second clamp at 200 ms delivered —
+                                and a 5 s stall is clamped to the same 250.
+       features_test.cpp:282    table speed 0 (unlimited), a frame speed on
+                                the routine; "a move made AFTER the routine
+                                runs at the table's speed" — arrives inside
+                                20 ms — and MaestroPCA.cpp:221 hands the
+                                speeds back on DISPLACEMENT the same way it
+                                does at the end.
+     ================================================================ */
+  console.log('\n════ parity: a stall advances the servos as far as the frames (bounds_test.cpp) ════');
+  const stall = await ev(()=>{
+    const mk = ()=>[{i:0,name:'T',mode:'Servo',min:4000,max:8000,home:6000,homemode:'Goto',speed:40,acceleration:0}];
+    const seqs = [{name:'S',frames:[{name:'f',duration:100,targets:[6000]}]}];
+    const E = pcaCreate(mk(), seqs);
+    pcaSetTarget(E, 0, 8000);                 /* 2000 away, so no arrival */
+    pcaTick(E, 250);
+    const E2 = pcaCreate(mk(), seqs);
+    pcaSetTarget(E2, 0, 8000);
+    pcaTick(E2, 5000);
+    return {pos:pcaPos(E,0), ticks:E.ticks, ms:E.ms, stalled:pcaPos(E2,0), stalledTicks:E2.ticks};
+  });
+  ok('250 ms of stall is 25 ticks of travel — pos 7000, as bounds_test.cpp:108 asserts',
+     stall.pos === 7000 && stall.ticks === 25, 'pos '+stall.pos+', '+stall.ticks+' ticks');
+  ok('…and the frame clock was given the same 250 ms the servos were', stall.ms === 250, 'ms '+stall.ms);
+  ok('a 5 s stall is still clamped to the same 250 ms (bounds_test.cpp:117)',
+     stall.stalled === 7000 && stall.stalledTicks === 25, 'pos '+stall.stalled+', '+stall.stalledTicks+' ticks');
+
+  console.log('\n════ parity: a displaced routine\'s speeds go back with its channels (MaestroPCA.cpp:221) ════');
+  const disp = await ev(()=>{
+    /* table speed 0 = unlimited, exactly features_test.cpp's T2 — so a
+       channel running at the TABLE's speed arrives inside one tick and one
+       still carrying a routine's speed visibly does not */
+    const ch = [0,1].map(i=>({i,name:'c'+i,mode:'Servo',min:4000,max:8000,home:6000,homemode:'Goto',speed:0,acceleration:0}));
+    const seqs = [
+      {name:'A', frames:[{name:'f',duration:2000,targets:[8000,8000],speeds:[7,9]}]},   /* ch0 at 7, ch1 at 9 */
+      {name:'B', frames:[{name:'f',duration:600, targets:[4000,0]}]}                     /* ch0 only, no speeds */
+    ];
+    const E = pcaCreate(ch, seqs);
+    const step = ms=>{ for(let i=0;i<ms;i+=10) pcaTick(E,10); };
+    pcaRestart(E, 0); step(100);
+    const during = {ch0:pcaPos(E,0), ch1:pcaPos(E,1), sp0:E.st[0].speed, sp1:E.st[1].speed};
+    pcaRestart(E, 1);                          /* B claims ch0 — A is displaced */
+    const displaced = !pcaSeqRunning(E,0) && pcaSeqRunning(E,1);
+    const after = {sp0:E.st[0].speed, sp1:E.st[1].speed, seq0:!!E.st[0].seqSpeed, seq1:!!E.st[1].seqSpeed};
+    step(20);
+    return {during, displaced, after, ch0:pcaPos(E,0), ch1:pcaPos(E,1)};
+  });
+  ok('the fixture is live: A\'s frame speeds are on both channels and both are still on their way',
+     disp.during.sp0 === 7 && disp.during.sp1 === 9 && disp.during.ch0 === 6070 && disp.during.ch1 === 6090,
+     JSON.stringify(disp.during));
+  ok('B displaces A', disp.displaced);
+  ok('A\'s speeds are handed back to the table on displacement — the channel B claimed AND the one it did not',
+     disp.after.sp0 === 0 && disp.after.sp1 === 0 && !disp.after.seq0 && !disp.after.seq1, JSON.stringify(disp.after));
+  ok('so B runs ch0 at the table\'s speed: unlimited, there inside 20 ms — not A\'s 7',
+     disp.ch0 === 4000, 'ch0 '+disp.ch0);
+  ok('…and ch1, which B never touched, finishes A\'s move at the table\'s speed too, not A\'s 9',
+     disp.ch1 === 8000, 'ch1 '+disp.ch1);
+
   console.log('\n════ the live dome file end-to-end ════');
   const live = await ev(text=>{
     const P = mstrParse(text, 'fixtures-live-dome.mstr');

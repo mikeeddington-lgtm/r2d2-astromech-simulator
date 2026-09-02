@@ -84,6 +84,52 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
   await page.waitForFunction(ms=>SIM.millis > ms + 400, before.ms, {timeout:20000});
   ok('loop() is still running — SIM.millis advanced', true);
 
+  /* v1.78.0 (review M14) — Guide+LB+RB is the sketch's own Xbox.disconnect(0),
+     and both firmware families honour it: the pad is released and the feet
+     disarm on the next pass. On the bench the header chip re-syncs it with a
+     click. In sim only the header is display:none and a real gamepadconnected
+     is the only other writer of forceDisconnect=false — so a visitor mashing
+     G/Q/E ended the exhibit until the operator typed the password. Real keys,
+     because that is what a visitor has: both bumpers HELD, then the Guide
+     click, which is the edge the sketch reads. The wait is on the LOG — the
+     chord has one line whichever way xboxDisconnect() answers — so it is a
+     state, not a guess about frame timing. */
+  console.log('\n════ Guide+LB+RB is a bench control, not a public one ════');
+  const logAt = await ev(()=>{ INPUT.keys = {}; return LOG.length; });
+  await page.keyboard.down('KeyQ');
+  await page.keyboard.down('KeyE');
+  await page.keyboard.down('KeyG');
+  await page.waitForFunction(n=>LOG.slice(n).some(l=>/Xbox\.disconnect/.test(l.s)), logAt, {timeout:20000});
+  await page.keyboard.up('KeyG');
+  await page.keyboard.up('KeyE');
+  await page.keyboard.up('KeyQ');
+  const chord = await ev(n=>({
+    connected: XB.controllerConnected, forced: INPUT.forceDisconnect,
+    said: LOG.slice(n).filter(l=>/Xbox\.disconnect/.test(l.s)).map(l=>l.k+': '+l.s)
+  }), logAt);
+  ok('the chord leaves the pad connected while sim only is on',
+     chord.connected === true && chord.forced === false, JSON.stringify(chord));
+  ok('…and the log says it was ignored, so the operator can see somebody tried',
+     chord.said.some(s=>/^sys: .*ignored/.test(s)), JSON.stringify(chord.said));
+  /* the visitor's next move is to drive — so the pad has to still reach the
+     sketch, and the feet have to still arm. A disconnected receiver zeroes
+     both in pollInput() and mod2026's loop() forces isDriveEnabled false. */
+  await ev(()=>{ INPUT.keys = {}; });
+  await page.keyboard.down('KeyW');
+  const stick = await page.waitForFunction(()=>XB.hat.LeftHatY > 30000 && getAnalogHat('LeftHatY') > 30000,
+    null, {timeout:5000}).then(()=>true).catch(()=>false);
+  ok('…a stick push still reaches the sketch afterwards', stick,
+     await ev(()=>JSON.stringify({hat:XB.hat.LeftHatY, connected:XB.controllerConnected})));
+  await ev(()=>virtualPress('START'));
+  const armed = await page.waitForFunction(()=>FW.isDriveEnabled === true, null, {timeout:5000})
+    .then(()=>true).catch(()=>false);
+  const drove = armed && await page.waitForFunction(()=>MOT.drive > 0, null, {timeout:5000})
+    .then(()=>true).catch(()=>false);
+  ok('…START still arms the feet and the droid still drives', armed && drove,
+     await ev(()=>JSON.stringify({armed:FW.isDriveEnabled, drive:MOT.drive, connected:XB.controllerConnected})));
+  await page.keyboard.up('KeyW');
+  await ev(()=>{ INPUT.keys = {}; FW.isDriveEnabled = false; });
+
   console.log('\n════ the guards that survive hiding a control ════');
   await ev(()=>openStartup());
   ok('openStartup() will not raise the setup wizard', await ev(()=>

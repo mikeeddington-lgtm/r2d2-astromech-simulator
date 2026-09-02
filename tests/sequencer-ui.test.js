@@ -1137,6 +1137,45 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
      (await ev(()=>blockList(MSTR.sequences[EDIT.seq]).length))===guardSetup);
   await ev(()=>{ if(document.activeElement) document.activeElement.blur(); });
 
+  /* v1.78.0 (review 2026-09-01, M15) — the servo bench is a full-page
+     overlay (#setupWrap) that the library's "map one…" opens OVER a live
+     sequencer, and it was the one overlay the key guards did not know: they
+     checked .dlgwrap, .iwrap and #startup.on by hand while uiModalOpen()
+     (core/util.js) already listed the bench. Brick selected, bench open,
+     focus on one of its BUTTONS (not an input, so the field exemption does
+     not apply), Delete — and the brick was gone under the overlay with
+     nothing on screen to show it. Backspace and Ctrl+Z took the same door. */
+  console.log('\n════ Delete / Backspace / Ctrl+Z stay out while the servo bench is open (M15) ════');
+  const benchSetup = await ev(()=>{
+    const seq = MSTR.sequences[EDIT.seq];
+    blockHistPush(seq);                              /* so Ctrl+Z would have something to undo */
+    const b = blockAdd(seq, 'act', blockActions()[0].act, 4000, {dur:400});
+    BLK.sel = b.id; blkSelClear();
+    buildSequencer();
+    setupOpen(4);                                    /* the bench, on its Channels step */
+    const btn = Array.from($('setupWrap').querySelectorAll('button'))
+                     .find(x=>x.getBoundingClientRect().width > 0);
+    if(btn) btn.focus();
+    return {n: blockList(seq).length, canUndo: blockCanUndo(seq),
+            modal: typeof uiModalOpen === 'function' && uiModalOpen(),
+            focusedOnBench: !!btn && document.activeElement === btn};
+  });
+  ok('the bench is open over the sequencer, one of its buttons focused, an undo on the stack',
+     benchSetup.modal && benchSetup.focusedOnBench && benchSetup.canUndo, JSON.stringify(benchSetup));
+  await page.keyboard.press('Delete');
+  ok('Delete does not reach the selected brick through the bench',
+     (await ev(()=>blockList(MSTR.sequences[EDIT.seq]).length))===benchSetup.n);
+  await page.keyboard.press('Backspace');
+  ok('…nor does Backspace',
+     (await ev(()=>blockList(MSTR.sequences[EDIT.seq]).length))===benchSetup.n);
+  await page.keyboard.press('Control+z');
+  ok('…nor Ctrl+Z — the bricks are exactly as they were',
+     (await ev(()=>blockList(MSTR.sequences[EDIT.seq]).length))===benchSetup.n);
+  await ev(()=>{ setupClose(); if(document.activeElement) document.activeElement.blur(); });
+  await page.keyboard.press('Delete');
+  ok('close the bench and the same Delete removes the brick — the guard does not stick',
+     (await ev(()=>blockList(MSTR.sequences[EDIT.seq]).length))===benchSetup.n-1);
+
   /* ==================================================================
      v1.43.0 — Mike: "The Sequenceer - Needs a delete all with a confirm
      when buildign new sequnce". It ALWAYS asks, whatever the brick count,
@@ -1906,6 +1945,32 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
        const t = rm.getBoundingClientRect();
        return t.top >= r.top - 2 && t.bottom <= r.bottom + 2;
      }));
+  /* v1.78.0 (review 2026-09-01, L9) — the bar names what is BELOW the fold
+     and only that. It used to read "READY-MADE builds a whole figure in one
+     click" as a fixed string whenever groups existed — including right now,
+     with READY-MADE scrolled into view and only its row of shape buttons
+     still clipped. The rule: the label names the first group heading whose
+     top edge is past the fold, or nothing when no heading is. */
+  const labelFor = ()=>ev(()=>{
+    const lib = document.querySelector('#seqblocks .blklib');
+    const b = lib.querySelector('.blkmore button');
+    const rm = Array.from(lib.querySelectorAll('.blklibhead')).find(h=>/Ready-made/i.test(h.textContent));
+    const foldY = lib.getBoundingClientRect().bottom;
+    return {label: b ? b.textContent : '', rmBelow: !!rm && rm.getBoundingClientRect().top > foldY - 4,
+            bar: lib.querySelector('.blkmore').classList.contains('on')};
+  });
+  const labelSeen = await labelFor();
+  ok('with READY-MADE on screen the bar no longer claims it is below',
+     !labelSeen.rmBelow && !/READY-MADE/i.test(labelSeen.label), JSON.stringify(labelSeen));
+  await ev(()=>{
+    const lib = document.querySelector('#seqblocks .blklib');
+    lib.scrollTop = 0;
+    if(typeof blkLibMoreSync === 'function') blkLibMoreSync();
+  });
+  const labelTop = await labelFor();
+  ok('back at the top it names READY-MADE exactly when READY-MADE is past the fold',
+     /READY-MADE/i.test(labelTop.label) === labelTop.rmBelow && /more below/.test(labelTop.label),
+     JSON.stringify(labelTop));
   await ev(()=>{
     const lib = document.querySelector('#seqblocks .blklib');
     lib.scrollTop = lib.scrollHeight;

@@ -36,14 +36,55 @@ const ok = (n,c,extra='') => { c?pass++:fail++;
   await hold({btn:{START:1}}); await page.waitForTimeout(100); await clr(); await page.waitForTimeout(200);
   ok('START arms the feet', await ev(()=>FW.isDriveEnabled));
 
-  // RAMPING: from 0 the throttle must climb in steps of 2 per loop
+  /* "RAMPING" IS NOT A RAMP (v1.78.0, review 2026-09-01, M13). This used to
+     say "from 0 the throttle must climb in steps of 2 per loop" and then
+     assert only the peak — which is how a claim that was never true sat
+     here unchallenged. mod2026.ino:391-397, ported verbatim:
+
+       if (throttleStickValue - driveThrottle < (RAMPING + 1)) driveThrottle += RAMPING;
+       else driveThrottle = throttleStickValue;
+
+     The comparison is backwards: a change BIGGER than RAMPING jumps to the
+     target in one pass, and only a change of RAMPING or less is stepped —
+     which overshoots a one-unit change and flips it ±RAMPING for ever
+     (9,7,9,7… at RAMPING 2; the 2022 BETA buzzes ±5 on the Sabertooth wire
+     the same way). The 2025 sketch fixed it (`> RAMPING`). The sim
+     reproduces the bug on purpose — the bugs are the product — so what is
+     pinned here is the REAL shape, driven pass by pass through
+     PROFILE.loop() inside one evaluate so no frame can land in between,
+     and the note that now tells the builder (asserted with the other
+     notes, below). */
   await ev(()=>{FW.driveThrottle=0; FW.lastDriveThrottleSent=-1;});
   await hold({ax:{LY:1}});
   const ramp = await page.evaluate(()=> new Promise(res=>{
     const s=[]; const t0=SIM.ticks;
     const id=setInterval(()=>{ s.push(FW.driveThrottle); if(SIM.ticks-t0>200){clearInterval(id);res(s);} },16);
   }));
-  ok('drive ramps up (RAMPING=2/loop), tops out at DRIVESPEED1', ramp[ramp.length-1]===90, 'peak='+ramp[ramp.length-1]);
+  ok('full stick lands at DRIVESPEED1 and stays there', ramp[ramp.length-1]===90 && ramp.every(v=>v===0||v===90),
+     'peak='+ramp[ramp.length-1]+' values seen: '+JSON.stringify([...new Set(ramp)]));
+  const shape = await ev(()=>{
+    const passes = (hat, from, n)=>{
+      INPUT.virtual.LY = hat/32767; XB.hat.LeftHatY = hat;   // the pad writes XB.hat each frame; set both so loop() sees it now
+      FW.driveThrottle = from;
+      const out = [];
+      for(let i=0;i<n;i++){ PROFILE.loop(); out.push(FW.driveThrottle); }
+      return out;
+    };
+    const r = { ramping: CFG.RAMPING,
+                jump: passes(32767, 0, 1),               // 0 → 90: one pass
+                jumpStick: FW.throttleStickValue,
+                buzz: passes(3000, 7, 4),                // stick reads 8, throttle is 7: never lands
+                buzzStick: FW.throttleStickValue,
+                twoWide: passes(3000, 6, 3) };           // a change of exactly RAMPING does land
+    INPUT.virtual.LY = 1; XB.hat.LeftHatY = 32767;
+    return r;
+  });
+  ok('a 0 → 90 stick change lands at 90 in ONE pass — a jump, not a climb (RAMPING='+shape.ramping+')',
+     shape.jumpStick===90 && shape.jump[0]===90, JSON.stringify(shape.jump));
+  ok('a 7 → 8 change never lands: 9, 7, 9, 7 — the ±RAMPING buzz, reproduced as the sketch has it',
+     shape.buzzStick===8 && JSON.stringify(shape.buzz)==='[9,7,9,7]', JSON.stringify(shape.buzz)+' (stick reads '+shape.buzzStick+')');
+  ok('…while a change of exactly RAMPING (6 → 8) does land and stay',
+     JSON.stringify(shape.twoWide)==='[8,8,8]', JSON.stringify(shape.twoWide));
   await clr(); await page.waitForTimeout(900);
 
   // deadzone
@@ -89,6 +130,17 @@ const ok = (n,c,extra='') => { c?pass++:fail++;
   await page.waitForTimeout(900);
   const fixed = await ev(()=>({turning:FW.isDomeTurningAuto, dome:MOT.dome}));
   ok('with the fix: Syren actually receives ±75', Math.abs(fixed.dome)===75, JSON.stringify(fixed));
+  /* (v1.78.0, M13) the Firmware step's Advanced box is where the sketch's
+     bug notes are rendered — the same list HANDOVER §4 keeps — and until
+     now nothing in it said that RAMPING is not a ramp. Read from the DOM
+     the builder sees, not from the profile object. */
+  const notes = await ev(()=>Array.from(document.querySelectorAll('#startupBody .note')).map(n=>n.textContent));
+  const rampNote = notes.find(t=>/RAMPING is not a ramp/.test(t)) || '';
+  ok('the mod2026 notes say RAMPING is not a ramp — the jump, the 9,7,9,7 buzz, and that the 2025 sketch fixed it',
+     /one pass/.test(rampNote) && /9, 7, 9, 7/.test(rampNote) && /2025 sketch fixed/.test(rampNote),
+     rampNote ? rampNote.slice(0,120)+'…' : notes.length+' note(s), none about RAMPING');
+  ok('…and the profile carries it as a warn note, in the shape of the others',
+     await ev(()=>PROFILES.mod2026.notes.some(n=>n.k==='warn' && /RAMPING is not a ramp/.test(n.h))));
   await ev(()=>{const c=document.getElementById('cbFixDome'); c.checked=false; c.dispatchEvent(new Event('change'));});
   await ev(()=>closeStartup());
 

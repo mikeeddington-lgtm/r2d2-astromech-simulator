@@ -184,6 +184,42 @@ function linkChipText(){
   if(SER.blocked) return {cls:'warn', text:'Monitor only'};
   return {cls:'on', text:'Board linked'};
 }
+/* WHAT IS ON THE OTHER END, IN WORDS (v1.78.0, review L9)
+   The chip's title and the sequencer's ⚡ button both said "a board running
+   PCA_Bridge" whatever was plugged in — a Pololu Maestro and a
+   MaestroReplacement v2 both stream through the same link and were both
+   called the wrong thing. Two questions, two answers:
+
+     linkBoardName()   — what IS connected. SER.kind is 'maestro' once
+                         Pololu's Get Errors answered and '' before anything
+                         did; serialConnect() never writes the sketch kinds
+                         into it, so a PCA_Bridge or a co-processor is known
+                         by its banner, which serialWhat() reads. Kind first,
+                         banner second, so a suite that sets SER.kind and a
+                         real board that only printed a banner agree.
+     linkBoardWanted() — what a click would OPEN, with nothing connected:
+                         whatever the BUILD says is on the other end. A
+                         Pololu board in the channel table (the same test
+                         serialConnect() uses before it asks Get Errors),
+                         else the sketch the bench was told is flashed.
+
+   Both sim-only, like this file; live-drive.js reaches them by name. */
+function linkBoardName(){
+  const kind = (typeof SER !== 'undefined' && SER.kind)
+            || ((typeof serialWhat === 'function') ? serialWhat() : '');
+  if(kind === 'maestro') return 'a Pololu Maestro';
+  if(kind === 'coproc-live' || kind === 'coproc') return 'a board running MaestroReplacement';
+  if(kind === 'bridge') return 'a board running PCA_Bridge';
+  return 'a board that has not said which sketch it runs';
+}
+function linkBoardWanted(){
+  if(typeof serialBuildIsMaestro === 'function' && serialBuildIsMaestro()) return 'your Pololu Maestro';
+  const hw = (typeof HW !== 'undefined' && HW.setup) ? HW.setup() : null;
+  const sk = (hw && hw.sketch) || 'bridge';
+  if(sk === 'coproc') return 'a board running MaestroReplacement';
+  if(sk === 'esp32')  return 'a board running Esp32Droid';
+  return 'a board running PCA_Bridge';
+}
 function linkChipSync(){
   const e = (typeof $ === 'function') ? $('chLink') : null;
   if(!e || !e.lastElementChild) return;
@@ -192,10 +228,11 @@ function linkChipSync(){
   e.lastElementChild.textContent = s.text;
   /* the title is FIXED, not a mirror of the text — it says what a click
      does, which the text cannot (main.js's syncChipTitles leaves #chLink
-     out for the same reason it leaves #chDrive out) */
+     out for the same reason it leaves #chDrive out). The board it names is
+     the one that is there, or the one the build expects (v1.78.0, L9). */
   e.title = (typeof SER !== 'undefined' && SER.port)
-    ? 'Connected to a board running PCA_Bridge. Click to disconnect — the servos hold their last position.'
-    : 'No board. Click to open a USB serial port to the PCA bridge (Chrome or Edge, over USB).';
+    ? 'Connected to ' + linkBoardName() + '. Click to disconnect — the servos hold their last position.'
+    : 'No board. Click to open a USB serial port to ' + linkBoardWanted() + ' (Chrome or Edge, over USB).';
 }
 function linkChipInit(){
   const e = (typeof $ === 'function') ? $('chLink') : null;

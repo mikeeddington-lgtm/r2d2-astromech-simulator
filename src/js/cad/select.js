@@ -298,7 +298,11 @@ function buildSelCard(){
       r4.appendChild(sel);
     }else{
       const d = el('div','selport dim','no Maestro settings loaded');
-      d.title = 'generate or import a .mstr on the Maestro tab, then pick the channel here';
+      /* by the pane's real name — partsServoPane() (cad/parts.js) quotes the
+         tab button; "the Maestro tab" has not existed since v1.73.0 (v1.78.0,
+         review L9) */
+      const pane = (typeof partsServoPane === 'function') ? partsServoPane() : 'Board ▸ Servo / Sequence config';
+      d.title = 'generate or import a .mstr on '+pane+', then pick the channel here';
       r4.appendChild(d);
     }
     card.appendChild(r4);

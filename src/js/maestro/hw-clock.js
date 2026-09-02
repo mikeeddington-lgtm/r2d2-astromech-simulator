@@ -50,15 +50,37 @@ function hwClockStart(){
   if(HWCLK.id) return;
   HWCLK.last = (typeof performance !== 'undefined') ? performance.now() : 0;
   HWCLK.id = setInterval(()=>{
-    const now = (typeof performance !== 'undefined') ? performance.now() : HWCLK.last + HW_CLOCK_MS;
-    /* real elapsed time, not the nominal interval — a coalesced or throttled
-       timer must not slow the droid down, it must catch up */
-    let dt = now - HWCLK.last;
-    HWCLK.last = now;
-    if(dt < 0) dt = 0;
-    if(dt > 250) dt = 250;          /* a backgrounded tab does not fast-forward */
-    HW.tick(dt);
+    hwClockFire((typeof performance !== 'undefined') ? performance.now() : HWCLK.last + HW_CLOCK_MS);
   }, HW_CLOCK_MS);
+}
+
+/* ONE FIRE OF THE HEARTBEAT, at wall time `now` — real elapsed time, not the
+   nominal interval: a coalesced or throttled timer must not slow the droid
+   down, it must catch up. Split out of the interval so a test can drive it
+   with a clock of its own.
+
+   THE REMAINDER IS CARRIED (v1.78.0, review M18). This used to hand the
+   engine `now - last` and move `last` to `now`; the engine takes whole
+   milliseconds (pcaTick's `dtms|0`, the firmware's uint32 millis), so the
+   fraction of every fire was thrown away — a setInterval(10) that really
+   fires every 10.7 ms lost 0.7 ms a fire, 1.94 % over 300 fires, and every
+   ramp over PCA_Bridge finished late by that margin. Now `last` advances by
+   the whole milliseconds actually delivered and the fraction waits for the
+   next fire, so what the engine is handed sums to the wall clock within a
+   millisecond however the timer jitters. This is where that belongs, not in
+   the engine: pcaseq.js mirrors MaestroPCA.cpp integer-for-integer and the
+   firmware has no fractions to carry — turning wall time into whole ms is
+   the clock's job (pcaTick says the same). The 250 cap keeps its old
+   meaning: a stall longer than that is handed 250 and the rest is dropped,
+   fraction included — a backgrounded tab does not fast-forward. */
+function hwClockFire(now){
+  const dt = now - HWCLK.last;
+  if(!(dt > 0)){ HWCLK.last = now; return; }        /* a clock that went backwards: resync, deliver nothing */
+  if(dt > 250){ HWCLK.last = now; HW.tick(250); return; }
+  const whole = Math.floor(dt);
+  if(!whole) return;                                /* under a millisecond so far — it accrues */
+  HWCLK.last += whole;
+  HW.tick(whole);
 }
 
 function hwClockStop(){

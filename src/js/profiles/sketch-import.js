@@ -747,8 +747,23 @@ function skTranspile(src, fileName){
 function __idiv(a, b){ return Math.trunc(a / b); }
 function __cfg(k, d){ return (typeof CFG !== 'undefined' && CFG[k] !== undefined) ? CFG[k] : d; }
 function __delay(ms){ SIM.blockUntil = Math.max(SIM.blockUntil || 0, SIM.millis + ms); }
+/* (v1.78.0, review M10) the sketch's map() IS Arduino's, in C:
+
+       long map(long x, long a, long b, long c, long d){ return (x - a) * (d - c) / (b - a) + c; }
+
+   Two things that shape says, both of which this used to get wrong. Every
+   parameter is a LONG, so a float argument is truncated toward zero before
+   the arithmetic starts (maestro25.ino hands it `float LeftSpeed`, and the
+   hand port learned the same lesson in M12). And the DIVISION truncates,
+   then `+ c` happens to the truncated quotient — this truncated the SUM,
+   `Math.trunc(q + outMin)`, which is the same answer only once q + outMin
+   has reached zero: the exact off-by-one core/util.js map_ was cured of in
+   v1.69.0 §7.1, carried here in a second copy. A transpiled mod2026 read
+   32,760 of the hat's 65,536 positions one unit hot on the reverse half
+   (-32767 → -89 where the Arduino says -90). One implementation now: the
+   long conversions, then map_ itself. */
 function __amap(x, inMin, inMax, outMin, outMax){
-  return Math.trunc((x - inMin) * (outMax - outMin) / (inMax - inMin) + outMin);
+  return map_(Math.trunc(x), Math.trunc(inMin), Math.trunc(inMax), Math.trunc(outMin), Math.trunc(outMax));
 }
 function __mkUsb(){ return { Init:()=>0, Task:()=>{} }; }
 function __mkXbox(){
@@ -949,15 +964,24 @@ function sketchRegister(src, fileName, opts){
     notes:[{k:'info', h:'<b>Transpiled sketch.</b> '+t.report.instances.join(' · ')
       + (t.report.caveats.length ? '<br>Caveats: '+t.report.caveats.join('; ') : '')}],
     /* loadProfile → setup(): rebuild the closure FIRST, so every load is a
-       re-flash — the sketch's mutable globals start over, and a Config
-       edit (loadProfile re-runs on apply) lands in __cfg() fresh */
+       re-flash — the sketch's mutable globals start over. A Config edit
+       lands in __cfg() fresh because the edit itself IS a load: the grid
+       calls sketchReflash() below (v1.78.0, review M11 — until then this
+       comment cited an "apply" that did not exist, and an edited constant
+       reached the exported .ino but never the running sketch). */
     /* (v1.77.0, review H6) …and a throw from either is caught HERE, on the
        sketch profile alone, and handed to fwFallback(): the sketch is
        unloaded, the setup's own recommendation runs instead, and the toast
        names the method. Left uncaught, a throw in loop() came back on
        every frame (frame()'s fixed-step while never decremented `acc`) and
        a throw in setup() at boot took the rest of the load handler with it. */
-    setup(){ try{ inst = skInstantiate(t); inst.setup(); }catch(e){ fwFallback(id, e, 'setup()'); } },
+    setup(){
+      /* (v1.78.0, M11) a re-flash from the Config grid: loadProfile() has
+         just put CFG back to the sketch's own numbers — restore the
+         builder's edits BEFORE the closure is rebuilt, so __cfg() reads them */
+      if(prof.reflashCfg){ Object.assign(CFG, prof.reflashCfg); prof.reflashCfg = null; if(CFG.vol !== undefined) SND.vol = CFG.vol; }
+      try{ inst = skInstantiate(t); inst.setup(); }catch(e){ fwFallback(id, e, 'setup()'); }
+    },
     loop(){ try{ inst.loop(); }catch(e){ fwFallback(id, e, 'loop()'); } }
   };
   PROFILES[id] = prof;
@@ -983,6 +1007,32 @@ function sketchRegister(src, fileName, opts){
      +t.report.cfgConsts.length+' constant(s) on the Config tab, libraries: '+t.report.includes.join(', '));
   t.report.caveats.forEach(c=>lg('sys','  caveat: '+c));
   return prof;
+}
+/* ============================================ a Config edit IS a re-flash
+   (v1.78.0, review M11.) A hand port reads CFG.X on every pass, so a number
+   typed into the Speed & feel grid changes the droid on the next loop. A
+   transpiled sketch cannot: its constants are emitted as
+   `let X = __cfg("X", d)` and read ONCE, when skInstantiate() builds the
+   closure — exactly as a #define is baked in at compile time. Until v1.78.0
+   the grid wrote CFG[k], logged it, and the running sketch carried on with
+   the old number while "Copy .ino constants" printed the new one: the
+   exported file and the simulated droid disagreed.
+
+   So an edit on a sketch profile re-flashes it. loadProfile() is the
+   re-flash the app already has — actuators, FW, motors, log and setup()
+   all start over, the sketch's mutable globals with them, as they would on
+   a board you had just flashed — but it also puts CFG back to the profile's
+   defaults before setup() runs, which would hand the builder's own edit
+   straight back to them. The edited CFG is therefore carried over the
+   reset on the profile itself and put back in its setup() before the
+   closure is rebuilt. Called from panels.js cfgNumGrid; false for a hand
+   port, which needs nothing of the sort. */
+function sketchReflash(){
+  const id = SIM.profile;
+  if(!isSketchProfile(id) || !PROFILES[id] || typeof loadProfile !== 'function') return false;
+  PROFILES[id].reflashCfg = JSON.parse(JSON.stringify(CFG));
+  loadProfile(id);
+  return true;
 }
 function sketchStore(){
   try{

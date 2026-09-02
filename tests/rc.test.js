@@ -263,6 +263,46 @@ const near=(a,b,e)=>Math.abs(a-b) <= (e===undefined?0.01:e);
     FAKE.ax = [0,0.05,1.0,-1]; rcRead(); rcDirectApply();
     return ACT_T.doorRL > 0.9;
   }));
+  /* v1.78.0 (review L13) — A SERVO BINDING RESTED HALF OPEN. The act: map
+     was (v+1)/2, the fixed -1 origin the triggers section above already
+     replaced for L2/R2 — so a self-centring gimbal, which reads 0 with
+     hands off, parked its door at 0.5 the moment it was bound, and
+     rcRestWarnings() read the axis value (0) and said nothing. HANDOVER §7:
+     mid-travel is a safe default for a gimbal and a wrong one for a door.
+     The map runs from the channel's rest point now, like a trigger. */
+  ok('a gimbal bound to a door rests CLOSED, not half open', await ev(()=>{
+    rcClearAssign();
+    const c = RC.chans[1]; c.mode='out'; c.out='act:doorRL';   // ch2: a gimbal resting at 0.05, ctr 'rest'
+    FAKE.ax = [0, 0.05, -1, -1]; rcRead();
+    ACT_T.doorRL = 0.5; rcDirectApply();
+    const rest = ACT_T.doorRL;
+    const warned = rcRestWarnings().some(w=>w.idx === 1);
+    return c.ctr === 'rest' && rest === 0 && !warned;
+  }), await ev(()=>JSON.stringify({ctr:RC.chans[1].ctr, doorRL:ACT_T.doorRL})));
+  ok('…the far stop opens it fully and the near side of rest keeps it shut', await ev(()=>{
+    FAKE.ax = [0, 0.98, -1, -1]; rcRead(); rcDirectApply();
+    const open = ACT_T.doorRL;
+    FAKE.ax = [0, -0.93, -1, -1]; rcRead(); rcDirectApply();
+    const back = ACT_T.doorRL;
+    FAKE.ax = [0, 0.05, -1, -1]; rcRead(); rcClearAssign();
+    return open > 0.99 && back === 0;
+  }));
+  ok('a throttle bound to a door still sweeps its whole travel, and is not warned about', await ev(()=>{
+    rcClearAssign();
+    const c = RC.chans[2]; c.ctr='span'; c.mode='out'; c.out='act:doorRL';
+    FAKE.ax = [0, 0.05, -1, -1]; rcRead(); rcDirectApply();
+    const bottom = ACT_T.doorRL;
+    /* and the warning has to ask the DELIVERED question here too: this
+       channel reads -1 at rest and delivers 0 = closed, which is exactly
+       what a door wants and nothing to warn anybody about */
+    const delivered = rcRestDelivered(c, 2);
+    const warned = rcRestWarnings().some(w=>w.idx === 2);
+    FAKE.ax = [0, 0.05, 1, -1]; rcRead(); rcDirectApply();
+    const top = ACT_T.doorRL;
+    c.ctr = 'rest'; rcClearAssign();
+    window._thr = {bottom, delivered, warned, top};
+    return bottom === 0 && delivered === 0 && !warned && top > 0.99;
+  }), await ev(()=>JSON.stringify(window._thr)));
   ok('nothing is written when RC is not the controller answer', await ev(()=>{
     buildSet('controller','xbox360');
     MOT.drive = 0; rcRead();
@@ -457,6 +497,83 @@ const near=(a,b,e)=>Math.abs(a-b) <= (e===undefined?0.01:e);
     const gp = rcGamepad();
     return !!gp && gp.id === FAKE.id && rcOwns(gp);
   }));
+
+  console.log('\n════ the on-screen sticks — a click is a press the next poll cannot miss ════');
+  /* v1.78.0 (review L14). The stick click set INPUT.virtual.btn.L3 and
+     cleared it 60 ms later on the WALL clock; pollInput() only runs from
+     frame(), so on a machine drawing slower than ~16 fps the press was set
+     and cleared between two polls and getButtonClick('L3') never saw it —
+     the speed step and the HP light did not answer a click. virtualPress()
+     (input/pad-ui.js) latches the edge into XB.click at once, which is the
+     shape the DRIVE chip already uses. It lives in THIS suite because this
+     is the one that already polls by hand with the frame loop stopped (the
+     prefs block above): the only poll below is the one the test makes — 200
+     ms late, on purpose, because a late poll IS the scenario. A REAL pointer,
+     because the stick handler captures it and setPointerCapture() throws on
+     a synthetic id — and Playwright's own click, because closeStartup() puts
+     the app layout back on a deferred resize and the stick moves under a
+     position measured a moment earlier; page.click waits for the box to be
+     still and for the stick to be what is under the pointer. */
+  await ev(()=>{
+    closeStartup();
+    const f0 = frame; frame = function(){}; window._frame0 = f0;
+    pollInput(); getButtonClick('L3');                          // no stale edge
+    window._ptr = [];
+    ['pointerdown','pointermove','pointerup','pointercancel'].forEach(t=>
+      $('s_L').addEventListener(t, e=>window._ptr.push(t+':'+e.pointerId)));
+  });
+  await page.click('#s_L');
+  const clickAt = await ev(()=>({t: performance.now(), latched: XB.click.L3 === true,
+                                 press: XB.press.L3, virt: INPUT.virtual.btn.L3, ptr: window._ptr}));
+  ok('a click on the left stick is latched into the receiver stub the moment it happens',
+     clickAt.latched, JSON.stringify(clickAt));
+  await page.waitForFunction(t=>performance.now() - t >= 200, clickAt.t, {timeout:5000});
+  const late = await ev(()=>{
+    pollInput();                                                 // the late poll
+    const seen = getButtonClick('L3');
+    pollInput();
+    const again = getButtonClick('L3');
+    return {seen, again, press: XB.press.L3};
+  });
+  ok('…so a poll that comes 200 ms later still sees exactly one L3 click, and the press has fallen',
+     late.seen === true && late.again === false && late.press === 0, JSON.stringify(late));
+
+  console.log('\n════ a servo rate typed by a human is clamped where it is used ════');
+  /* v1.78.0 (review L14). CFG_LIMITS (app/panels.js) stops servoSpeed being
+     TYPED outside 10–20000, but a setup .json, an older profile or a console
+     poke never goes near the box, and stepServos() read the raw number: a
+     negative rate steps every pulse AWAY from its target for ever, a 0 never
+     moves one. animate.js clamps at the point of use now, the way it already
+     did for maestroRate. Asserted on PULSES, not travel — servoTravel()
+     clamps to 0..1 and would hide a pulse that had run off the end. */
+  const sv = await ev(()=>{
+    /* the hub-motor answer above let the build re-pick a Maestro sketch;
+       the PCA9685 servo model is mod2026's, so put it back for this */
+    if(PROFILE.id !== 'mod2026') loadProfile('mod2026');
+    const keep = CFG.servoSpeed;
+    const b = 1, ch = 0, s = SERVO[b][ch];                        // Left body door
+    const was = {pulse: s.pulse, target: s.target};
+    const lo = Math.min(CFG[s.def.lo], CFG[s.def.hi]), hi = Math.max(CFG[s.def.lo], CFG[s.def.hi]);
+    const run = rate=>{
+      s.pulse = CFG[s.def.lo]; s.target = CFG[s.def.hi];           // shut, told to open
+      CFG.servoSpeed = rate;
+      for(let i = 0; i < 120; i++) stepServos(0.1);                // twelve seconds of frames
+      return {rate, pulse: s.pulse, travel: servoTravel(b, ch)};
+    };
+    const out = {fw: PROFILE.id, lo, hi, neg: run(-5), zero: run(0), text: run('abc'), sane: run(keep)};
+    CFG.servoSpeed = keep; s.pulse = was.pulse; s.target = was.target;
+    out.limits = (typeof CFG_LIMITS !== 'undefined' && CFG_LIMITS.servoSpeed && typeof SERVO_RATE_MIN === 'number')
+      ? (CFG_LIMITS.servoSpeed.min === SERVO_RATE_MIN && CFG_LIMITS.servoSpeed.max === SERVO_RATE_MAX) : false;
+    return out;
+  });
+  const inside = r => isFinite(r.pulse) && r.pulse >= sv.lo && r.pulse <= sv.hi;
+  ok('servoSpeed = -5 (what a .json can deliver) cannot run a pulse off the end of its channel',
+     inside(sv.neg) && inside(sv.zero) && inside(sv.text), JSON.stringify(sv));
+  ok('…and the door still arrives — a rate that is not a rate falls back to the default',
+     sv.neg.travel === 1 && sv.zero.travel === 1 && sv.text.travel === 1 && sv.sane.travel === 1,
+     JSON.stringify({neg:sv.neg, zero:sv.zero, text:sv.text, sane:sv.sane}));
+  ok('the use-site limits are the Config box\'s (CFG_LIMITS.servoSpeed), so the two cannot drift',
+     sv.limits === true, String(sv.limits));
 
   console.log('\n════ no page errors ════');
   ok('nothing threw', errs.length===0, errs.join(' | '));

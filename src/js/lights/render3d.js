@@ -25,6 +25,16 @@
    the pixels are the same pixels either way and uploading them twice would
    be paying for a display nobody is looking at.
 
+   Both rigs, the fit and the textures are built lazily and cached, and the
+   cache has exactly ONE way out: lrReset() (v1.78.0, review M3). It used to
+   have none. A rig built once lived for the session — still parented to the
+   dome after the layer was switched off, still carrying the MK4's fit after
+   the model on the stage had been swapped for one with no logic parts at
+   all, still 9x10 after the front board had been changed to the 20x9
+   toolbox. Three different symptoms, one missing function. The layer going
+   off, a model swap and a board-shape change all go through the same door
+   now, and the next sync rebuilds from nothing.
+
    ------------------------------------------- measure, do not approximate
 
    The stand-in's boards go on by spherical coordinates, because that is how
@@ -55,7 +65,11 @@
    ===================================================================== */
 
 const LR = {
-  tex:{}, rigs:{}, host:null, hostKey:'', hidden:false, cadFit:null, warned:false
+  tex:{}, rigs:{}, host:null, hostKey:'', hidden:false, cadFit:null, warned:false,
+  /* the CAD header the fit and the CAD rig were measured from — buildCad
+     assigns a new one on every successful swap, so identity here IS "same
+     model on the stage" (v1.78.0, review M3) */
+  cadModel:null
 };
 
 /* Where each display sits on the STAND-IN's dome: theta down from the top,
@@ -116,7 +130,39 @@ function lrTexture(d){
   tex.flipY = true;
   tex.needsUpdate = true;
   LR.tex[d.key] = tex;
+  /* A fresh texture is all zeros and only a dirty display is uploaded. After
+     an lrReset() the display may be sitting on a settled effect that will
+     not dirty itself again for a while — SOLIDCOLOR, LIGHTSOUT — and a panel
+     that comes back black until the engine happens to touch it reads as a
+     board that failed to boot. Ask for the first upload here. */
+  d.dirty = true;
   return tex;
+}
+/* THE ONE WAY OUT OF THE CACHE (v1.78.0, review M3). Unmounts both rigs,
+   frees exactly what this file made — each panel's plane and material, each
+   bezel's, the CAD holos' housings and lamps, and the four shared textures
+   — and forgets the fit and the host, so the next apxSync() starts from
+   nothing. The stand-in's own lamps (R2.hp) are the model's and are left
+   alone; animate.js takes them back the next frame. Materials are one per
+   mesh here and never shared, so disposing per mesh is exact; the textures
+   ARE shared, which is why they are disposed once, from LR.tex, and not
+   through the materials that map them. A rig that buildCad has already
+   disposed with the old dome gets disposed again, which three.js treats as
+   a no-op. */
+function lrReset(){
+  for(const key of Object.keys(LR.rigs)){
+    const rig = LR.rigs[key];
+    if(!rig) continue;
+    if(rig.parent) rig.parent.remove(rig);
+    rig.traverse(o => {
+      if(o.geometry) o.geometry.dispose();
+      if(o.material) o.material.dispose();
+    });
+  }
+  for(const key of Object.keys(LR.tex)) if(LR.tex[key]) LR.tex[key].dispose();
+  LR.tex = {}; LR.rigs = {};
+  LR.cadFit = null; LR.cadModel = null;
+  LR.host = null; LR.hostKey = '';
 }
 /* ------------------------------------------------ the viewing gain
    THE ENGINE IS FAITHFUL AND THE SCREEN IS NOT AN LED, and this is where
@@ -337,6 +383,7 @@ function lrCadFace(name, inset, out, fit){
 function lrBuildCad(){
   const fit = lrFitDome();
   if(!fit) return null;
+  LR.cadModel = CAD.header;        // what this fit and this rig were measured from
   const rig = new THREE.Group();
   rig.name = 'astropixels-cad';
   let placed = 0;
@@ -397,6 +444,16 @@ function lrMount(){
   const key = cadOn ? 'cad' : 'proc';
   const host = cadOn ? CAD.dome : ((typeof R2 !== 'undefined') ? R2.dome : null);
   if(!host) return null;
+  /* A DIFFERENT MODEL IS A DIFFERENT DOME (v1.78.0, review M3). buildCad
+     swaps the whole tree: the rig that was parented to the old dome has had
+     its geometry disposed along with it, and the fit it was placed by was
+     measured off a shell that is no longer on the stage. The host check
+     below used to catch the new dome and simply re-parent the OLD rig onto
+     it — MK4 logic panels floating over the Polar Mouse. The header is the
+     model's identity (cad/build.js assigns it once, at the swap), so a rig
+     measured from another one is thrown away here and built again from the
+     parts that are actually loaded. */
+  if(cadOn && LR.cadModel && LR.cadModel !== CAD.header) lrReset();
   const rig = lrRig(key);
   if(!rig) return null;
   if(LR.hostKey === key && LR.host === host && rig.parent === host) return rig;
@@ -415,7 +472,18 @@ function apxSync(){
   if(!APX.built || typeof THREE === 'undefined') return;
   const on = APX.on;
   lrShowLegacy(!on);
-  if(!on) return;
+  /* Off means OFF THE DOME, not merely not updated (v1.78.0, review M3).
+     This used to return here having put the stand-in's fittings back, and
+     nothing took the rigs down — so both stayed parented and visible with
+     their last texture, a fraction of a millimetre in front of the legacy
+     boards they were meant to have handed back to. Unmount and free rather
+     than hide: the layer being off is the build saying this dome has no
+     AstroPixels, and a rig that is not there should not hold a fit, four
+     textures and a dozen meshes against the day it is. Rebuilding on the
+     way back on costs one dome fit, which is a few milliseconds and happens
+     once per tick of the checkbox. With nothing built this is two empty
+     loops a frame. */
+  if(!on){ lrReset(); return; }
   const rig = lrMount();
   if(!rig) return;
   for(const key of APX.order){

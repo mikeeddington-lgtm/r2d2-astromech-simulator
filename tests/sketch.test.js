@@ -81,6 +81,48 @@ const FIX = f => fs.readFileSync(path.join(__dirname, 'fixtures-sketches', f), '
   ok('numeric #defines and const ints surface for the Config tab',
      unit.consts.includes('SPEED'), unit.consts);
 
+  /* =================================================================
+     v1.78.0 — THE SKETCH'S map() IS ARDUINO'S (review 2026-09-01, M10)
+
+     The transpiler's map adapter truncated the SUM — the exact off-by-one
+     core/util.js map_() was cured of in v1.69.0 §7.1 — so an imported
+     sketch read the reverse half of every stick one unit hot: 32,760 of
+     the hat's 65,536 positions, -32767 → -89 where the board says -90. And
+     Arduino's map() takes longs, so a float argument is truncated toward
+     zero before the arithmetic starts (maestro25.ino hands it `float
+     LeftSpeed`). Pinned THROUGH the transpile, because what is under test
+     is which function `map` is in sketch scope, then swept across the whole
+     hat against map_(). The A/B golden below drives the same half of the
+     stick through the real fixture. */
+  console.log('\n════ the sketch\'s map() is Arduino\'s map() ════');
+  const amap = await ev(()=>{
+    const src = [
+      'void setup() { }',
+      'void loop() {',
+      '  Serial.println(map(-32767, -32768, 32767, -90, 90));',
+      '  Serial.println(map(-138.8, -100, 100, 69, 111));',
+      '  Serial.println(map(-1, -32768, 32767, -50, 50));',
+      '}'
+    ].join('\n');
+    const inst = skInstantiate(skTranspile(src, 'map.ino'));
+    LOG.length = 0;                       // Serial.println lands in the log as 'fw'
+    inst.loop();
+    const printed = LOG.filter(l=>l.k==='fw').map(l=>l.s);
+    let bad = 0, first = null;
+    for(let x=-32768; x<=32767; x++){
+      const g = __amap(x,-32768,32767,-90,90), r = map_(x,-32768,32767,-90,90);
+      if(g !== r){ bad++; if(!first) first = {x, got:g, want:r}; }
+    }
+    return {printed, bad, first};
+  });
+  ok('map(-32767, -32768, 32767, -90, 90) prints -90 from a transpiled sketch — exactly',
+     amap.printed[0] === '-90', JSON.stringify(amap.printed));
+  ok('a float argument is truncated toward zero FIRST, as a long parameter is: map(-138.8, -100, 100, 69, 111) is 62',
+     amap.printed[1] === '62', JSON.stringify(amap.printed));
+  ok('one click below centre is -1, not 0', amap.printed[2] === '-1', JSON.stringify(amap.printed));
+  ok('every one of the hat\'s 65,536 positions agrees with map_()',
+     amap.bad === 0, amap.bad+' mismatches, first '+JSON.stringify(amap.first));
+
   console.log('\n════ residue is loud, named, line-numbered ════');
   ok('an unknown library name refuses with the name and line', await ev(()=>{
     try{ skTranspile('void loop() { FluxCapacitor.charge(88); }', 'bad.ino'); return false; }
@@ -128,6 +170,16 @@ const FIX = f => fs.readFileSync(path.join(__dirname, 'fixtures-sketches', f), '
     await hold({ax:{LY:1}}); await page.waitForTimeout(1200);
     snap.fwd = await ev(()=>({drive:MOT.drive, turn:MOT.turn}));
     await clr(); await page.waitForTimeout(900);
+    /* (v1.78.0, M10) full stick BACK and dome LEFT together — the negative
+       half of the hat, where the transpiler's map() was one unit hot
+       (-89 for -90, 126 for 127) and the forward-only script never looked.
+       "RAMPING" is a jump (M13), so once the command is non-zero it IS the
+       settled value: wait on that, not on a clock. */
+    await hold({ax:{LY:-1, RX:-1}});
+    await page.waitForFunction(()=>MOT.drive < 0 && MOT.dome > 0, {timeout:20000});
+    snap.rev = await ev(()=>({drive:MOT.drive, turn:MOT.turn, dome:MOT.dome}));
+    await clr();
+    await page.waitForFunction(()=>MOT.drive === 0 && MOT.dome === 0, {timeout:20000});
     /* dome spin */
     await hold({ax:{RX:1}}); await page.waitForTimeout(400);
     snap.dome = await ev(()=>({dome:MOT.dome}));
@@ -160,10 +212,20 @@ const FIX = f => fs.readFileSync(path.join(__dirname, 'fixtures-sketches', f), '
      JSON.stringify({oracle:oracle.boot, subject:subject.boot}));
   ok('START: same arming track and LED', oracle.armed.track===subject.armed.track && oracle.armed.led===subject.armed.led,
      JSON.stringify({oracle:oracle.armed, subject:subject.armed}));
-  ok('full-stick drive lands on the same command (±4 for tick phase)',
-     close(oracle.fwd.drive, subject.fwd.drive, 4) && close(oracle.fwd.turn, subject.fwd.turn, 4),
+  /* (v1.78.0, M10) these were ±4 "for tick phase" — a hedge against
+     sampling mid-ramp. There is no ramp to be mid of: mod2026's RAMPING
+     jumps to the target in one pass (M13), the dome has none, and the
+     runway above is long enough for either run to land. The same firmware
+     under the same input must give the same number, so exact — which is
+     also the only tolerance that could have caught the map() off-by-one. */
+  ok('full-stick drive lands on the same command — exactly',
+     close(oracle.fwd.drive, subject.fwd.drive, 0) && close(oracle.fwd.turn, subject.fwd.turn, 0),
      JSON.stringify({oracle:oracle.fwd, subject:subject.fwd}));
-  ok('dome command matches in sign and size (±4)', close(oracle.dome.dome, subject.dome.dome, 4)
+  ok('full REVERSE and dome LEFT land on the same commands — exactly (the transpiler\'s map() was one unit hot here)',
+     close(oracle.rev.drive, subject.rev.drive, 0) && close(oracle.rev.turn, subject.rev.turn, 0)
+     && close(oracle.rev.dome, subject.rev.dome, 0),
+     JSON.stringify({oracle:oracle.rev, subject:subject.rev}));
+  ok('dome command matches in sign and size — exactly', close(oracle.dome.dome, subject.dome.dome, 0)
      && Math.sign(oracle.dome.dome||0)===Math.sign(subject.dome.dome||0),
      JSON.stringify({oracle:oracle.dome, subject:subject.dome}));
   ok('R1+DOWN steps the volume identically', (oracle.v0-oracle.v1)===(subject.v0-subject.v1) && subject.v1===oracle.v1,
@@ -171,6 +233,86 @@ const FIX = f => fs.readFileSync(path.join(__dirname, 'fixtures-sketches', f), '
   ok('L1+LEFT sends the same PCA9685 utility-arm targets',
      JSON.stringify(oracle.util)===JSON.stringify(subject.util),
      JSON.stringify({oracle:oracle.util, subject:subject.util}));
+
+  /* =================================================================
+     v1.78.0 — A CONFIG EDIT ON A SKETCH IS A RE-FLASH (review 2026-09-01, M11)
+
+     A hand port reads CFG.X on every pass; a transpiled sketch reads its
+     constants ONCE, when its closure is built (`let X = __cfg("X", d)`),
+     the way a #define is baked in at compile time. So typing a new
+     DRIVESPEED1 into the Speed & feel grid wrote CFG, logged it, and
+     changed nothing the droid did until the profile was next loaded —
+     while "Copy .ino constants" already printed the new number. Now the
+     edit re-flashes the running sketch (sketchReflash): setup() runs again,
+     the mutable globals start over (the feet come up DISARMED, as on a
+     board you had just flashed) and the edited constants survive
+     loadProfile()'s reset of CFG. Driven through the box's own change
+     event, in the setup step the grid lives on; every wait is on state. */
+  console.log('\n════ a Config edit on a sketch is a re-flash ════');
+  /* the A/B left the subject armed; disarm it first so both trees start
+     from the same place (a re-flash also lands disarmed) */
+  await ev((id)=>{ if(SIM.profile !== id) loadProfile(id); }, reg.id);
+  if(await ev(()=>XB.ledOn > 0)){
+    await hold({btn:{START:1}});
+    await page.waitForFunction(()=>XB.ledOn === 0, {timeout:20000});
+    await clr();
+  }
+  const edit = await ev((id)=>{
+    /* the Speed & feel grid is the setup's Foot drive step, behind its Advanced tick */
+    closeStartup(); wizOpen(wizStepIndex('bodyDrive')); WIZ_ADV.bodyDrive = true; buildStartup();
+    const row = Array.from(document.querySelectorAll('#startupBody .cfgrow'))
+      .find(r=>r.querySelector('label') && r.querySelector('label').textContent === 'DRIVESPEED1');
+    if(!row) return {found:false};
+    const box = row.querySelector('input');
+    const wasTrack = SND.track;
+    box.value = '50';
+    box.dispatchEvent(new Event('change'));
+    return {found:true, wasTrack, cfg:CFG.DRIVESPEED1, box:box.value, profile:SIM.profile,
+            logged: LOG.filter(l=>/config: DRIVESPEED1 = 50/.test(l.s)).map(l=>l.s)};
+  }, reg.id);
+  ok('the Speed & feel grid has the sketch\'s DRIVESPEED1 box', edit.found, JSON.stringify(edit));
+  ok('the edit survives the re-flash: CFG.DRIVESPEED1 is 50 and the box still says 50',
+     edit.cfg === 50 && edit.box === '50' && edit.profile === reg.id, JSON.stringify(edit));
+  ok('the log says the sketch was re-flashed',
+     edit.logged.some(l=>/re-flashed/.test(l) && /mod2026-golden\.ino/.test(l)), edit.logged.join(' ~ '));
+  /* setup() ran again: the sketch replays the connect track (21) on its
+     first pass — a thing that only happens after a (re)flash */
+  let reflashed = true;
+  try{ await page.waitForFunction(()=>SND.track === 21, {timeout:15000}); }catch(e){ reflashed = false; }
+  ok('…and the sketch really started over: the connect track 21 replayed', reflashed,
+     'SND.track='+(await ev(()=>SND.track))+' (was '+edit.wasTrack+')');
+  await ev(()=>closeStartup());
+  /* arm it and hold the stick: the drive must settle at the NEW constant */
+  await hold({btn:{START:1}});
+  await page.waitForFunction(()=>XB.ledOn === 1, {timeout:20000});
+  await clr();
+  await hold({ax:{LY:1}});
+  await page.waitForFunction(()=>MOT.drive !== 0, {timeout:20000});
+  const settled = await ev(()=>MOT.drive);
+  ok('full stick forward settles at the edited DRIVESPEED1 (50), not the sketch\'s 90', settled === 50, 'MOT.drive='+settled);
+  await clr();
+  await page.waitForFunction(()=>MOT.drive === 0, {timeout:20000});
+  /* and a HAND PORT is left alone — it reads CFG live and needs no re-flash:
+     the log is not emptied and the drive stays armed across the edit */
+  const port = await ev(()=>{
+    loadProfile('mod2026');
+    FW.isDriveEnabled = true;
+    for(let k=0;k<12;k++) lg('sys','filler '+k);
+    const n0 = LOG.length;
+    closeStartup(); wizOpen(wizStepIndex('bodyDrive')); WIZ_ADV.bodyDrive = true; buildStartup();
+    const row = Array.from(document.querySelectorAll('#startupBody .cfgrow'))
+      .find(r=>r.querySelector('label') && r.querySelector('label').title.indexOf('DRIVESPEED2 ') === 0);
+    const box = row && row.querySelector('input');
+    if(box){ box.value = '111'; box.dispatchEvent(new Event('change')); }
+    closeStartup();
+    const r = {found:!!box, cfg:CFG.DRIVESPEED2, armed:FW.isDriveEnabled, logKept: LOG.length >= n0,
+               logged: LOG.filter(l=>/config: DRIVESPEED2 = 111/.test(l.s)).map(l=>l.s)};
+    CFG.DRIVESPEED2 = PROFILE.defaults.DRIVESPEED2;
+    return r;
+  });
+  ok('a hand port is not re-flashed by an edit: log kept, still armed, plain log line',
+     port.found && port.cfg === 111 && port.armed && port.logKept
+     && port.logged.length === 1 && !/re-flashed/.test(port.logged[0]), JSON.stringify(port));
 
   console.log('\n════ the other two run without erroring ════');
   for(const k of ['maestro25','maestro22']){

@@ -47,31 +47,79 @@ function boardSlowestThrowMs(){
 }
 
 /* ------------------------------------------------- per-sequence timing
-   Walks a sequence keeping, per channel, the target it was last given and
-   how long ago. Flags any channel handed a NEW target before it can have
-   reached the previous one. Returns [] when the sequence is clean. */
+   Walks a sequence keeping, per channel, the MOVE it is in the middle of:
+   where it set off from, which way it is going, and how long ago it set
+   off. Flags a channel sent BACK THE OTHER WAY before that move can have
+   finished — a reversal is the one re-target that throws travel away.
+   Returns [] when the sequence is clean.
+
+   A RUN OF SAME-DIRECTION RE-TARGETS IS ONE MOVE (v1.78.0, review M9b).
+   This rule used to compare every re-target against the travel time of
+   the step from the PREVIOUS target, from rest — and a compiled ramp is a
+   staircase that re-targets before each step has arrived BY DESIGN
+   (blocks.js, "how a ramp is drawn"): the board carries the servo's speed
+   across the re-targets, so the horn crosses the whole ramp at a steady
+   rate and lands on time. Judged step by step from rest, one plain 'oc'
+   brick at Mike's 80/10 (accel-dominated, 939 ms a full throw) drew three
+   timing warnings on a routine that arrives exactly when the brick says,
+   and every brick on his channels did the same — the real ones (a wave
+   that turns a panel round at 250 ms) were buried under them. So a run of
+   re-targets in one direction is judged ONCE, when something reverses it:
+   the run's whole travel, from the target it set off from to the last one
+   it was given, against the time from its first command to the reversal.
+   The sequence's END closes nothing — a target persists, so a panel keeps
+   travelling after its last frame (rule 4 above).
+
+   WHERE THE FIRST MOVE SETS OFF FROM. A compiled routine starts every
+   channel at base-closed — blockCompile's `base`, and its home frame puts
+   it back there — so that is the origin, and the first step of a ramp is
+   a move in a known direction. A plain frame list starts wherever the
+   channel rests: its home, when that lies inside its endpoints (the live
+   dome's channels rest on their home = min even with homemode Off, and a
+   Goto channel is put there by the board). A home outside the endpoints
+   is already the chan-home warning; there the first command has no
+   direction and the first re-target simply starts a run. */
 function seqTimingIssues(seq){
   const out = [];
   if(!seq || !seq.frames) return out;
   const byIndex = {};
   MSTR.channels.forEach(c=>{ byIndex[c.i] = c; });
-  const last = {};                       // ch -> {target, sinceMs}
+  const isRoutine = typeof blockIsRoutine === 'function' && blockIsRoutine(seq);
+  const origin = c=>{
+    if(isRoutine) return (typeof blockClosed === 'function') ? blockClosed(c) : c.min;
+    const lo = Math.min(c.min, c.max), hi = Math.max(c.min, c.max);
+    return (c.home >= lo && c.home <= hi) ? c.home : null;
+  };
+  const sign = d => d > 0 ? 1 : d < 0 ? -1 : 0;
+  const run = {};                        // ch -> {target, from, dir, sinceMs}
   seq.frames.forEach((fr, fi)=>{
     (fr.targets || []).forEach((t, ch)=>{
       if(!t) return;                     // 0 = this frame does not drive the channel
       const c = byIndex[ch];
       if(!c || !/^servo/i.test(c.mode)) return;
-      const prev = last[ch];
-      if(prev && prev.target !== t){
-        const need = chanTravelMs(c, t - prev.target);
-        if(prev.sinceMs + 0.5 < need){
+      const r = run[ch];
+      if(!r){
+        /* the first command: a move from wherever the channel rests, when
+           we know where that is; otherwise a target with no direction yet */
+        const o = origin(c);
+        const dir = (o === null) ? 0 : sign(t - o);
+        run[ch] = { target:t, from:(o === null ? t : o), dir, sinceMs:0 };
+        return;
+      }
+      if(t === r.target) return;         /* the same target again — a hold frame restating it — is not a move, and does not restart the clock */
+      const dir = sign(t - r.target);
+      if(r.dir === dir){ r.target = t; return; }      /* same way on: the run grows, the clock keeps counting */
+      if(r.dir !== 0){
+        /* a REVERSAL: the run it cuts short must have had time to finish */
+        const need = chanTravelMs(c, r.target - r.from);
+        if(r.sinceMs + 0.5 < need){
           out.push({ frame:fi, frameName:fr.name, ch, name:c.name,
-                     had:Math.round(prev.sinceMs), need:Math.round(need) });
+                     had:Math.round(r.sinceMs), need:Math.round(need) });
         }
       }
-      last[ch] = { target:t, sinceMs:0 };
+      run[ch] = { target:t, from:r.target, dir, sinceMs:0 };
     });
-    Object.keys(last).forEach(k=>{ last[k].sinceMs += (fr.duration || 0); });
+    Object.keys(run).forEach(k=>{ run[k].sinceMs += (fr.duration || 0); });
   });
   return out;
 }
@@ -129,6 +177,9 @@ function lintMaestro(opts){
   const bd     = boardById(MSTR.board);
   const servos = MSTR.channels.filter(c=>/^servo/i.test(c.mode));
   const byIndex= {}; MSTR.channels.forEach(c=>{ byIndex[c.i]=c; });
+  /* which droid this file is for — it decides the script rules below and,
+     since v1.78.0, whether a reversed pair is worth a word at all */
+  const isPca = typeof boardIsPca === 'function' && boardIsPca(MSTR.board);
 
   /* ---------------------------------------------------------- channels */
   const seen = {};
@@ -150,9 +201,29 @@ function lintMaestro(opts){
     }
   });
   servos.forEach(c=>{
-    if(c.min >= c.max)
-      add('err','chan-range','Channel '+c.i+' ('+c.name+') has min '+c.min+' >= max '+c.max+'.',
-          'Fix the endpoints in Control Center before running anything.', c.i);
+    /* A REVERSED PAIR IS NOT AN ERROR (v1.78.0, review M9a). This rule read
+       `min >= max` and called it one — "Fix the endpoints in Control Center
+       before running anything" — while the bench RECORDS a reversed linkage
+       by swapping min and max (the REV tick, setup-hw-channels.js; it is
+       the one convention, see playback.js chanEnds) and every reader takes
+       Math.min/Math.max of the pair. So a droid with one panel wired the
+       other way round exported with "Written with N validation errors
+       outstanding" on every file and an export button relabelled "Export
+       anyway", for a channel that was set up exactly as the app asked.
+       min === max is still an error: that channel has no travel at all.
+       min > max on a Pololu build is a WARNING, because the pair goes to
+       the file as stored and Control Center's own editor wants min <= max
+       — the file loads, it just reads oddly in there. On a PCA9685 build
+       there is no Control Center and the firmware sorts the pair itself
+       (MaestroPCA.cpp setTarget), so there is nothing to say. */
+    if(c.min === c.max)
+      add('err','chan-range','Channel '+c.i+' ('+c.name+') has min and max both at '+c.min+' — no travel at all.',
+          'Fix the endpoints in Control Center (or the bench) before running anything.', c.i);
+    else if(c.min > c.max && !isPca)
+      add('warn','chan-rev','Channel '+c.i+' ('+c.name+') is reversed: min '+c.min+' is above max '+c.max+'.',
+          'That is how the bench records a linkage that runs the other way, and the file carries the pair exactly as '
+          + 'stored — the board and the sim both take the lower number as the low end, so it plays correctly. '
+          + 'Control Center\'s own channel editor expects min <= max, so the row reads oddly there; nothing to fix unless you edit it in Control Center.', c.i);
     // v1.39.5: home=0 on an Off channel is the file format, not a mistake — match pcaHomeQus
     if(!/off|ignore/i.test(c.homemode||'') && (c.home < Math.min(c.min,c.max) || c.home > Math.max(c.min,c.max)))
       add('warn','chan-home','Channel '+c.i+' ('+c.name+') has home '+c.home+' outside its '+c.min+'-'+c.max+' range.','', c.i);
@@ -333,7 +404,6 @@ function lintMaestro(opts){
      1 KB/8 KB script space) is about a machine that isn't there. Its own
      limits are different and are checked after this block — a script-size
      error against `script: 0` was the first thing a PCA build saw. */
-  const isPca = typeof boardIsPca === 'function' && boardIsPca(MSTR.board);
   const scriptText = isPca ? '' : ((o.script !== undefined) ? o.script : MSTR.scriptText);
   const tr = scriptTraps(scriptText);
   if(tr.hasLoop)

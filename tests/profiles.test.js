@@ -14,7 +14,16 @@ function refMix(stickX, stickY, maxDriveSpeed, C, st){
      same off-by-one core/util.js carried until 2026-08-22 — so the reference
      agreed with the sim only because both were wrong in the same place, on
      every reverse reading. A transcription that reproduces the bug is not a
-     transcription. See the map_() note in core/util.js. */
+     transcription. See the map_() note in core/util.js.
+
+     And map()'s parameters are LONGS (v1.78.0, review M12): `float
+     LeftSpeed` is converted — truncated toward zero — BEFORE any of map's
+     arithmetic. This copy handed map_ the float and let it truncate the
+     quotient of the whole fraction instead; same answer most of the time,
+     one unit out on 16 % of stick positions (-138.8 → 61 here, 62 on the
+     board), and the sim had the identical omission, so again the two
+     agreed by being wrong together. The long conversion is now spelled
+     out at the two calls, as it is in profiles/maestro-shared.js. */
   const map_=(x,a,b,c,d)=>Math.trunc((x-a)*(d-c)/(b-a))+c;
   const DZ=C.DRIVEDEADZONERANGE*258;
   if(stickX<=-DZ||stickX>=DZ||stickY<=-DZ||stickY>=DZ) st.RampingMillis=st.now;
@@ -26,8 +35,8 @@ function refMix(stickX, stickY, maxDriveSpeed, C, st){
     const R=st.YDist-(st.XDist*(C.TURNSPEED/100));
     const L=st.YDist+(st.XDist*(C.TURNSPEED/100));
     const fwd=map_(maxDriveSpeed,0,127,90,180), rev=map_(maxDriveSpeed,0,127,90,0);
-    st.leftFoot =Math.max(0,Math.min(180,map_(L,-100,100,rev,fwd)));
-    st.rightFoot=Math.max(0,Math.min(180,map_(R,-100,100,rev,fwd)));
+    st.leftFoot =Math.max(0,Math.min(180,map_(Math.trunc(L),-100,100,rev,fwd)));
+    st.rightFoot=Math.max(0,Math.min(180,map_(Math.trunc(R),-100,100,rev,fwd)));
   }else if(st.now-st.RampingMillis>C.RampingDeadzoneDelay){ st.leftFoot=90; st.rightFoot=90; }
   return st;
 }
@@ -103,6 +112,51 @@ function refMix(stickX, stickY, maxDriveSpeed, C, st){
     if(!same){ mixOk=false; detail += ` [${sx},${sy}] got ${JSON.stringify(gotSeq[79])} ref ${JSON.stringify(refSeq[79])}`; }
   }
   ok('mixHubDrive() matches a straight transcription of the .ino over 6 stick cases', mixOk, detail);
+
+  /* (v1.78.0, review M12) the six cases above never land on a fraction
+     that matters, which is how the omission lived this long. This sweeps
+     the hub mix across the whole stick — every 163rd hat position on both
+     axes, YDist pre-settled so no ramp is in the way — and holds every
+     foot to C's answer with NO tolerance: map(long, …) truncates the float
+     toward zero first, then truncates the quotient, then adds out_min. The
+     two named inputs are the ones from the review: LeftSpeed = -138.8 at
+     full reverse and hard left, 11.2 at (10, 3). */
+  const frac = await ev(()=>{
+    const cmap = (x,a,b,c,d)=>map_(Math.trunc(x),a,b,c,d);           // long map(long x, …)
+    const foot = v=>Math.max(0,Math.min(180,v));                       // Servo::write() clamp
+    const fwd = map_(CFG.DRIVESPEED1,0,127,90,180), rev = map_(CFG.DRIVESPEED1,0,127,90,0);
+    const T = CFG.TURNSPEED/100;
+    const at = (Y, X)=>{                                               // the sim, at settled distances Y/X
+      FW.YDist = Y; FW.XDist = 0; FW.RampingMillis = SIM.millis;
+      /* a hat position that maps to exactly Y / X: map_ is monotonic, so
+         the first position at or past the value is one of them */
+      const hat = v=>{ let lo=-32768, hi=32767; while(lo<hi){ const m=Math.floor((lo+hi)/2); if(map_(m,-32768,32767,-100,100) < v) lo=m+1; else hi=m; } return lo; };
+      const sx = hat(X), sy = hat(Y);
+      mixHubDrive(sx, sy, CFG.DRIVESPEED1);
+      return {L:FW.leftFoot, R:FW.rightFoot, sx, sy, Yn:map_(sy,-32768,32767,-100,100), Xn:map_(sx,-32768,32767,-100,100)};
+    };
+    let bad = 0, n = 0, first = null;
+    for(let sy=-32767; sy<=32767; sy+=163) for(let sx=-32767; sx<=32767; sx+=163){
+      const Yn = map_(sy,-32768,32767,-100,100), Xn = map_(sx,-32768,32767,-100,100);
+      FW.YDist = Yn; FW.XDist = 0; FW.RampingMillis = SIM.millis;
+      mixHubDrive(sx, sy, CFG.DRIVESPEED1);
+      const wantL = foot(cmap(Yn + Xn*T, -100,100, rev,fwd)), wantR = foot(cmap(Yn - Xn*T, -100,100, rev,fwd));
+      n += 2;
+      if(FW.leftFoot !== wantL){ bad++; if(!first) first = {sx, sy, Yn, Xn, L:Yn+Xn*T, got:FW.leftFoot, want:wantL}; }
+      if(FW.rightFoot !== wantR){ bad++; if(!first) first = {sx, sy, Yn, Xn, R:Yn-Xn*T, got:FW.rightFoot, want:wantR}; }
+    }
+    const a = at(-100, -97), b = at(10, 3);
+    FW.YDist = 0; FW.XDist = 0; FW.leftFoot = 90; FW.rightFoot = 90;
+    return { bad, n, first, fwd, rev,
+             a: {L:a.L, want:foot(cmap(-138.8,-100,100,rev,fwd)), mix:a.Yn + a.Xn*T},
+             b: {L:b.L, want:foot(cmap(11.2,-100,100,rev,fwd)),   mix:b.Yn + b.Xn*T} };
+  });
+  ok('LeftSpeed = -138.8 (full reverse, hard left) → the board says '+frac.a.want+': truncated toward zero BEFORE map()',
+     frac.a.L === frac.a.want && Math.abs(frac.a.mix - -138.8) < 1e-9, JSON.stringify(frac.a));
+  ok('LeftSpeed = 11.2 → '+frac.b.want+' (the same either way — the sign is what matters)',
+     frac.b.L === frac.b.want && Math.abs(frac.b.mix - 11.2) < 1e-9, JSON.stringify(frac.b));
+  ok('every foot across '+frac.n.toLocaleString()+' swept stick positions matches C\'s long map(), tolerance 0',
+     frac.bad === 0, frac.bad+' mismatches, first '+JSON.stringify(frac.first));
 
   // the speed-cap overshoot
   const over = await ev(()=>{

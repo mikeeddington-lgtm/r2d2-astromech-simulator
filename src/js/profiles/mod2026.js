@@ -49,6 +49,7 @@ const PROFILE_MOD2026 = {
   notes:[
     {k:'warn', h:'<b>Sabertooth watchdog starvation.</b> The drive block only sends a packet when <b>driveThrottle</b> or <b>turnThrottle</b> <i>changes</i>, but <b>setup()</b> calls <b>Sabertooth2x.setTimeout(950)</b>. Hold a steady throttle — especially at full deflection, where the mapped value pins to DRIVESPEED and stops changing — and no packet goes out for 950 ms, so the Sabertooth cuts the motors until you move the stick again. Watch the <b>S/T TIMEOUT</b> flag in the HUD.'},
     {k:'warn', h:'<b>Automation dome turn never reaches the Syren.</b> The automation block calls <b>Syren10.motor(1, turnDirection)</b>, then the manual dome block at the end of the same pass calls <b>Syren10.motor(1, domeThrottle)</b> unconditionally. Last packet wins. Toggle the fix below.'},
+    {k:'warn', h:'<b>RAMPING is not a ramp.</b> The drive block tests <b>if (throttleStickValue - driveThrottle &lt; (RAMPING + 1)) driveThrottle += RAMPING; else driveThrottle = throttleStickValue;</b> — backwards. A big stick change JUMPS to the target in one pass (0 → 90 in one loop); only a change of RAMPING or less is stepped, and a step overshoots a smaller one: a target one unit away flips <b>driveThrottle</b> 9, 7, 9, 7… for as long as the stick sits there. The 2022 BETA has the same line with RAMPING 5; the 2025 sketch fixed the comparison (<b>&gt; RAMPING</b>). Reproduced as written.'},
     {k:'info', h:'<b>setup() never homes the servos.</b> Neither PCA9685 is written until something first commands a channel, so on a real boot every door and arm stays wherever it was left, unpowered.'}
   ],
   map:{
@@ -211,6 +212,12 @@ const PROFILE_MOD2026 = {
     if(FW.throttleStickValue > -CFG.DRIVEDEADZONERANGE && FW.throttleStickValue < CFG.DRIVEDEADZONERANGE){
       FW.driveThrottle = 0;
     }else{
+      /* "RAMPING" — NOT a ramp, reproduced as written (v1.78.0, review M13;
+         mod2026.ino:391-397). `< (RAMPING + 1)` steps only a change of
+         RAMPING or less and jumps anything bigger to the target in one
+         pass; a one-unit change overshoots and flips 9,7,9,7… for ever.
+         The 2025 sketch fixed it (`> RAMPING`, maestro-shared.js). Do not
+         "fix" it here — the notes above and firmware.test.js pin it. */
       if(FW.driveThrottle < FW.throttleStickValue){
         if(FW.throttleStickValue - FW.driveThrottle < (CFG.RAMPING+1)) FW.driveThrottle += CFG.RAMPING;
         else FW.driveThrottle = FW.throttleStickValue;

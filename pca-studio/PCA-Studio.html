@@ -672,7 +672,7 @@ body.light{
 <script>/* pca-studio/src/js/00-core.js */
 'use strict';
 /* =============================================================== CORE */
-const STUDIO_VERSION = '0.13.1';
+const STUDIO_VERSION = '0.13.2';
 const $ = id=>document.getElementById(id);
 const clamp=(v,a,b)=>v<a?a:v>b?b:v;
 function log(msg, cls){ const l=$('log'); l.textContent=msg; l.className=cls||''; }
@@ -1082,6 +1082,16 @@ function pcaRestart(E, n){
     if(t.seq===n || pcaMaskOverlaps(t.mask, mask)){
       const old = E.sequences[t.seq];
       if(old && old.background && t.seq !== n) pcaBgRemember(E, t.seq);
+      /* ITS SPEEDS GO BACK WITH ITS CHANNELS (v1.78.0, review M5b) —
+         MaestroPCA.cpp restartScript() has had this line since per-frame
+         speeds existed; this twin released speeds when a track ENDED or was
+         STOPPED and not when it was DISPLACED, so a routine that lost its
+         channels to another left its frame speeds on them: the newcomer
+         ran at the old routine's pace, and a channel the newcomer never
+         touched kept a speed the table does not know about. The firmware
+         runs the newcomer at the table's speed, so Studio's preview of a
+         displacing routine was wrong about the droid. */
+      pcaReleaseSpeeds(E, t.mask);
       t.seq=-1;
       if(slot<0) slot=i;
     }
@@ -1222,7 +1232,22 @@ function pcaTick(E, dtms){
 
   pcaBgResume(E);                          /* an idle picks up once it can */
 
-  E.tickAcc += (elapsed > 200) ? 200 : elapsed;
+  /* THE SAME elapsed the frame timers above were given (v1.78.0, review
+     M5a) — clamped once, at the top, and not a second time here. This line
+     used to read `(elapsed > 200) ? 200 : elapsed`, a mirror of the C++'s
+     old uint8_t accumulator that could not hold 250 beside a remainder;
+     MaestroPCA.cpp:468 dropped its second clamp in v1.69.0 (bounds_test.cpp
+     pins 25 ticks for one 250 ms call) and this twin kept it, so one 250 ms
+     tick stepped the servos 200 ms while the frames moved 250 — an
+     animation that slips against itself lands in the wrong place rather
+     than merely stuttering. The only clamp an engine step gets is the
+     firmware's own 250 at the top; deciding what a stalled tab should be
+     HANDED at all — the 250 cap, dropping a backgrounded tab's backlog,
+     carrying fractional milliseconds — is the CLOCK's job (hw-clock.js),
+     because it is the clock that turns wall time into dtms. The engine's
+     job is to spend what it is given exactly once, and the same for the
+     frames as for the servos. */
+  E.tickAcc += elapsed;
   while(E.tickAcc >= 10){
     E.tickAcc -= 10; E.ticks++;
     /* `E.st[c] &&` is a guard, not kinematics — it has no counterpart in the
@@ -3382,15 +3407,37 @@ function hwClockStart(){
   if(HWCLK.id) return;
   HWCLK.last = (typeof performance !== 'undefined') ? performance.now() : 0;
   HWCLK.id = setInterval(()=>{
-    const now = (typeof performance !== 'undefined') ? performance.now() : HWCLK.last + HW_CLOCK_MS;
-    /* real elapsed time, not the nominal interval — a coalesced or throttled
-       timer must not slow the droid down, it must catch up */
-    let dt = now - HWCLK.last;
-    HWCLK.last = now;
-    if(dt < 0) dt = 0;
-    if(dt > 250) dt = 250;          /* a backgrounded tab does not fast-forward */
-    HW.tick(dt);
+    hwClockFire((typeof performance !== 'undefined') ? performance.now() : HWCLK.last + HW_CLOCK_MS);
   }, HW_CLOCK_MS);
+}
+
+/* ONE FIRE OF THE HEARTBEAT, at wall time `now` — real elapsed time, not the
+   nominal interval: a coalesced or throttled timer must not slow the droid
+   down, it must catch up. Split out of the interval so a test can drive it
+   with a clock of its own.
+
+   THE REMAINDER IS CARRIED (v1.78.0, review M18). This used to hand the
+   engine `now - last` and move `last` to `now`; the engine takes whole
+   milliseconds (pcaTick's `dtms|0`, the firmware's uint32 millis), so the
+   fraction of every fire was thrown away — a setInterval(10) that really
+   fires every 10.7 ms lost 0.7 ms a fire, 1.94 % over 300 fires, and every
+   ramp over PCA_Bridge finished late by that margin. Now `last` advances by
+   the whole milliseconds actually delivered and the fraction waits for the
+   next fire, so what the engine is handed sums to the wall clock within a
+   millisecond however the timer jitters. This is where that belongs, not in
+   the engine: pcaseq.js mirrors MaestroPCA.cpp integer-for-integer and the
+   firmware has no fractions to carry — turning wall time into whole ms is
+   the clock's job (pcaTick says the same). The 250 cap keeps its old
+   meaning: a stall longer than that is handed 250 and the rest is dropped,
+   fraction included — a backgrounded tab does not fast-forward. */
+function hwClockFire(now){
+  const dt = now - HWCLK.last;
+  if(!(dt > 0)){ HWCLK.last = now; return; }        /* a clock that went backwards: resync, deliver nothing */
+  if(dt > 250){ HWCLK.last = now; HW.tick(250); return; }
+  const whole = Math.floor(dt);
+  if(!whole) return;                                /* under a millisecond so far — it accrues */
+  HWCLK.last += whole;
+  HW.tick(whole);
 }
 
 function hwClockStop(){
@@ -3856,8 +3903,19 @@ $('bMonSend').onclick=()=>{ serialSendText($('monIn').value); $('monIn').value='
 $('monIn').addEventListener('keydown',e=>{
   if(e.key==='Enter'){ serialSendText($('monIn').value); $('monIn').value=''; }
 });
+/* THE CEILING IS THE WIRE'S, NOT TWO BOARDS' (v1.78.0, review L9). This
+   refused a 33rd channel with "32 channels = two full PCA9685 boards — the
+   bridge stops there", which stopped being true in v1.54.0: the 7-bit
+   protocol addresses eight boards, and the wizard's own step 2 already grows
+   the table to as many. What the bridge actually stops at is channel 125 —
+   126 and 127 carry the board configuration (serial-link.js) — so that is
+   the number, derived from PCA_MAX_BOARDS_UI rather than typed. */
+const STUDIO_CH_MAX = PCA_MAX_BOARDS_UI*16 - 2;
 $('bAddCh').onclick=()=>{
-  if(PROJ.channels.length>=32){ log('32 channels = two full PCA9685 boards — the bridge stops there','warn'); return; }
+  if(PROJ.channels.length>=STUDIO_CH_MAX){
+    log(STUDIO_CH_MAX+' channels = '+PCA_MAX_BOARDS_UI+' PCA9685 boards, less the two channels the wire keeps for board configuration — the bridge stops there','warn');
+    return;
+  }
   PROJ.channels.push({name:'Servo '+PROJ.channels.length,mode:'Servo',min:4000,max:8000,home:0,homemode:'Off',speed:80,acceleration:10});
   PROJ.sequences.forEach(s=>s.frames.forEach(fr=>fr.targets.push(0)));
   projSave(); rebuildAll();
@@ -4550,16 +4608,104 @@ function blockEnvAt(b, t){
 /* every UNWIRED act brick's openness at time t — keyed by act, defaulted
    to 0 (closed) so a lane parks shut outside its bricks, exactly as a
    wired channel parks at base-closed between its own. Later bricks win,
-   the same layering rule the wired path uses. */
+   the same layering rule the wired path uses — and so does the CARRY
+   (blockCarryAt below): an unwired 'o' brick holds its part open past its
+   own end exactly as a wired one holds its channel, until the routine ends
+   and the caller asks for ms = -1, which is outside every brick and every
+   brick's end, and parks the lot shut. */
 function blockFreeAt(seq, ms){
   const free = {};
-  blockList(seq).forEach(b=>{
-    if(b.kind !== 'act' || blockWired(b)) return;
-    if(free[b.ref] === undefined) free[b.ref] = 0;
-    const env = blockEnvAt(b, ms);
-    if(env !== null) free[b.ref] = env;
-  });
+  blockList(seq).forEach(b=>{ if(b.kind === 'act' && !blockWired(b)) free[b.ref] = 0; });
+  const at = blockCarryAt(seq, ms);
+  for(const a in at.free) if(a in free) free[a] = at.free[a];
   return free;
+}
+
+/* ======================= WHAT THE BRICKS COMMAND AT ONE INSTANT (v1.78.0)
+   Review M6. blockPoseAt() and blockFreeAt() used to start every channel at
+   base-closed and read only the bricks whose window contained `ms` — while
+   blockCompile() CARRIES `last[c.i]` from one interval to the next (its own
+   note, "a channel's value CARRIES between frames"). So an 'o' brick on
+   [0, 1000] and any brick at 1500 compiled to frames holding the channel
+   OPEN until the home frame, and the scrub preview at 1200 showed it shut;
+   an unwired 'o' brick closed on the model during pad playback while a
+   wired one stayed open. Two readings of one timeline, and the one that
+   went to the board was not the one on screen.
+
+   The rule, said once: at instant t a channel holds the LAYERED value of
+   the bricks that claim t — list order, later wins, exactly the compiler's
+   rule — and where nothing claims it, the layered value at the latest
+   brick END at or before t, because that is the last interval in which the
+   compiler wrote `last[c.i]` for it. Inside a brick the playhead still
+   reads the brick's continuous envelope rather than the compiled step (see
+   blockPoseAt's own note); it is only the uncovered stretches that had two
+   answers, and now have one. A nested sequence carries the same way: its
+   frames are sparse (0 = leave the channel alone) and blockCompile overlays
+   them interval by interval, so the pose it has commanded by `t` is every
+   frame up to the covering one laid over the last, not the covering frame
+   alone.
+
+   `strict` at a carried end mirrors the compiler's `next > b.t0`: a brick
+   that STARTS exactly at that instant has not claimed it yet. */
+function blockSeqPoseAt(b, t){
+  const ref = BLKH.sequences().find(x=>x.name === b.ref);
+  if(!ref || t < b.t0 || t > b.t0 + b.dur) return null;
+  const pose = [];
+  let at = b.t0;
+  for(const f of ref.frames){
+    (f.targets || []).forEach((v,i)=>{ if(v) pose[i] = v; });
+    at += f.duration;
+    if(t <= at) break;                 /* this frame covers t — blockSeqFrameAt's own rule */
+  }
+  return pose;
+}
+/* the layered value at t over the bricks that claim it — sparse: only what
+   some brick said. Wired act bricks and nested sequences by channel index in
+   `targets`; unwired act bricks by act in `free`. */
+function blockLayerAt(seq, t, strict){
+  const targets = {}, free = {};
+  blockList(seq).forEach(b=>{
+    if(t < b.t0 || t > b.t0 + b.dur) return;
+    if(strict && t === b.t0) return;
+    if(b.kind === 'seq'){
+      const pose = blockSeqPoseAt(b, t);
+      if(pose) pose.forEach((v,i)=>{ if(v) targets[i] = v; });
+      return;
+    }
+    if(blockWired(b)){
+      const v = blockValueAt(b, t);
+      const c = blockChan(b.ref);
+      if(v !== null && c) targets[c.i] = v;
+    }else{
+      const env = blockEnvAt(b, t);
+      if(env !== null) free[b.ref] = env;
+    }
+  });
+  return {targets, free};
+}
+function blockCarryAt(seq, ms){
+  const now = blockLayerAt(seq, ms, false);
+  /* THE CARRY STOPS WHERE THE ROUTINE DOES. blockCompile lands every wired
+     channel on base-closed the instant the last wired brick ends — the
+     'home' frame, "A COMPILED ROUTINE MUST NEVER END OPEN" — so from
+     blockEndCompiled() on, the compiled frame says closed and so must this.
+     The free lanes have no home frame; they park at the timeline's own end
+     (blockEnd, which counts the unwired bricks too), the same instant the
+     follow loop and pad playback stop asking. Inside those ends a channel
+     nothing claims at ms holds what it was last commanded. */
+  const carryW = ms < blockEndCompiled(seq), carryF = ms < blockEnd(seq);
+  if(!carryW && !carryF) return now;
+  /* every brick end at or before ms, latest first: the first end that
+     names a channel is the last time anything commanded it */
+  const ends = [];
+  blockList(seq).forEach(b=>{ const e = b.t0 + b.dur; if(e <= ms && ends.indexOf(e) < 0) ends.push(e); });
+  ends.sort((a,b)=>b-a);
+  for(const u of ends){
+    const then = blockLayerAt(seq, u, true);
+    if(carryW) for(const k in then.targets) if(!(k in now.targets)) now.targets[k] = then.targets[k];
+    if(carryF) for(const k in then.free)    if(!(k in now.free))    now.free[k]    = then.free[k];
+  }
+  return now;
 }
 function blockValueAt(b, t){
   if(t < b.t0 || t > b.t0 + b.dur) return null;
@@ -4592,8 +4738,10 @@ function blockValueAt(b, t){
 }
 /* what a dropped-in sequence commands at time t: the frame it is inside.
    The whole FRAME, because the compiler needs its `speeds` row as well as
-   its targets (v1.77.0, review H8 — see the compile loop); blockSeqTargetsAt
-   below is the targets-only view the playhead has always read. */
+   its targets (v1.77.0, review H8 — see the compile loop). blockSeqTargetsAt
+   below is the targets-only view of that one frame; the playhead read it
+   until v1.78.0 and now reads blockSeqPoseAt() above, which carries the
+   sparse frames before it the way the compiler does (review M6). */
 function blockSeqFrameAt(b, t){
   const ref = BLKH.sequences().find(x=>x.name === b.ref);
   if(!ref || t < b.t0 || t > b.t0 + b.dur) return null;
@@ -5259,6 +5407,10 @@ function blockSnapToBeats(seq){
    continuous answer, and they are what the timeline draws, so scrubbing
    agrees with the picture by construction.
 
+   Between bricks a channel holds what the last brick to touch it left
+   behind — blockCarryAt(), the compiler's own carry (v1.78.0, review M6) —
+   and base-closed only where nothing has touched it yet.
+
    A plain imported sequence has no bricks: frames are all there is. Those
    are absolute but SPARSE (0 = leave the channel alone), so walk them from
    the start applying each in turn — by the time we reach ms every channel
@@ -5267,18 +5419,9 @@ function blockPoseAt(seq, ms){
   if(!seq) return;
   if(blockIsRoutine(seq)){
     const chans = BLKH.servoChannels();
+    const at = blockCarryAt(seq, ms);
     const targets = [];
-    chans.forEach(c=>{ targets[c.i] = blockClosed(c); });
-    blockList(seq).forEach(b=>{
-      if(b.kind === 'seq'){
-        const tg = blockSeqTargetsAt(b, ms);
-        if(tg) chans.forEach(c=>{ if(tg[c.i]) targets[c.i] = tg[c.i]; });
-      }else{
-        const v = blockValueAt(b, ms);
-        const c = blockChan(b.ref);
-        if(v !== null && c) targets[c.i] = v;
-      }
-    });
+    chans.forEach(c=>{ targets[c.i] = (c.i in at.targets) ? at.targets[c.i] : blockClosed(c); });
     BLKH.applyPose(targets);
     /* unwired bricks move the MODEL too (2026-08-18) — through the host
        seam, which only the sim provides: PCA Studio has no droid and no

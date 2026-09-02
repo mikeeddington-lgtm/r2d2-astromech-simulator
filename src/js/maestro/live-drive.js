@@ -123,10 +123,13 @@ async function liveSet(on, opts){
   }
   if(!liveReady()){
     /* one button, the obvious next step: offer the port rather than a
-       sentence about how to go and find it */
+       sentence about how to go and find it. The board it names is the one
+       the BUILD expects — this said PCA_Bridge to a Pololu Maestro owner
+       (v1.78.0, review L9; linkBoardWanted() in hw-ui.js, sim-only like
+       this file, hence the guard) */
     if(typeof serialConnect === 'function' && typeof appConfirm === 'function'){
       const go = await appConfirm(
-        'Nothing is connected yet. Live drive streams positions to a board running <b>PCA_Bridge</b> over USB.',
+        'Nothing is connected yet. Live drive streams positions to <b>' + liveBoardWanted() + '</b> over USB.',
         {title:'Connect a board first?', yes:'Connect hardware', no:'Not now', html:true});
       if(go){ await serialConnect(); }
     }
@@ -183,7 +186,13 @@ function liveUiSync(){
     ? 'The sequencer is driving the real board. Click to go back to sim only — the servos hold their last position.'
     : ready
       ? 'A board is connected. Click to let sequences drive the real servos as well as the model.'
-      : 'Nothing connected. Click to open a board running PCA_Bridge, then go live.';
+      : 'Nothing connected. Click to open ' + liveBoardWanted() + ', then go live.';
+}
+/* the board the build expects on the other end of the link, in words — the
+   header chip's linkBoardWanted() (hw-ui.js), with this file's own fallback
+   so the sentence still reads if that module is ever not loaded */
+function liveBoardWanted(){
+  return (typeof linkBoardWanted === 'function') ? linkBoardWanted() : 'a board running PCA_Bridge';
 }
 /* the link's own chrome repaints every surface that asked to be told —
    including this one, so unplugging the board cannot leave a button

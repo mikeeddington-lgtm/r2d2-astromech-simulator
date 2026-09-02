@@ -66,6 +66,10 @@ const LE_IFACES = [
    arrives. */
 const APX = {
   built:false, on:false,
+  /* the build's Dome lighting answer the boards were last initialised
+     against — what buildApply() compares before deciding to re-run
+     apxInit() (v1.78.0, review M2) */
+  domeLights:'',
   firmware:'standard', iface:'serial',
   fldBoard:'fld', psiBoard:'psi',
   disp:{}, order:[], holo:{}, holoOrder:[],
@@ -176,6 +180,20 @@ function apxSend(str, opts){
   if(fw.doors.indexOf(via) < 0)
     return apxRefuse('this dome is running the ' + fw.label + ' firmware, and ' + fw.note +
       '. A command sent over ' + (via === 'i2c' ? 'i2c' : 'Serial2') + ' is not refused by that sketch — it is never read');
+  /* ...and the other way round (v1.78.0, review M4). Jawalite — `@1T3`,
+     `:SE01`, `*ON01`, and the `*RT`/`@AP` wrappers, which are Marcduino
+     verbs themselves — is what a MARCDUINO puts on the wire, and only the
+     standard-md sketch has one in front of it. The other three take the
+     native grammar on CommandEventSerial or the i2c receiver, and an
+     `@1T3` arriving there is not a command they have ever read. `jawa` was
+     declared on every entry above and then never consulted, so the Standard
+     sketch cheerfully put the logics on ALARM for a string it could not
+     have parsed — the exact false positive the header says this module
+     exists to prevent. The command box's own placeholder offers `@1T3`. */
+  if(/^[@:*]/.test(s) && !fw.jawa)
+    return apxRefuse('this dome is running the ' + fw.label + ' firmware, and there is no Marcduino in front of it — ' +
+      s + ' is Jawalite, which that sketch has never read. It takes the native LE… and HP… commands' +
+      (fw.doors.indexOf('serial') < 0 ? ', over i2c' : '') + '; the Standard + Marcduino sketch is the one that speaks this');
   /* A Marcduino build speaks Jawalite. Native LE/HP still gets through,
      but only inside the two pass-through actions the standard-md sketch
      declares, and a builder who forgets the prefix sees nothing happen. */
@@ -227,9 +245,17 @@ function apxLE(str){
   if(!/^\d+$/.test(body)) return {ok:false, why:'LE takes digits only, got "' + body + '"'};
   const n = body.length;
   if(n < 3) return {ok:false, why:'LE needs at least a logic, an effect and a colour'};
-  const time   = n >= 3 ? parseInt(body.slice(-2), 10) : 0;
-  const speed  = n >= 4 ? parseInt(body.slice(-3, -2), 10) : 0;
-  const colour = n >= 5 ? parseInt(body.slice(-4, -3), 10) : 0;
+  /* Right-aligned means the third digit from the end is ALWAYS the speed
+     and the fourth ALWAYS the colour, whenever they exist at all. These two
+     were gated one digit late (v1.78.0, review L19): speed wanted four
+     digits and colour five, so LE100 parsed as speed 0 and LE1234 dropped
+     its colour — a typed digit vanishing on exactly the short forms the
+     "drop the leading zeros" rule tells a builder to type. `head` below was
+     already right, which is how the mismatch hid: the seven-digit commands
+     everything else sends have every field present. */
+  const time   = parseInt(body.slice(-2), 10);
+  const speed  = parseInt(body.slice(-3, -2), 10);
+  const colour = n >= 4 ? parseInt(body.slice(-4, -3), 10) : 0;
   const head   = body.slice(0, Math.max(0, n - 4));
   /* The head is the logic digit followed by the effect. One character
      means the effect was dropped to nothing, i.e. effect 0. */
@@ -403,9 +429,16 @@ function apxReset(){
 }
 
 /* ------------------------------------------------------------- start-up
-   Called once from boot, and again whenever the build answer or the sketch
-   choice changes. Rebuilding is cheap and it is the only way a change of
-   board variant can take effect — the pixel grids are sized at build time.
+   Called once from boot (app/main.js), from apxSetOption() below when the
+   sketch or a board variant changes, and from buildApply() in
+   config/hardware.js whenever the build's Dome lighting answer changes
+   (v1.78.0, review M2). That last caller is new: this comment used to
+   promise a re-run "whenever the build answer changes" and nothing made
+   the promise good — the wizard's tick wrote `domeLights` through
+   buildSet() and APX.on, which only this function writes, kept its old
+   value until a reload. Rebuilding is cheap and it is the only way a change
+   of board variant can take effect — the pixel grids are sized at build
+   time.
 
    APX.on follows the BUILD, not this pane: a droid whose dome lighting
    answer is Teeces or "none yet" gets the stand-in's idle blink, because
@@ -420,6 +453,7 @@ function apxInit(){
     fldBoard: saved.fldBoard || 'fld',
     psiBoard: saved.psiBoard || 'psi'
   });
+  APX.domeLights = b ? (b.domeLights || '') : '';
   APX.on = !!(b && b.domeLights === 'astropixels');
   return APX;
 }
@@ -436,11 +470,16 @@ function apxSetOption(key, value){
   const wasOn = APX.on;
   apxInit();
   APX.on = wasOn;
-  /* the pixel grids may have changed size, so the textures must go too */
-  if(typeof LR !== 'undefined' && LR.built){
-    if(LR.rig && LR.rig.parent) LR.rig.parent.remove(LR.rig);
-    LR.built = false; LR.rig = null; LR.host = null; LR.hostKey = '';
-    LR.panels = {}; LR.tex = {};
-  }
+  /* A board variant is a different pixel grid — the toolbox front logic is
+     20x9 where the stock one is 9x10 — and the textures and the panels on
+     the dome were sized to the old one. They have to go, and lrReset() is
+     the one door out of that cache (render3d.js). What stood here before
+     tested `LR.built`, `LR.rig` and `LR.panels`, three fields render3d.js
+     has never had, so it was never once taken: a changed board kept its
+     old texture and the next upload wrote 720 bytes at a 360-byte buffer
+     (v1.78.0, review M3). The sketch and the wiring answer change nothing
+     about the grid, so they leave the rig where it is; the palette they do
+     change reaches it through the next dirty upload. */
+  if((key === 'fldBoard' || key === 'psiBoard') && typeof lrReset === 'function') lrReset();
   return APX;
 }

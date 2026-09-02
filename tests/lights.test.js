@@ -156,6 +156,16 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
     const r=apxCommand('LE1064312');
     return r.logic===1 && r.effect===6 && r.colour===4 && r.speed===3 && r.time===12;
   }), await ev(()=>JSON.stringify(apxCommand('LE1064312'))));
+  /* v1.78.0, review L19 — the SHORT bodies. Reading from the right means the
+     third digit from the end is the speed and the fourth the colour whenever
+     they exist; the two gates were one digit late, so LE100 came out as speed
+     0 and LE1234 lost its colour. Pinned on exactly the forms the "drop the
+     leading zeros" rule tells a builder to type. */
+  ok('a three-digit body keeps its speed and a four-digit one its colour — LE100 is speed 1, LE1234 is colour 1 · speed 2 · time 34', await ev(()=>{
+    const a=apxLE('LE100'), b=apxLE('LE1234');
+    return a.ok && a.logic===0 && a.effect===0 && a.colour===0 && a.speed===1 && a.time===0 &&
+           b.ok && b.logic===0 && b.effect===0 && b.colour===1 && b.speed===2 && b.time===34;
+  }), await ev(()=>JSON.stringify([apxLE('LE100'), apxLE('LE1234')].map(r=>[r.logic,r.effect,r.colour,r.speed,r.time]))));
   ok('a seconds field actually ends the effect', await ev(()=>{
     apxCommand('LE1030002');                       // Leia for two seconds
     const d=APX.disp.fld;
@@ -208,6 +218,25 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
     const bare=apxSend('LE0010000',{via:'serial'});
     const wrapped=apxSend('*RTLE0010000',{via:'serial'});
     return bare.ok===false && /\*RT/.test(bare.why) && wrapped.ok===true;
+  }));
+  /* v1.78.0, review M4 — the other direction. `jawa:false` was declared on
+     three of the four sketches and read by nobody, so `@1T3` on the Standard
+     sketch put the logics on ALARM: a command that sketch has never parsed,
+     accepted by the module whose stated purpose is refusing exactly that.
+     The wrappers are Marcduino verbs too, so they go the same way. */
+  ok('Jawalite is refused by the three sketches with no Marcduino in front of them, and the refusal names the sketch', await ev(()=>{
+    apxSetOption('firmware','standard'); apxSetOption('iface','serial'); APX.on=true;
+    const a=apxSend('@1T3'), b=apxSend('*RTLE0110000'), c=apxSend(':SE01');
+    apxSetOption('firmware','imperial'); apxSetOption('iface','i2c'); APX.on=true;
+    const d=apxSend('@1T3');
+    apxSetOption('iface','serial'); APX.on=true;
+    return a.ok===false && /Standard firmware/.test(a.why) && /Marcduino/.test(a.why) && /LE/.test(a.why) &&
+           b.ok===false && c.ok===false &&
+           d.ok===false && /Imperial/.test(d.why) && /over i2c/.test(d.why);
+  }), await ev(()=>{ apxSetOption('firmware','standard'); APX.on=true; return apxSend('@1T3').why; }));
+  ok('...and the same three commands still get through on standard-md', await ev(()=>{
+    apxSetOption('firmware','standard-md'); apxSetOption('iface','serial'); APX.on=true;
+    return apxSend('@1T3').ok===true && apxSend('*RTLE0110000').ok===true && apxSend(':SE01').ok===true;
   }));
   ok('"not connected" refuses everything and says the boards run their own defaults', await ev(()=>{
     apxSetOption('firmware','standard'); apxSetOption('iface','none'); APX.on=true;
@@ -394,6 +423,47 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
         LR_CAD_ANCHOR.fld[0].rows[1]===0.5 && LR_CAD_ANCHOR.fld[1].rows[0]===0.5));
   }
 
+  console.log('\n════ the rig lifecycle (v1.78.0, review M3) ════');
+  /* The rigs, the fit and the textures were cached with no way out. Three
+     symptoms of that one omission, each pinned: the layer going off left both
+     rigs parented and visible in front of the stand-in's own fittings; a
+     board-variant change kept the old texture, so the next upload wrote a
+     20x9 grid at a 9x10 buffer; and (cad.test.js) a model swap re-parented
+     the MK4's rig, fit and all, onto whatever dome came next. */
+  ok('the layer going off takes the rig OFF the dome — unmounted and freed, not left in front of the stand-in', await ev(()=>{
+    APX.on=true; apxSync();
+    const rig=LR.rigs[LR.hostKey], host=LR.host;
+    const mounted = !!rig && rig.parent===host;
+    APX.on=false; apxSync();
+    const gone = Object.keys(LR.rigs).length===0 && Object.keys(LR.tex).length===0 &&
+                 LR.hostKey==='' && LR.host===null && LR.cadFit===null && rig.parent===null;
+    APX.on=true; apxSync();
+    const back = !!LR.rigs[LR.hostKey] && LR.rigs[LR.hostKey]!==rig && LR.rigs[LR.hostKey].parent===LR.host;
+    return mounted && gone && back;
+  }), await ev(()=>{ APX.on=false; apxSync(); const s=Object.keys(LR.rigs).join()+'|'+LR.hostKey; APX.on=true; apxSync(); return 'rigs after off: ['+s+']'; }));
+  ok('...and a texture comes back showing the display\'s CURRENT pixels, not black', await ev(()=>{
+    /* the pixels are written by hand so nothing here depends on where an
+       effect's walk happens to be — SOLIDCOLOR twinkles, a third of it dark */
+    const d=APX.disp.fpsi;
+    d.rgb.fill(255); d.dirty=true;
+    APX.on=true; apxSync();               // uploaded, dirty cleared
+    const lit=LR.tex.fpsi.image.data[(2*5+2)*4]===255;
+    APX.on=false; apxSync();              // freed
+    APX.on=true; apxSync();               // rebuilt — a settled display has not dirtied itself, so the rig has to ask
+    const px=LR.tex.fpsi.image.data;
+    return lit && px[(2*5+2)*4+3]===255 && px[(2*5+2)*4]===255;
+  }));
+  ok('a board-variant change re-sizes the texture — the toolbox front logic is 20x9, and the old 9x10 is gone', await ev(()=>{
+    APX.on=true; apxSync();
+    const before=LR.tex.fld;
+    apxSetOption('fldBoard','fldTlbx'); APX.on=true; apxSync();
+    const t=LR.tex.fld;
+    const swapped = APX.disp.fld.w===20 && !!t && t!==before &&
+                    t.image.width===20 && t.image.height===9 && t.image.data.length===20*9*4;
+    apxSetOption('fldBoard','fld'); APX.on=true; apxSync();
+    return swapped && LR.tex.fld.image.width===9 && LR.tex.fld.image.height===10;
+  }), await ev(()=>{ apxSetOption('fldBoard','fldTlbx'); APX.on=true; apxSync(); const s=LR.tex.fld.image.width+'x'+LR.tex.fld.image.height; apxSetOption('fldBoard','fld'); APX.on=true; apxSync(); return 'texture after the change: '+s; }));
+
   console.log('\n════ the build answer is what turns it on ════');
   ok('a build whose dome lighting is not AstroPixels leaves the stand-in alone', await ev(()=>{
     const b=buildGet(), was=b.domeLights;
@@ -404,6 +474,26 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
     b.domeLights=was; apxInit(); APX.on=true; apxSync();
     return off===false && shown===true;
   }));
+  /* v1.78.0, review M2 — through the BUILD's door, with no apxInit() by hand.
+     That is the wizard's path (config/wizard.js writes domeLights through
+     buildSet and nothing else), and it reached the lights only on reload:
+     the comment in commands.js promised a re-run on a changed answer that
+     no caller made. buildApply() makes it now. */
+  ok('buildSet(\'domeLights\') alone re-derives APX.on — the wizard\'s tick reaches the lights without a reload', await ev(()=>{
+    APX.on=true;
+    buildSet('domeLights','teeces');
+    const off=APX.on, offFor=APX.domeLights;
+    buildSet('domeLights','astropixels');
+    return off===false && offFor==='teeces' && APX.on===true && APX.domeLights==='astropixels';
+  }), await ev(()=>{ buildSet('domeLights','teeces'); const s='APX.on after teeces: '+APX.on; buildSet('domeLights','astropixels'); return s; }));
+  /* v1.78.0, review L9 — a refusal is not an "ok". */
+  ok('a refusal from the pane goes up with the warn edge, not the green one', await ev(()=>{
+    apxSetOption('iface','none'); APX.on=true;
+    const r=luiSend('LE0010000');
+    apxSetOption('iface','serial'); APX.on=true;
+    const plate=Array.from(document.querySelectorAll('#toasts .toastp')).find(p=>p.textContent===r.why);
+    return r.ok===false && !!plate && plate.classList.contains('warn') && !plate.classList.contains('ok');
+  }), await ev(()=>{ const p=document.querySelector('#toasts .toastp'); return p ? p.className : 'no toast'; }));
   ok('every command goes through the same door — no back way in for the pane', await ev(()=>{
     apxSetOption('iface','none'); APX.on=true;
     const before=APX.refused;

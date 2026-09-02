@@ -4,9 +4,26 @@
    ===================================================================== */
 let blinkT = 0, lastSpeedForAccel = 0;
 
+/* THE SERVO RATE IS TYPED BY A HUMAN TOO (v1.78.0, review L14). The
+   maestroRate clamp below (animRate) was written after a typed -1 ran every
+   door away without bound, and the Config box grew CFG_LIMITS so the value
+   could not be typed — but this line kept reading CFG.servoSpeed raw, and a
+   setup .json, an older profile or a console poke never goes near the box.
+   A negative rate makes `Math.abs(d) <= step` false for every d, so each
+   pulse steps AWAY from its target for ever; a 0 makes it true for none, so
+   nothing ever moves. Same rule as animRate(): not a positive number is not
+   a rate and falls back to the default; anything else is held inside what
+   a real servo can do. The numbers are CFG_LIMITS.servoSpeed's (app/panels.js)
+   said here as well, and rc.test.js pins that the two agree. */
+const SERVO_RATE_DEF = 900, SERVO_RATE_MIN = 10, SERVO_RATE_MAX = 20000;
+function servoRate(){
+  const r = Number(CFG.servoSpeed);
+  return clamp(isFinite(r) && r > 0 ? r : SERVO_RATE_DEF, SERVO_RATE_MIN, SERVO_RATE_MAX);
+}
+
 /* mod2026 drives the PCA9685s; the maestro sketches drive script timelines */
 function stepServos(dt){
-  const step = CFG.servoSpeed*dt;
+  const step = servoRate()*dt;
   for(const b of [1,2]) for(const ch in SERVO[b]){
     const s=SERVO[b][ch];
     const d = s.target - s.pulse;

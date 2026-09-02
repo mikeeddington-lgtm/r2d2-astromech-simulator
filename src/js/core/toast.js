@@ -31,12 +31,31 @@
 const TOAST_MS  = 3500;   // wall-clock life of a plate
 const TOAST_MAX = 3;      // plates on screen at once
 
+/* WHERE THE HOST LIVES (v1.78.0, review L17). It was always a child of
+   #stage, and #toasts is z 7 there — under every full-page overlay this app
+   has (the setup wizard is z 120 and opaque, the bench 80, the import and
+   build wizards 60). So a receipt fired from INSIDE one of them — the
+   servo-import receipt with its dropped-field list, "Keeping the servo
+   settings…" (config/wizard.js) — was drawn behind the overlay and expired
+   there, unread. While uiModalOpen() (core/util.js) says an overlay is up,
+   the host hangs off <body> instead, position:fixed at the same bottom-left
+   offsets the stylesheet gives it, and at z 290: over every overlay and
+   popover in the stack (07-startup.css, 08-import.css, 13-track-edit.css
+   top out at 250) and deliberately UNDER the app dialog's 300, because a
+   question being asked must not be covered by a receipt. Inline style, not
+   a class, so the stylesheet's own #toasts rule keeps every other property.
+   The decision is re-made on every toast: one host, re-parented as the
+   overlay comes and goes, so plates already on it move with it rather than
+   being split across two hosts. Otherwise it stays in the stage, where the
+   chrome suite measures it. */
 function toastHost(){
   let h = $('toasts');
-  if(!h){
-    h = el('div'); h.id = 'toasts';
-    ($('stage') || document.body).appendChild(h);
-  }
+  if(!h){ h = el('div'); h.id = 'toasts'; }
+  const modal = typeof uiModalOpen === 'function' && uiModalOpen();
+  const want = (modal ? null : $('stage')) || document.body;
+  if(h.parentNode !== want) want.appendChild(h);
+  h.style.position = modal ? 'fixed' : '';
+  h.style.zIndex   = modal ? '290'   : '';
   return h;
 }
 

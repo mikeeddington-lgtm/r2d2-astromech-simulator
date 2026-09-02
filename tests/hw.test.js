@@ -1522,6 +1522,38 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
   ok('a typed speed and acceleration are the engine\'s the moment they are typed',
      cfgSpeed.found && cfgSpeed.engine.speed === 77 && cfgSpeed.engine.accel === 9, JSON.stringify(cfgSpeed));
 
+  /* v1.78.0 (review M18) — THE CLOCK CARRIES ITS REMAINDER. hwClockFire used
+     to hand the engine `now - last` and move `last` to `now`; pcaTick takes
+     whole milliseconds (`dtms|0`), so the fraction of every fire was thrown
+     away — a setInterval(10) that really fires every 10.7 ms lost 1.94 % over
+     300 fires and every PCA_Bridge ramp finished late by that margin. Driven
+     here with a clock of our own, through the same function the interval
+     calls. */
+  console.log('\n════ the bench clock loses no time to fractions (M18) ════');
+  const clockRem = await ev(()=>{
+    const keepTick = HW.tick, keepLast = HWCLK.last;
+    let delivered = 0;
+    HW.tick = ms=>{ delivered += ms; };
+    HWCLK.last = 1000;
+    let now = 1000;
+    for(let i=0;i<300;i++){ now += 10.7; hwClockFire(now); }
+    const jitter = {delivered, wall: now - 1000};
+    /* a stall past the cap delivers the cap and drops the rest, as before */
+    delivered = 0; HWCLK.last = now; now += 900; hwClockFire(now);
+    const stall = {delivered, lastCaughtUp: HWCLK.last === now};
+    /* and a clock that went backwards resyncs rather than delivering a negative */
+    delivered = 0; now -= 50; hwClockFire(now);
+    const back = {delivered, lastResynced: HWCLK.last === now};
+    HW.tick = keepTick; HWCLK.last = keepLast;
+    return {jitter, stall, back};
+  });
+  ok('300 fires at 10.7 ms deliver the wall-clock total to within a millisecond',
+     Math.abs(clockRem.jitter.delivered - clockRem.jitter.wall) < 1, JSON.stringify(clockRem.jitter));
+  ok('…a stall past 250 ms is capped and dropped, not fast-forwarded',
+     clockRem.stall.delivered === 250 && clockRem.stall.lastCaughtUp, JSON.stringify(clockRem.stall));
+  ok('…and a clock that went backwards delivers nothing and resyncs',
+     clockRem.back.delivered === 0 && clockRem.back.lastResynced, JSON.stringify(clockRem.back));
+
   console.log('\n════ no page errors ════');
   ok('nothing threw', errs.length===0, errs.join(' | '));
 

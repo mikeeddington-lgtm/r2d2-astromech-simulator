@@ -62,9 +62,13 @@ function luiIncludeTick(host){
   chk.addEventListener('change',()=>{
     buildSet('domeLights', chk.checked ? 'astropixels'
       : (LUI_LIGHTS_WAS && LUI_LIGHTS_WAS !== 'astropixels' ? LUI_LIGHTS_WAS : 'none'));
-    /* apxInit() re-reads the build and rebuilds the rig; apxSync() then puts
-       the stand-in lights back (or takes them away) on the next frame */
-    if(typeof apxInit === 'function') apxInit();
+    /* No apxInit() here any more (v1.78.0, review M2). buildSet() applies
+       the build, and buildApply() re-runs apxInit() itself whenever the Dome
+       lighting answer it holds differs from the one the boards were built
+       against — which is what makes the wizard's copy of this tick work
+       too, and is why this one must not do it a second time: two inits are
+       two boot banners. apxSync() then puts the stand-in lights back (or
+       takes them away) on the next frame. */
     if(typeof buildCadPane === 'function') buildCadPane();
     else if(typeof rebuildProfileUI === 'function') rebuildProfileUI();
   });
@@ -230,7 +234,12 @@ function buildDomeLightsSect(host){
   const rc = el('div','cfgrow'); rc.style.gridTemplateColumns = '76px 1fr';
   rc.appendChild(el('label', null, 'Command'));
   const inp = document.createElement('input');
-  inp.type = 'text'; inp.className = 'msel'; inp.placeholder = 'LE0100010  ·  HPA0021|20  ·  @1T3';
+  inp.type = 'text'; inp.className = 'msel';
+  /* The examples follow the sketch (v1.78.0, review M4): `@1T3` is a
+     Marcduino's, and apxSend() now refuses it on the three sketches that
+     have no Marcduino in front of them — so offering it there would be the
+     box inviting the very command the wire is about to bounce. */
+  inp.placeholder = fw.jawa ? '@1T3  ·  :SE01  ·  *RTLE0100010' : 'LE0100010  ·  HPA0021|20';
   inp.addEventListener('keydown', e => {
     if(e.key !== 'Enter') return;
     e.preventDefault();
@@ -260,7 +269,11 @@ function luiSend(cmd){
   const r = apxSend(cmd);
   const out = $('luiOut');
   if(out) out.innerHTML = luiLastLines();
-  if(!r.ok && typeof toast === 'function') toast(r.why);
+  /* 'warn', because this is a REFUSAL — the wiring could not carry it, or
+     the grammar did not parse. It went up with the green ok edge, which is
+     the colour of "done", on the one message here that means the opposite
+     (v1.78.0, review L9). */
+  if(!r.ok && typeof toast === 'function') toast(r.why, 'warn');
   else if(r.why && typeof lg === 'function') lg('sys', r.why);
   return r;
 }

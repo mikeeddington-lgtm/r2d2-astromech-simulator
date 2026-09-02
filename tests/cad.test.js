@@ -357,6 +357,15 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
      OWN second container — the Polar Mouse .r2m, which ui-files.js routes
      here by extension — has kinds {body, wheel, chariot}: 130 parts loaded,
      all invisible, zero checkboxes, an empty stage and nothing logged. */
+  /* v1.78.0, review M3 — what the AstroPixels layer had on the MK4's dome
+     BEFORE the swap, kept by identity so the assertion after it can say
+     whether the same rig and the same fit came along. */
+  const lrBefore = await ev(()=>{
+    if(typeof APX === 'undefined' || typeof LR === 'undefined') return {skip:true};
+    APX.on = true; apxSync();
+    window.__lrBefore = {rig:LR.rigs.cad, fit:LR.cadFit, header:CAD.header};
+    return {skip:false, host:LR.hostKey, hasRig:!!LR.rigs.cad, hasFit:!!LR.cadFit};
+  });
   const unknown = await ev(async ()=>{
     const buf = await inflateB64(MOUSE_PAYLOAD);
     buildCad(decodeR2M(buf), 'polar-mouse.r2m');
@@ -379,6 +388,27 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
   ok('…and the Show list offers a checkbox per kind actually present',
      /body/i.test(unknown.boxes) && /wheel/i.test(unknown.boxes) && /chariot/i.test(unknown.boxes),
      unknown.boxes);
+
+  /* v1.78.0, review M3 — the MK4's AstroPixels rig must NOT follow the swap.
+     buildCad disposes the old tree, rig geometry included, and the lighting
+     layer's mount used to notice only that the dome object had changed — so
+     it lifted the old rig, placed by the old fit, onto the new dome: five
+     MK4 logic panels and three holoprojectors floating over a Polar Mouse.
+     The rig and the fit are keyed on the loaded model's header now
+     (render3d.js lrMount), and a swap throws both away. */
+  if(!lrBefore.skip && lrBefore.hasRig){
+    const lrAfter = await ev(()=>{
+      APX.on = true; apxSync();
+      const b = window.__lrBefore;
+      return {swapped: CAD.header !== b.header,
+              oldRigParent: b.rig.parent ? (b.rig.parent === CAD.dome ? 'the new dome' : 'something') : null,
+              sameRig: LR.rigs.cad === b.rig, sameFit: LR.cadFit === b.fit,
+              modelKeyed: LR.cadModel === null || LR.cadModel === CAD.header};
+    });
+    ok('the MK4\'s rig and fit do not come along to the Polar Mouse — the old rig is unmounted and both are measured again',
+       lrAfter.swapped && lrAfter.oldRigParent === null && !lrAfter.sameRig && !lrAfter.sameFit && lrAfter.modelKeyed,
+       JSON.stringify(lrAfter));
+  } else console.log('  (no AstroPixels rig on the MK4 before the swap — skipping the rig-lifecycle check: '+JSON.stringify(lrBefore)+')');
 
   /* put the bundled droid back, so anything appended after this starts from
      the same stage every other section here ran against */

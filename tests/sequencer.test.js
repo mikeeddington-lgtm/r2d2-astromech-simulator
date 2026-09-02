@@ -646,6 +646,79 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
      carry.at600===carry.open && carry.at700===carry.open && carry.at999===carry.open,
      JSON.stringify(carry));
 
+  /* ================================================================
+     v1.78.0, review M6 — the SCRUB PREVIEW and the FREE-PLAY value carry
+     the same way. blockPoseAt/blockFreeAt started every channel closed
+     and read only the bricks covering `ms`, so an 'o' brick on [0,1000]
+     plus another brick at 1500 compiled to frames holding OPEN until the
+     home frame while the playhead at 1200 showed it shut, and an unwired
+     'o' brick closed on the model mid-playback while a wired one stayed
+     open. Compared against blockCompile's OWN frames at the same instant —
+     never a literal — through the seam blockPoseAt really uses.
+     ================================================================ */
+  console.log('\n════ …and the scrub preview carries it too — blockPoseAt equals the compiled frame (v1.78.0, M6) ════');
+  const scrub = await ev(()=>{
+    EDIT.seq = blockNewRoutine('Scrub carry test');
+    const seq = MSTR.sequences[EDIT.seq];
+    const acts = blockActions();
+    const act0 = acts[0].act, act1 = acts[1].act;
+    const c = blockChan(act0), c1 = blockChan(act1);
+    blockAdd(seq, 'act', act0, 0,    {dur:1000, rise:200, fall:200, mode:'o'});
+    blockAdd(seq, 'act', act1, 1500, {dur:400});             /* another channel, well past the 'o' brick */
+    /* the compiled frame covering ms: frames run back to back from 0, and
+       past the last one the board simply holds it */
+    const frameAt = ms=>{ let t=0; for(const f of seq.frames){ if(ms < t + f.duration) return f; t += f.duration; } return seq.frames[seq.frames.length-1]; };
+    /* what blockPoseAt hands the host at ms — captured at the seam, so it is
+       blockPoseAt under test and not a re-derivation of it */
+    const poseAt = ms=>{ let got=null; const keep=BLKH.applyPose; BLKH.applyPose=t=>{ got=t.slice(); }; try{ blockPoseAt(seq, ms); } finally{ BLKH.applyPose=keep; } return got; };
+    const at = [1200, 1499, 1700, 1899].map(ms=>{ const p = poseAt(ms), f = frameAt(ms); return {ms, pose:p[c.i], frame:f.targets[c.i], other:p[c1.i], otherFrame:f.targets[c1.i]}; });
+    const end = blockEndCompiled(seq);
+    const past = {ms:end+100, pose:poseAt(end+100)[c.i], frame:frameAt(end+100).targets[c.i]};
+    /* and a nested sequence carries the same way: its frames are SPARSE
+       (0 = leave the channel alone), so what one frame commanded persists
+       through the frames after it and past the brick's own end */
+    const tA = [], tB = []; tA[c.i] = blockOpen(c); tB[c1.i] = blockOpen(c1);
+    MSTR.sequences.push({name:'Nested sparse', frames:[{name:'a',duration:300,targets:tA},{name:'b',duration:300,targets:tB}]});
+    EDIT.seq = blockNewRoutine('Scrub carry nested');
+    const seq2 = MSTR.sequences[EDIT.seq];
+    blockAdd(seq2, 'seq', 'Nested sparse', 0);               /* [0, 600] */
+    blockAdd(seq2, 'act', act1, 4000, {dur:400});
+    const frameAt2 = ms=>{ let t=0; for(const f of seq2.frames){ if(ms < t + f.duration) return f; t += f.duration; } return seq2.frames[seq2.frames.length-1]; };
+    const poseAt2 = ms=>{ let got=null; const keep=BLKH.applyPose; BLKH.applyPose=t=>{ got=t.slice(); }; try{ blockPoseAt(seq2, ms); } finally{ BLKH.applyPose=keep; } return got; };
+    const nested = [450, 900].map(ms=>({ms, pose:poseAt2(ms)[c.i], frame:frameAt2(ms).targets[c.i]}));
+    return {closed:blockClosed(c), open:blockOpen(c), at, past, end, nested};
+  });
+  ok("scrubbing between an 'o' brick and the next one shows the channel where the compiled frame holds it — open, not closed",
+     scrub.at[0].pose === scrub.at[0].frame && scrub.at[0].pose === scrub.open
+     && scrub.at[1].pose === scrub.at[1].frame, JSON.stringify(scrub.at.slice(0,2)));
+  ok('…and still during the later brick on the other channel', scrub.at[2].pose === scrub.at[2].frame && scrub.at[3].pose === scrub.at[3].frame
+     && scrub.at[2].other !== scrub.closed, JSON.stringify(scrub.at.slice(2)));
+  ok("…and past the routine's compiled end the preview goes home with the frames, not on holding open",
+     scrub.past.pose === scrub.past.frame && scrub.past.pose === scrub.closed, JSON.stringify(scrub.past));
+  ok('a nested sequence carries too: a channel one sparse frame commanded stays there through the next frame and past the brick, in preview and frames alike',
+     scrub.nested.every(n=>n.pose === n.frame) && scrub.nested[1].pose === scrub.open, JSON.stringify(scrub.nested));
+
+  const freePlay = await ev(()=>{
+    /* an unwired part — one the stock droid has no channel for; the
+       sequencer lists it greyed, and a brick on it moves the model only */
+    const m = BLKH.movers().find(x=>!x.on);
+    const free = m && m.act;
+    if(!free) return {none:true};
+    EDIT.seq = blockNewRoutine('Free carry test');
+    const seq = MSTR.sequences[EDIT.seq];
+    const wired = blockActions()[0].act;
+    blockAdd(seq, 'act', free,  0,    {dur:1000, rise:200, fall:200, mode:'o'});
+    blockAdd(seq, 'act', wired, 1500, {dur:400});
+    return {free, mid:blockFreeAt(seq, 1200)[free], during:blockFreeAt(seq, 1700)[free],
+            parked:blockFreeAt(seq, -1)[free], after:blockFreeAt(seq, blockEnd(seq)+100)[free],
+            oc:(()=>{ const s2 = MSTR.sequences[blockNewRoutine('Free oc')]; blockAdd(s2,'act',free,0,{dur:1000,rise:200,fall:200}); blockAdd(s2,'act',wired,1500,{dur:400}); return blockFreeAt(s2, 1200)[free]; })()};
+  });
+  ok('the fixture has an unwired part to test with', !freePlay.none, JSON.stringify(freePlay));
+  ok("an unwired 'o' brick holds its part OPEN past its own end during playback, exactly as a wired one holds its channel",
+     !freePlay.none && freePlay.mid === 1 && freePlay.during === 1, JSON.stringify(freePlay));
+  ok('…while -1 (playback over) and past the timeline\'s end still park it shut, and an \'oc\' brick still closes itself',
+     !freePlay.none && freePlay.parked === 0 && freePlay.after === 0 && freePlay.oc === 0, JSON.stringify(freePlay));
+
   /* the 'oc' compile-identical proof (Mike's "prove it") lives in a node
      harness outside this Playwright suite — see the handover; it diffs
      blockCompile's frames for an 'oc'-only routine before and after the

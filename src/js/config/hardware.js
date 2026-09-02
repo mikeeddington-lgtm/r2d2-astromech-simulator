@@ -1509,6 +1509,21 @@ function buildApply(){
      so the co-processor answers have to be put back after it, not only when
      they are first chosen. */
   buildSyncBench(b);
+  /* THE DOME LIGHTING ANSWER IS WHAT TURNS THE ASTROPIXELS ON, and this is
+     the seam where it gets there (v1.78.0, review M2). APX.on is written by
+     apxInit() and nothing else; apxInit() ran at boot and from the Model
+     pane's own tick, and the wizard's tick — which writes the very same key
+     through buildSet() — reached neither, so answering Teeces on the Dome
+     lighting step left the LogicEngine effects running until a reload. The
+     two doors that write one answer disagreed on screen. APX.domeLights is
+     the answer the boards were last built against; when it differs from the
+     build's, re-derive. Guarded on the layer being there at all, both
+     because PCA Studio does not load lights/ and because at boot main.js
+     runs apxInit() itself before the first buildApply(). */
+  if(typeof apxInit === 'function' && typeof APX !== 'undefined' && APX.built && APX.domeLights !== (b.domeLights || '')){
+    apxInit();
+    did.push('dome lighting → '+(b.domeLights==='astropixels' ? 'AstroPixels simulated' : 'stand-in blink'));
+  }
   prefsSave();
   if(did.length) lg('sys','build config applied — '+did.join(' · '));
   return did;

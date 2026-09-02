@@ -468,16 +468,104 @@ function blockEnvAt(b, t){
 /* every UNWIRED act brick's openness at time t — keyed by act, defaulted
    to 0 (closed) so a lane parks shut outside its bricks, exactly as a
    wired channel parks at base-closed between its own. Later bricks win,
-   the same layering rule the wired path uses. */
+   the same layering rule the wired path uses — and so does the CARRY
+   (blockCarryAt below): an unwired 'o' brick holds its part open past its
+   own end exactly as a wired one holds its channel, until the routine ends
+   and the caller asks for ms = -1, which is outside every brick and every
+   brick's end, and parks the lot shut. */
 function blockFreeAt(seq, ms){
   const free = {};
-  blockList(seq).forEach(b=>{
-    if(b.kind !== 'act' || blockWired(b)) return;
-    if(free[b.ref] === undefined) free[b.ref] = 0;
-    const env = blockEnvAt(b, ms);
-    if(env !== null) free[b.ref] = env;
-  });
+  blockList(seq).forEach(b=>{ if(b.kind === 'act' && !blockWired(b)) free[b.ref] = 0; });
+  const at = blockCarryAt(seq, ms);
+  for(const a in at.free) if(a in free) free[a] = at.free[a];
   return free;
+}
+
+/* ======================= WHAT THE BRICKS COMMAND AT ONE INSTANT (v1.78.0)
+   Review M6. blockPoseAt() and blockFreeAt() used to start every channel at
+   base-closed and read only the bricks whose window contained `ms` — while
+   blockCompile() CARRIES `last[c.i]` from one interval to the next (its own
+   note, "a channel's value CARRIES between frames"). So an 'o' brick on
+   [0, 1000] and any brick at 1500 compiled to frames holding the channel
+   OPEN until the home frame, and the scrub preview at 1200 showed it shut;
+   an unwired 'o' brick closed on the model during pad playback while a
+   wired one stayed open. Two readings of one timeline, and the one that
+   went to the board was not the one on screen.
+
+   The rule, said once: at instant t a channel holds the LAYERED value of
+   the bricks that claim t — list order, later wins, exactly the compiler's
+   rule — and where nothing claims it, the layered value at the latest
+   brick END at or before t, because that is the last interval in which the
+   compiler wrote `last[c.i]` for it. Inside a brick the playhead still
+   reads the brick's continuous envelope rather than the compiled step (see
+   blockPoseAt's own note); it is only the uncovered stretches that had two
+   answers, and now have one. A nested sequence carries the same way: its
+   frames are sparse (0 = leave the channel alone) and blockCompile overlays
+   them interval by interval, so the pose it has commanded by `t` is every
+   frame up to the covering one laid over the last, not the covering frame
+   alone.
+
+   `strict` at a carried end mirrors the compiler's `next > b.t0`: a brick
+   that STARTS exactly at that instant has not claimed it yet. */
+function blockSeqPoseAt(b, t){
+  const ref = BLKH.sequences().find(x=>x.name === b.ref);
+  if(!ref || t < b.t0 || t > b.t0 + b.dur) return null;
+  const pose = [];
+  let at = b.t0;
+  for(const f of ref.frames){
+    (f.targets || []).forEach((v,i)=>{ if(v) pose[i] = v; });
+    at += f.duration;
+    if(t <= at) break;                 /* this frame covers t — blockSeqFrameAt's own rule */
+  }
+  return pose;
+}
+/* the layered value at t over the bricks that claim it — sparse: only what
+   some brick said. Wired act bricks and nested sequences by channel index in
+   `targets`; unwired act bricks by act in `free`. */
+function blockLayerAt(seq, t, strict){
+  const targets = {}, free = {};
+  blockList(seq).forEach(b=>{
+    if(t < b.t0 || t > b.t0 + b.dur) return;
+    if(strict && t === b.t0) return;
+    if(b.kind === 'seq'){
+      const pose = blockSeqPoseAt(b, t);
+      if(pose) pose.forEach((v,i)=>{ if(v) targets[i] = v; });
+      return;
+    }
+    if(blockWired(b)){
+      const v = blockValueAt(b, t);
+      const c = blockChan(b.ref);
+      if(v !== null && c) targets[c.i] = v;
+    }else{
+      const env = blockEnvAt(b, t);
+      if(env !== null) free[b.ref] = env;
+    }
+  });
+  return {targets, free};
+}
+function blockCarryAt(seq, ms){
+  const now = blockLayerAt(seq, ms, false);
+  /* THE CARRY STOPS WHERE THE ROUTINE DOES. blockCompile lands every wired
+     channel on base-closed the instant the last wired brick ends — the
+     'home' frame, "A COMPILED ROUTINE MUST NEVER END OPEN" — so from
+     blockEndCompiled() on, the compiled frame says closed and so must this.
+     The free lanes have no home frame; they park at the timeline's own end
+     (blockEnd, which counts the unwired bricks too), the same instant the
+     follow loop and pad playback stop asking. Inside those ends a channel
+     nothing claims at ms holds what it was last commanded. */
+  const carryW = ms < blockEndCompiled(seq), carryF = ms < blockEnd(seq);
+  if(!carryW && !carryF) return now;
+  /* every brick end at or before ms, latest first: the first end that
+     names a channel is the last time anything commanded it */
+  const ends = [];
+  blockList(seq).forEach(b=>{ const e = b.t0 + b.dur; if(e <= ms && ends.indexOf(e) < 0) ends.push(e); });
+  ends.sort((a,b)=>b-a);
+  for(const u of ends){
+    const then = blockLayerAt(seq, u, true);
+    if(carryW) for(const k in then.targets) if(!(k in now.targets)) now.targets[k] = then.targets[k];
+    if(carryF) for(const k in then.free)    if(!(k in now.free))    now.free[k]    = then.free[k];
+  }
+  return now;
 }
 function blockValueAt(b, t){
   if(t < b.t0 || t > b.t0 + b.dur) return null;
@@ -510,8 +598,10 @@ function blockValueAt(b, t){
 }
 /* what a dropped-in sequence commands at time t: the frame it is inside.
    The whole FRAME, because the compiler needs its `speeds` row as well as
-   its targets (v1.77.0, review H8 — see the compile loop); blockSeqTargetsAt
-   below is the targets-only view the playhead has always read. */
+   its targets (v1.77.0, review H8 — see the compile loop). blockSeqTargetsAt
+   below is the targets-only view of that one frame; the playhead read it
+   until v1.78.0 and now reads blockSeqPoseAt() above, which carries the
+   sparse frames before it the way the compiler does (review M6). */
 function blockSeqFrameAt(b, t){
   const ref = BLKH.sequences().find(x=>x.name === b.ref);
   if(!ref || t < b.t0 || t > b.t0 + b.dur) return null;
@@ -1177,6 +1267,10 @@ function blockSnapToBeats(seq){
    continuous answer, and they are what the timeline draws, so scrubbing
    agrees with the picture by construction.
 
+   Between bricks a channel holds what the last brick to touch it left
+   behind — blockCarryAt(), the compiler's own carry (v1.78.0, review M6) —
+   and base-closed only where nothing has touched it yet.
+
    A plain imported sequence has no bricks: frames are all there is. Those
    are absolute but SPARSE (0 = leave the channel alone), so walk them from
    the start applying each in turn — by the time we reach ms every channel
@@ -1185,18 +1279,9 @@ function blockPoseAt(seq, ms){
   if(!seq) return;
   if(blockIsRoutine(seq)){
     const chans = BLKH.servoChannels();
+    const at = blockCarryAt(seq, ms);
     const targets = [];
-    chans.forEach(c=>{ targets[c.i] = blockClosed(c); });
-    blockList(seq).forEach(b=>{
-      if(b.kind === 'seq'){
-        const tg = blockSeqTargetsAt(b, ms);
-        if(tg) chans.forEach(c=>{ if(tg[c.i]) targets[c.i] = tg[c.i]; });
-      }else{
-        const v = blockValueAt(b, ms);
-        const c = blockChan(b.ref);
-        if(v !== null && c) targets[c.i] = v;
-      }
-    });
+    chans.forEach(c=>{ targets[c.i] = (c.i in at.targets) ? at.targets[c.i] : blockClosed(c); });
     BLKH.applyPose(targets);
     /* unwired bricks move the MODEL too (2026-08-18) — through the host
        seam, which only the sim provides: PCA Studio has no droid and no

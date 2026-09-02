@@ -723,6 +723,87 @@ const REFUSAL = 'this build has no servo board yet — answer the servo question
      scale.ceil.pref === 1.5 && parseFloat(scale.ceil.zoom) === 1.5, JSON.stringify(scale.ceil));
   await ev(()=>{ wsSet('bench'); const h=$('toasts'); if(h) h.remove(); });
 
+  /* ══════════════════════════════════════════════════════════════════════
+     v1.78.0 (review 2026-09-01, L9) — COPY THAT NAMED THE WRONG THING
+
+     The header chip and the sequencer's ⚡ button both said "a board running
+     PCA_Bridge" whatever was on the other end — a Pololu Maestro and a
+     MaestroReplacement both stream through the same link. Connected, the
+     words come from what the board proved it is (SER.kind, then its banner);
+     with nothing connected, from what the BUILD says a click would open. The
+     profile loaded above is maestro25, so the build here IS a Pololu board.
+     ══════════════════════════════════════════════════════════════════════ */
+  console.log('\n════ the link copy names the board you actually have (L9) ════');
+  const linkCopy = await ev(()=>{
+    const kept = {port: SER.port, kind: SER.kind, blocked: SER.blocked, board: MSTR.board};
+    /* earlier blocks adopted PCA boards into this page; the copy is decided
+       by MSTR.board alone, so point it at a Maestro for the duration rather
+       than resizing the table through setBoard() */
+    MSTR.board = 'mini24';
+    const out = {board: MSTR.board, isMaestro: typeof serialBuildIsMaestro === 'function' && serialBuildIsMaestro()};
+    SER.port = null; SER.kind = ''; SER.blocked = false; serialUiSync(); liveUiSync();
+    out.liveIdle = $('sqLive').title;
+    out.chipIdle = $('chLink').title;
+    SER.port = {}; SER.blocked = false;
+    SER.kind = 'maestro'; linkChipSync(); out.chipMaestro = $('chLink').title;
+    SER.kind = 'bridge';  linkChipSync(); out.chipBridge  = $('chLink').title;
+    /* a real bridge never writes SER.kind — it is known by its banner alone */
+    SER.kind = ''; SER.banner = 'PCA-BRIDGE 2\n--- PCA bridge ---'; linkChipSync(); out.chipBanner = $('chLink').title;
+    SER.banner = 'MAESTRO-PCA 2'; linkChipSync(); out.chipCoproc = $('chLink').title;
+    SER.banner = '';
+    SER.port = kept.port; SER.kind = kept.kind; SER.blocked = kept.blocked; MSTR.board = kept.board; serialUiSync(); liveUiSync();
+    return out;
+  });
+  ok('the build under test is a Pololu Maestro', linkCopy.isMaestro, linkCopy.board);
+  ok('nothing connected: the ⚡ button offers to open the Maestro, not PCA_Bridge',
+     /Pololu Maestro/.test(linkCopy.liveIdle) && !/PCA_Bridge/.test(linkCopy.liveIdle), linkCopy.liveIdle);
+  ok('…and the header chip still says what a click does, of the same board',
+     /Click to open a USB serial port/.test(linkCopy.chipIdle) && /Pololu Maestro/.test(linkCopy.chipIdle)
+     && !/PCA bridge|PCA_Bridge/.test(linkCopy.chipIdle), linkCopy.chipIdle);
+  ok('a connected Pololu Maestro is called one', /Connected to a Pololu Maestro/.test(linkCopy.chipMaestro), linkCopy.chipMaestro);
+  ok('a connected PCA_Bridge is still called one — by kind or by banner',
+     /Connected to a board running PCA_Bridge/.test(linkCopy.chipBridge)
+     && /Connected to a board running PCA_Bridge/.test(linkCopy.chipBanner), linkCopy.chipBanner);
+  ok('a MaestroReplacement co-processor is named as itself', /MaestroReplacement/.test(linkCopy.chipCoproc), linkCopy.chipCoproc);
+  const askCopy = await ev(async ()=>{
+    const kept = {port: SER.port, kind: SER.kind, blocked: SER.blocked, on: LIVE.on, asked: LIVE.asked, board: MSTR.board};
+    SER.port = null; SER.kind = ''; LIVE.on = false; LIVE.asked = false; MSTR.board = 'mini24';
+    const p = liveSet(true);                 /* not ready → asks to connect first */
+    const dlg = document.querySelector('.dlgwrap');
+    const msg = dlg ? dlg.querySelector('.dlgmsg').textContent : '(no dialog)';
+    const no = dlg && Array.from(dlg.querySelectorAll('button')).find(b=>/Not now/.test(b.textContent));
+    if(no) no.click();
+    await p;
+    SER.port = kept.port; SER.kind = kept.kind; SER.blocked = kept.blocked; LIVE.on = kept.on; LIVE.asked = kept.asked; MSTR.board = kept.board;
+    serialUiSync(); liveUiSync();
+    return msg;
+  });
+  ok('the "connect a board first?" question names the Maestro too',
+     /Pololu Maestro/.test(askCopy) && !/PCA_Bridge/.test(askCopy), askCopy);
+
+  /* the rail chip's tooltip counted "Step N of 15" — six jobs as questions,
+     the count 1.5c retired from the footer — under a footer saying
+     "Question N of 9". Both count the same stretch now, and the nine is the
+     step list less the jobs, not a typed number. */
+  console.log('\n════ the wizard chip and its footer count the same way ════');
+  const wizCount = await ev(()=>{
+    const steps = wizSteps();
+    const nJobs = WIZ_EXTRA.length, nQ = steps.length - nJobs;
+    const qi = 1, ji = nQ;                   /* Controller (a question) and the first job */
+    const read = i=>{ wizOpen(i); const chip = $('stprail').querySelector('.raildot[data-step="'+i+'"]');
+                      return {chip: chip ? chip.title.split('\n')[0] : '', foot: $('stpFoot').textContent}; };
+    const q = read(qi), j = read(ji);
+    closeStartup();
+    return {nQ, nJobs, q, j};
+  });
+  ok('a question chip says "Question N of 9" — the footer\'s own count',
+     wizCount.q.chip.indexOf('Question '+2+' of '+wizCount.nQ) === 0
+     && wizCount.q.foot.indexOf('Question '+2+' of '+wizCount.nQ) === 0, JSON.stringify(wizCount.q));
+  ok('a job chip says "Job 1 of 6" the way the footer does — never "Step N of 15"',
+     wizCount.j.chip.indexOf('Job 1 of '+wizCount.nJobs) === 0 && wizCount.j.foot.indexOf('Job 1 of '+wizCount.nJobs) === 0
+     && !/Step \d+ of/.test(wizCount.j.chip) && !/Step \d+ of/.test(wizCount.q.chip), JSON.stringify(wizCount.j));
+  ok('…and the nine is the step list less the jobs', wizCount.nQ === 9 && wizCount.nJobs === 6, JSON.stringify(wizCount));
+
   console.log('\n════ no page errors ════');
   ok('nothing threw', errs.length===0, errs.join(' | '));
 

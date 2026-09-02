@@ -602,6 +602,47 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
     wsGet()==='drive' && PREFS.adv===true && viewGet()==='advanced'));
   await ev(()=>{ PREFS.adv=false; prefsSave(); applyWs(wsGet()); });   // switch back off for the rest
 
+  /* v1.78.0 (review L11) — the chip has two things to say, and both were
+     half-true. "LOOP BLOCKED · delay(750)" was hardcoded for every block —
+     right for the Maestro sketches' automation turn, wrong for an imported
+     .ino's delay(2000). And "S/T TIMEOUT" read MOT.drive only, so a held
+     stick that only TURNS on mod2026 — one packet, then the change-guard
+     goes quiet and the Sabertooth watchdog trips — turned the Turn bar red
+     while the chip the mod2026 note tells the user to watch stayed dark. */
+  console.log('\n════ the fault chip tells the truth about which fault (L11) ════');
+  const blk = await ev(()=>{
+    const out = {};
+    SIM.blockUntil = SIM.millis + 2000; updateHUD();
+    out.two = $('chFault').lastElementChild.textContent;
+    SIM.blockUntil = SIM.millis + 750; updateHUD();
+    out.seven = $('chFault').lastElementChild.textContent;
+    SIM.blockUntil = -1; updateHUD();
+    out.off = $('chFault').style.display;
+    return out;
+  });
+  ok('a blocking delay() is named by its real length, not a typed 750',
+     /delay\(2000\)/.test(blk.two) && /delay\(750\)/.test(blk.seven) && blk.off === 'none', JSON.stringify(blk));
+  /* the starved TURN. Arm the feet, hold the on-screen stick full left and
+     nothing else, and wait on the WATCHDOG — MOT.driveTO is the state the
+     chip is supposed to be reporting, so that is what is waited for, not a
+     number of frames. */
+  const turnPremise = await ev(()=>({fw:PROFILE.id, pwm:PROFILE.footPWM()}));
+  ok('premise: mod2026 with the Sabertooth answer, where a held turn starves the packet clock',
+     turnPremise.fw === 'mod2026' && turnPremise.pwm === false, JSON.stringify(turnPremise));
+  await ev(()=>{ FW.isDriveEnabled = true; INPUT.virtual.LX = -1; INPUT.virtual.LY = 0; });
+  await page.waitForFunction(()=>MOT.turn !== 0 && MOT.drive === 0 && MOT.driveTO === true, null, {timeout:20000});
+  const starvedTurn = await ev(()=>{
+    updateHUD();
+    const f = $('chFault');
+    return {shown: f.style.display !== 'none', text: f.lastElementChild.textContent,
+            turn: MOT.turn, drive: MOT.drive, to: MOT.driveTO,
+            bar: $('vTurn').className};
+  });
+  ok('a starved pure turn lights the S/T TIMEOUT chip, not just the Turn bar',
+     starvedTurn.shown && /TIMEOUT/.test(starvedTurn.text) && /rd/.test(starvedTurn.bar), JSON.stringify(starvedTurn));
+  await ev(()=>{ INPUT.virtual.LX = 0; FW.isDriveEnabled = false; MOT.turn = 0; MOT.drive = 0; updateHUD(); });
+  ok('…and goes out once the turn is released', await ev(()=>$('chFault').style.display === 'none'));
+
   console.log('\n════ appPrompt() kills the native prompt() (M5c) ════');
   await ev(()=>{ groupCreate('Rename me'); buildCadPane(); });
   /* the group rows live on the Model pane — Drive does not offer it, so
