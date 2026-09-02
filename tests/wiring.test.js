@@ -395,6 +395,11 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
      ================================================================ */
   console.log('\n════ the sheet and its filename agree on the clock ════');
   const tzPage = await browser.newPage({ viewport:{width:1400,height:900}, timezoneId:'Australia/Brisbane' });
+  /* v1.79.0 / L22 - same gap as build-config.test.js's bootPage: this page
+     had no pageerror listener, so a boot-time throw on the timezone path
+     would print nothing and this suite would still go green. Asserted just
+     before the page closes, below. */
+  const tzErrs=[]; tzPage.on('pageerror',e=>tzErrs.push(e.message));
   await tzPage.goto('file://'+path.resolve(__dirname, '..', process.env.R2_TARGET || 'R2D2-Simulator.html')+R2_Q);
   await tzPage.waitForFunction('typeof CAD!=="undefined" && CAD.loaded', {timeout:40000});
   await tzPage.evaluate(()=>{ PREFS.seenStartup=true; closeStartup(); });
@@ -418,6 +423,8 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
   ok('…and it matches fileStamp(), which is what the download is named after',
      clocks.stamp === clocks.onSheet.replace(/[-: ]/g,'').replace(/^(\d{4})(\d{2})(\d{2})(\d{4})$/,'$1-$2-$3-$4'),
      clocks.stamp+' vs '+clocks.onSheet);
+  ok('...and nothing threw booting under a non-UTC timezone',
+     tzErrs.length===0, tzErrs.join(' | '));
   await tzPage.close();
 
   ok('no page errors', errs.length===0, errs.join(' | '));

@@ -2962,6 +2962,12 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
      reloaded between the two readings — which is exactly the gesture the
      walkthrough made five times ("five reloads, five wizards"). */
   const bootPage = await browser.newPage({ viewport: { width: 1400, height: 900 } });
+  /* v1.79.0 / L22 — this page had no pageerror listener, so a boot-time
+     throw on the fresh-profile path (exactly the path this block exists to
+     drive) would print nothing and this suite would still go green. Same
+     treatment as the main page's `errs` at the top of the file, scoped to
+     this one; asserted just before the page closes, below. */
+  const bootErrs=[]; bootPage.on('pageerror',e=>bootErrs.push(e.message));
   const bootUrl = 'file://'+path.resolve(__dirname, '..', process.env.R2_TARGET || 'R2D2-Simulator.html')+R2_Q;
   const bootLoad = async ()=>{
     await bootPage.waitForFunction('typeof CAD!=="undefined" && CAD.loaded', {timeout:40000});
@@ -2998,6 +3004,8 @@ const ok=(n,c,x='')=>{ c?pass++:fail++; console.log((c?'  PASS':'  FAIL')+'  '+n
     closeStartup();
     return on;
   }));
+  ok('...and nothing threw across that boot / dismiss / reopen path',
+     bootErrs.length===0, bootErrs.join(' | '));
   await bootPage.evaluate(()=>{ localStorage.clear(); });
   await bootPage.close();
 

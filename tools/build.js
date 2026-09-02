@@ -135,8 +135,11 @@ ${extra}
   const css = '<style>\n' + man.css.map(read).join('\n') + '\n</style>';
   const js  = [
     '<script>/* generated from src/art/boards/ by tools/build.js */\n' + BOARD_PHOTO_JS + '</script>',
+    /* esc() on the vendor script too (v1.79.0): three.min.js carries no
+       `</script` today, and the day a vendor bump does, an unescaped one
+       ends the block early and truncates the dist at parse time */
     ...man.vendor.map(p => '<script>/*! ' + path.basename(p) +
-      ' — bundled so the sim runs offline */\n' + read(p) + '\n</script>'),
+      ' — bundled so the sim runs offline */\n' + esc(read(p)) + '\n</script>'),
     ...man.js.map(p => '<script>/* src/' + p + ' */\n' + esc(read(p)) + '</script>')
   ].join('\n');
   const out = head(css)
@@ -144,4 +147,40 @@ ${extra}
     + js + '\n</body>\n</html>\n';
   fs.writeFileSync(path.join(ROOT, 'R2D2-Simulator.html'), out);
   console.log('R2D2-Simulator.html ' + (out.length / 1048576).toFixed(2) + ' MB  (self-contained)');
+}
+
+/* ------------------------------------------------- ONE VERSION (v1.79.0)
+   APP_VERSION in src/js/core/util.js is the version — it is what the header
+   shows, what the release body quotes and what a bug report names. The
+   package.json field is what npm and a stranger's tooling read, and it had
+   said 1.44.1 through thirty-odd releases (review REL-02). Rather than a
+   second number to remember, the build copies the one truth across: the
+   field is rewritten in place (text substitution, so the file's own
+   formatting survives) whenever it differs, and the change is said out loud
+   so a `git status` after a build is never a surprise. */
+{
+  const util = read('js/core/util.js');
+  const m = /const APP_VERSION\s*=\s*'([^']+)'/.exec(util);
+  if (!m) { console.error('build: APP_VERSION not found in src/js/core/util.js'); process.exit(1); }
+  const pkgPath = path.join(ROOT, 'package.json');
+  const pkg = fs.readFileSync(pkgPath, 'utf8');
+  const cur = /"version"\s*:\s*"([^"]+)"/.exec(pkg);
+  if (cur && cur[1] !== m[1]) {
+    fs.writeFileSync(pkgPath, pkg.replace(/("version"\s*:\s*")[^"]+(")/, '$1' + m[1] + '$2'));
+    console.log('package.json      version ' + cur[1] + ' → ' + m[1] + '  (from APP_VERSION)');
+  }
+  /* and the lockfile's two root entries (top level and packages[""]) — the
+     only "version" fields in it that follow this package's own name — so
+     `npm ci` never sees a package.json it considers out of step */
+  const lockPath = path.join(ROOT, 'package-lock.json');
+  if (fs.existsSync(lockPath)) {
+    const lock = fs.readFileSync(lockPath, 'utf8');
+    const re = /("name"\s*:\s*"r2d2-astromech-simulator",\s*"version"\s*:\s*")([^"]+)(")/g;
+    let touched = false;
+    const next = lock.replace(re, (all, a, v, b) => { if (v === m[1]) return all; touched = true; return a + m[1] + b; });
+    if (touched) {
+      fs.writeFileSync(lockPath, next);
+      console.log('package-lock.json version → ' + m[1] + '  (root entries, from APP_VERSION)');
+    }
+  }
 }

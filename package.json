@@ -1,12 +1,12 @@
 {
   "name": "r2d2-astromech-simulator",
-  "version": "1.44.1",
-  "private": false,
+  "version": "1.79.0",
+  "private": true,
   "description": "Browser simulator for an R2-D2 astromech build \u2014 real Padawan360 firmware sketches against a model of the hardware",
   "scripts": {
-    "build": "./build.sh",
-    "test": "./test.sh",
-    "test:dev": "./test.sh dev.html"
+    "build": "node tools/build.js && node tools/build-studio.js",
+    "test": "bash test.sh",
+    "test:dev": "bash test.sh dev.html"
   },
   "devDependencies": {
     "@fontsource/ibm-plex-mono": "^5.3.0",

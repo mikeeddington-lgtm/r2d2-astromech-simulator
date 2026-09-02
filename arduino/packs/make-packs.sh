@@ -50,23 +50,34 @@ for entry in $PACKS; do
 
   echo "── $name  ($dir)"
 
+  # v1.79.0 / L22 — $fail used to be the ONLY flag, shared across every pack
+  # in this loop, and the gate below read it too. So the first bad pack
+  # poisoned $fail for every pack after it: each of THEM got skipped by the
+  # `continue` below even when its own checks were clean, while $OUT kept
+  # the zips already written for packs that ran before the bad one — and
+  # the "nothing written" message further down printed over a dist/ that
+  # had things in it. $packfail is this pack's own verdict, reset here on
+  # every iteration, and is what the gate reads; $fail still accumulates
+  # "did ANY pack fail" for the exit code and the end-of-run cleanup below.
+  packfail=0
+
   # ---- a pack that is missing a file is worse than no pack at all: it
   #      fails on the stranger's machine, with an error about OUR header.
   for f in $packcopies; do
     if [ ! -f "$dir/$f" ]; then
-      echo "   FAIL  $f is missing          —   cp $SRC/$f $dir/$f"; fail=1
+      echo "   FAIL  $f is missing          —   cp $SRC/$f $dir/$f"; fail=1; packfail=1
     elif ! cmp -s "$SRC/$f" "$dir/$f"; then
-      echo "   FAIL  $f has drifted from src —   cp $SRC/$f $dir/$f"; fail=1
+      echo "   FAIL  $f has drifted from src —   cp $SRC/$f $dir/$f"; fail=1; packfail=1
     fi
   done
 
   # ---- Config.h is the promise. "Edit one file" is only true if it is
   #      there and the sketch actually reads it.
   ino="$dir/$name.ino"
-  [ -f "$dir/Config.h" ] || { echo "   FAIL  Config.h is missing — the pack's whole premise"; fail=1; }
-  [ -f "$dir/README.md" ] || { echo "   FAIL  README.md is missing"; fail=1; }
+  [ -f "$dir/Config.h" ] || { echo "   FAIL  Config.h is missing — the pack's whole premise"; fail=1; packfail=1; }
+  [ -f "$dir/README.md" ] || { echo "   FAIL  README.md is missing"; fail=1; packfail=1; }
   grep -q '#include "Config.h"' "$ino" || {
-    echo "   FAIL  $name.ino does not include Config.h, so editing it does nothing"; fail=1; }
+    echo "   FAIL  $name.ino does not include Config.h, so editing it does nothing"; fail=1; packfail=1; }
 
   # ---- THE MANIFEST IS EXPLICIT, not a glob. A working folder collects
   #      scratch — sequencesold.h sat beside the sketch for four days —
@@ -74,7 +85,7 @@ for entry in $PACKS; do
   #      stays behind.
   MANIFEST="$name.ino Config.h sequences.h README.md $packcopies"
   for f in $MANIFEST; do
-    [ -f "$dir/$f" ] || { echo "   FAIL  $f is missing from $dir"; fail=1; }
+    [ -f "$dir/$f" ] || { echo "   FAIL  $f is missing from $dir"; fail=1; packfail=1; }
   done
 
   # ---- quoted includes, across everything that SHIPS. A sketch folder is
@@ -84,11 +95,11 @@ for entry in $PACKS; do
   for f in $MANIFEST; do
     [ -f "$dir/$f" ] || continue
     if grep -q '#include *<\(MaestroPCA\|MaestroLink\|MpcaScan\|MpcaEsp32\)\.h>' "$dir/$f"; then
-      echo "   FAIL  $name/$f includes ours with <angles>"; fail=1
+      echo "   FAIL  $name/$f includes ours with <angles>"; fail=1; packfail=1
     fi
   done
 
-  [ $fail -eq 0 ] || continue
+  [ $packfail -eq 0 ] || continue
 
   # ---- zip the folder itself, so unzipping makes Documents\Arduino\<name>\
   #      and the .ino is already in a folder of its own name, which is what
@@ -102,6 +113,12 @@ for entry in $PACKS; do
 done
 
 if [ $fail -ne 0 ]; then
+  # v1.79.0 / L22 — this used to say "nothing written" while leaving every
+  # zip that a GOOD pack, earlier in the loop, had already written sitting
+  # in $OUT. All-or-nothing was always the intent (see the header: "a pack
+  # that is missing a file is worse than no pack at all"); this is what
+  # makes it true on disk, not just in the message.
+  rm -rf "$OUT"
   echo
   echo "  a pack would have shipped broken — nothing written"
   exit 1

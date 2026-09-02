@@ -1,9 +1,27 @@
 #!/bin/bash
 # Compiles MaestroPCA + MaestroLink for the HOST, alongside Pololu's own
 # maestro-arduino library, and checks we understand the exact bytes it
-# emits. Needs g++ and a copy of pololu/maestro-arduino.
+# emits. Needs g++, a copy of pololu/maestro-arduino, and zip/unzip for
+# the packs step at the bottom.
 set -e
 cd "$(dirname "$0")"
+
+# v1.79.0 / TOOL-02 — this header used to promise only "g++ and the Pololu
+# library". zip and unzip are needed too (make-packs.sh, called at the very
+# end, zips each pack and reads its listing back to print the file count),
+# and neither was ever checked — so a box missing one ran every compile in
+# this file, forty-odd PASS lines deep, before dying on the last step with
+# no hint what was missing. Checked here, before the first g++, so a
+# missing tool is the FIRST line printed, not the last.
+for tool in g++ zip unzip; do
+  case "$tool" in
+    g++)   why="to compile the tests" ;;
+    zip)   why="to build the sketch packs" ;;
+    unzip) why="to read back what a sketch pack contains" ;;
+  esac
+  command -v "$tool" >/dev/null 2>&1 || { echo "$tool not found on PATH — needed $why"; exit 1; }
+done
+
 POLOLU="${POLOLU_DIR:-/tmp/maestro-arduino}"
 if [ ! -f "$POLOLU/PololuMaestro.cpp" ]; then
   echo "maestro-arduino not found at $POLOLU"
@@ -33,7 +51,18 @@ timeout 30 /tmp/maestromulti_test
 g++ -std=c++11 -O1 -g -fsanitize=address -Wall -Wno-unused-variable \
     -I shim link_multi_test.cpp ../src/MaestroPCA.cpp ../src/MaestroLink.cpp \
     -o /tmp/maestromulti_asan
-timeout 60 /tmp/maestromulti_asan > /dev/null && echo "  PASS  and again under AddressSanitizer, with nothing to report"
+# v1.79.0 / M20 — this used to be `timeout 60 … > /dev/null && echo PASS`.
+# Under `set -e`, a failing command that is not the LAST one in an `&&` list
+# does not exit the script: `bash -c 'set -e; false && echo x; echo y'`
+# prints "y" and exits 0. So an ASan report — the exact thing this second
+# build exists to catch, and the thing that found §8.1 in August — printed
+# straight to the terminal and the run kept going green, because the PASS
+# line was gated on a command whose failure this script was silently
+# willing to survive. Split into two statements: the run's own exit status
+# is what fails the script now, same as every other `timeout … /tmp/...`
+# line above it; the PASS is only printed once that has already succeeded.
+timeout 60 /tmp/maestromulti_asan > /dev/null
+echo "  PASS  and again under AddressSanitizer, with nothing to report"
 
 echo
 echo "== engine: beyond the Maestro =="

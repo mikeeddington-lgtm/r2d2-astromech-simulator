@@ -69,6 +69,14 @@ else
   note_fail "pca-studio/PCA-Studio.html is stale — run ./build.sh"
 fi
 
+# v1.79.0 — the two MAIN targets are gitignored, so git cannot notice them
+# going stale and every suite loads whatever bytes are on disk. The 2026-08-23
+# review ran the suites against a 1.74.1 dist beside 1.75.0 sources and chased
+# missing-global "bugs" for an afternoon. Same intercept as check-studio.js.
+rc=0; out=$(node tools/check-build.js 2>&1) || rc=$?
+echo "$out"
+[ $rc -eq 0 ] || note_fail "dev.html / R2D2-Simulator.html are stale — run ./build.sh"
+
 rc=0; out=$(node tools/check-packs.js 2>&1) || rc=$?
 echo "$out"
 [ $rc -eq 0 ] || note_fail "release sketch packs do not match the pack builder"
@@ -89,11 +97,21 @@ fi
 # run_suite <label-for-the-list> <command...> — runs one suite, shows its
 # summary or FAIL lines, and records a failure on any non-zero status. Node's
 # status is taken before anything else runs, because a pipe would replace it.
+# v1.79.0 — a suite that hangs (a page.evaluate that never resolves, a sim
+# loop that stalls) used to hold this script for ever, and the CI job for six
+# hours. Fifteen minutes is three times the slowest suite; `timeout` is
+# coreutils and is present in Git Bash, so it is used where it exists and the
+# suite simply runs unbounded where it does not.
+SUITE_TIMEOUT=${SUITE_TIMEOUT:-900}
+if command -v timeout >/dev/null 2>&1; then BOUND="timeout $SUITE_TIMEOUT"; else BOUND=""; fi
+
 run_suite() {
   local tag="$1"; shift
   local rc=0 out=""
   ran=$((ran + 1))
-  out=$("$@" 2>&1) || rc=$?
+  out=$($BOUND "$@" 2>&1) || rc=$?
+  [ $rc -eq 124 ] && out="$out
+FAIL  the suite was killed after ${SUITE_TIMEOUT}s — it hung rather than failed"
   if [ -z "$out" ]; then
     echo '(no output)'
     [ $rc -eq 0 ] || echo "  ↳ exited $rc without printing anything"

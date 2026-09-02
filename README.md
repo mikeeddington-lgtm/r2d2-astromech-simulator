@@ -32,7 +32,7 @@
   <a href="docs/manual/quickstart.html">your first hour</a>
   &nbsp;·&nbsp;
   <a href="docs/manual/bench-card.html">servo bench card</a><br>
-  <sub>Twenty chapters from <i>open the file</i> to <i>drive the real board</i>, with seven short
+  <sub>Twenty-one chapters from <i>open the file</i> to <i>drive the real board</i>, with eight short
   screen-capture clips · also one file, also offline</sub>
 </p>
 
@@ -116,7 +116,7 @@ account, no internet. Open the HTML and it works.
 
 **You need one file.** [Download `R2D2-Simulator.html`](https://github.com/mikeeddington-lgtm/r2d2-astromech-simulator/releases/latest/download/R2D2-Simulator.html)
 and open it in **Chrome or Edge**. That is the whole installation — one
-self-contained ≈7.7 MB file with three.js, the 3D model and every module
+self-contained ≈8.9 MB file with three.js, the 3D model and every module
 inlined. Copy it to a memory stick, take it to the workshop laptop, and it
 still works.
 
@@ -127,8 +127,8 @@ Firefox or Safari. Everything else runs anywhere.
 ### The manual
 
 **[`docs/manual/`](docs/manual/)** is written for the person holding a servo
-rather than a compiler: twenty chapters from *open the file* to *drive the real
-board*, with seven short screen-capture clips of the flows they describe. Two
+rather than a compiler: twenty-one chapters from *open the file* to *drive the real
+board*, with eight short screen-capture clips of the flows they describe. Two
 printable pages sit beside it — **[your first
 hour](docs/manual/quickstart.html)**, and a **[servo bench
 card](docs/manual/bench-card.html)** for the workshop wall, which is every
@@ -141,13 +141,15 @@ dist is; `docs/manual/README.md` has the two commands that rebuild it.
 
 ```
 git clone <this repo>
-cd r2d2-sim
+cd r2d2-astromech-simulator
 open dev.html          # every module as its own file — edit, refresh, repeat
 ```
 
 `dev.html` is not in the repository: it is generated, like the single-file
 build. Run `./build.sh` once (it needs [Node](https://nodejs.org), nothing else)
-and both appear.
+and both appear. On Windows, `npm run build` does the same from PowerShell or
+cmd — it calls the two Node builders directly — and `npm test` runs `test.sh`
+under whatever `bash` is on the path (Git Bash or WSL).
 
 You only need `./build.sh` again after **adding, removing or reordering a
 module**, after editing `src/html/body.html`, or after dropping a board photo
@@ -178,7 +180,7 @@ still runs in `./test.sh`, because parked should not mean rotting quietly.
 [**⬇ Download `PCA-Studio.html`**](https://github.com/mikeeddington-lgtm/r2d2-astromech-simulator/releases/latest/download/PCA-Studio.html)
 — the servo bench on its own, without the droid, the models or the firmware
 around it. Same channel table, same calibration dial, same Web Serial link,
-384 KB instead of 8 MB. Useful when you want to set a rack of servos up and
+486 KB instead of 9 MB. Useful when you want to set a rack of servos up and
 nothing else.
 
 It is the one generated file this repository **tracks** — at
@@ -225,7 +227,7 @@ second copy in the repository to go stale.
 ```
 src/manifest.json     load order — the single source of truth for both builds
 src/html/body.html    all the markup
-src/css/              fourteen stylesheets, tokens first
+src/css/              fifteen stylesheets, tokens first
 src/js/               the modules (below)
 src/art/boards/       drop a board photo in here and that setup card shows it
                       (see its own README — the file name is the whole API;
@@ -235,7 +237,7 @@ tools/build.js        generates dev.html and R2D2-Simulator.html
 tools/split*.py       the one-off scripts that cut the original single file up
 cad/convert.py        Fusion OBJ -> the MK4 .r2m (offline, run only when the geometry changes)
 cad/mouse.py          the same for the Polar Mouse, plus the measured `vehicle` block
-tests/                thirty-two Playwright suites (plus pca-studio/smoke.test.js)
+tests/                thirty-eight Playwright suites (plus pca-studio/smoke.test.js)
 cad/                  the offline Fusion OBJ -> .r2m pipeline (Python)
 docs/shots/           screenshots
 ```
@@ -263,8 +265,8 @@ shared across all of them, and a syntax error in one cannot swallow the next.
 2. Add its path to the right block in `src/manifest.json`, next to its neighbours.
 3. `./build.sh`.
 
-The build warns about any `.js`/`.css` under `src/` that the manifest does not
-list, so a file you forgot to register will not silently do nothing.
+The build fails on any `.js`/`.css` under `src/` that the manifest does not
+list, so a file you forgot to register cannot silently do nothing.
 
 **Order matters** only for parse time. A module may call another module's
 functions freely, but must not *evaluate* another module's top-level `const` in
@@ -289,8 +291,9 @@ found, run `npx playwright install chromium` rather than hardcoding a local
 browser path.
 
 ```
-./test.sh                       # both builds, all thirty-two suites
+./test.sh                       # both builds, all thirty-eight suites
 ./test.sh dev.html              # just the dev build
+npm test                        # the same, from a Windows shell (needs bash on the path)
 R2_TARGET=dev.html node tests/maestro.test.js
 ```
 
@@ -326,9 +329,19 @@ R2_TARGET=dev.html node tests/maestro.test.js
 | `chrome.test.js` | the header chrome: the 1280px laptop clip, the app menu, status chips that no longer dress like buttons, and the `--cta` primary colour |
 | `keyboard.test.js` | focus and keyboard: the `:focus-visible`-only ring, Esc consistency across the setup wizard, and the "?" shortcuts overlay |
 | `anzellan.test.js` | the Anzellan head: geometry and the lathe winding, all eleven face channels, channels registering only while it is on stage, bipolar homes, the idle loop yielding to a driven channel, its Maestro starter and the `frik_*` animations |
+| `blocks-trace.test.js` | the brick tracer (`blockTrace()`) finding its way back from a compiled frame list to the routine that produced it: the round trip on our own compiled frames, review vs discard both leaving the original frame list intact, an unmapped channel named rather than dropped, and the flagged brick, the live inspector and the issue list all agreeing with the measurement |
+| `export-guards.test.js` | the four things a written file must never do: an invalid `mode="Off"` reaching `<Channel>`, `niceName()` collapsing two routines onto the same `sub`, `exportPcaHeader()` skipping its own linter, and stale export-receipt wording — plus the cross-app portability note |
+| `hostile-names.test.js` | a name typed into the app or read out of a file never reaching an `innerHTML` sink as executable markup — Model Builder part names and PCA Studio sequence names against an `<img onerror>` payload, checking both that nothing ran and that the text still renders literally |
+| `lights.test.js` | the AstroPixels dome-lighting layer: the serpentine-generated LED maps checked against published spot values, the palette ramp's integer tween step, a command the flashed sketch could not have heard being refused, and the CAD-anchored panels landing inside the MK4's own part bounding boxes |
+| `maestro-link.test.js` | driving a Pololu Maestro directly over its own USB command port: the two encodings (a target sent 7 bits at a time, a position read back 8 bits at a time) not being confused, a stale reply never answering the next question, and the board's own clamp being seen |
+| `ramp-step.test.js` | the compiled sequence's ramp step and the per-frame speed that fills it: velocity ripple measured with and without a speed across several step sizes, and that targets and durations are unchanged by either |
+| `roundtrip.test.js` | build a routine, export it, wipe the sim and read it back — on the starter table and on a deliberately hard fixture (asymmetric endpoints, an inverted channel, an Off homemode with home 0, mismatched part names) — proving persistence survives the chooser and the loadout, not just the parser |
+| `setup-bench.test.js` | the simplified servo-hardware bench: scroll position and the typing caret surviving a re-render, the channel list carrying only identity while every setting still reaches the same channel, the config panel following the selection from both directions, and the test button driving the directed pair |
 
 They run headless on swiftshader, where simulated time runs well behind the wall
-clock — **wait on `SIM.millis` or on state, never `waitForTimeout`.**
+clock — the rule is to **wait on `SIM.millis` or on state**, not the wall clock.
+Older suites still lean on `waitForTimeout` in places; trimming those to state
+waits is a known outstanding improvement, not the standard for new assertions.
 
 ---
 

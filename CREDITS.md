@@ -1,6 +1,6 @@
 # Credits
 
-This simulator is built on other people's work. Four parts of what you have
+This simulator is built on other people's work. Five parts of what you have
 just downloaded belong to somebody else, and your rights to them come from
 them, not from this repository's licence.
 
@@ -60,6 +60,19 @@ simulator and are not responsible for it.
 The 3D renderer, r128, vendored in `src/vendor/three.min.js` so the single-file
 build runs offline. **MIT licence**, © three.js authors.
 <https://threejs.org>
+
+## The typeface — IBM Plex Mono and IBM Plex Sans
+
+`src/css/01-tokens.css` vendors **IBM Plex Mono** and **IBM Plex Sans** — 400
+and 600 weights, latin subset only — as base64 `woff2` data URIs, so both
+builds carry their own type and render it with no network request and no
+system-font substitution. © **IBM Corp.** Licence: **SIL Open Font License
+1.1** (<https://scripts.sil.org/OFL>).
+
+The OFL requires its own licence text to travel with the fonts it covers. It
+does not yet — there is no OFL licence file anywhere in this repository for a
+reader to find. That is a gap worth closing; which file it goes in is Mike's
+call, not this one's to make.
 
 ## The board photographs
 

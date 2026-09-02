@@ -9,8 +9,8 @@
    from, and a CREDITS.md sitting in that repository credits nobody as far
    as they are concerned.
 
-   So the credits travel WITH the file. Four things are somebody else's
-   work and all four are named here:
+   So the credits travel WITH the file. Five things are somebody else's
+   work and all five are named here:
 
      · the MK4 and Polar Mouse geometry — MrBaddeley's paid Patreon
        designs, used with his permission, and NOT licensed onward to
@@ -19,7 +19,12 @@
        BSD-3-Clause, which requires exactly this notice;
      · three.js — MIT;
      · the board photographs — the manufacturers', reproduced small for
-       identification.
+       identification;
+     · IBM Plex Mono and IBM Plex Sans — IBM's typeface, vendored as
+       data-URI woff2 in the stylesheet so the file needs no network
+       font; SIL Open Font License 1.1, which requires exactly this
+       notice too (v1.79.0, review DOC-01 — no OFL licence text
+       currently ships with them; see CREDITS.md).
 
    Deliberately a dialog rather than a pane: it is read once, and a pane
    would cost a tab in a header that has run out of room.
@@ -44,6 +49,11 @@ const ABOUT_CREDITS = [
    what:'the 3D renderer, r128',
    note:'MIT licence.',
    url:'https://threejs.org'},
+  {who:'IBM',
+   what:'IBM Plex Mono and IBM Plex Sans — the typeface this simulator renders in',
+   note:'Vendored as latin-subset woff2 data URIs in src/css/01-tokens.css, so both builds carry their own '
+      + 'type with no network font request. Licence: SIL OFL 1.1 (scripts.sil.org/OFL).',
+   url:'https://scripts.sil.org/OFL'},
   {who:'Printed Droid',
    what:'the dome panel numbering the dome map is drawn to',
    note:'The layout is fact about the droid; their reference drawing is their own work and is not reproduced here.',
